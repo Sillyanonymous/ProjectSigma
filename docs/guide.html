@@ -463,6 +463,7 @@ cd ProjectSigma</code></pre>
 <p>or with <strong>Code</strong> &gt; <strong>Download ZIP</strong> on GitHub, unpacked. Then, in that folder:</p>
 <pre><code>npm install
 npm start</code></pre>
+<p>Or let a launcher do it: double-click <code>Start Project Sigma.bat</code> on Windows, or run <code>sh start.sh</code> on Linux and macOS. It checks that Node.js is new enough, installs what Project Σ needs on the first run and again after an update, starts the server and opens your browser on it. Keep its window open while you use the app; closing it stops the server.</p>
 <p>Open <a href="http://localhost:7788" target="_blank" rel="noopener">http://localhost:7788</a> and the app loads. All state lives in the <code>data/</code> folder next to the install. To use it from your phone, open the same address with this computer's network address in place of <code>localhost</code>.</p>
 <p>With Docker instead: <code>docker compose -f docker/compose.yaml up -d</code> from the install folder. docker/README.md covers the volumes, updating, and the optional browser for the sites behind Cloudflare.</p>
 <p>New to it? <a href="#getting-started">Getting started</a> walks through the first ten minutes.</p>
@@ -518,6 +519,7 @@ cd ProjectSigma</code></pre>
 <p>or download it from GitHub with <strong>Code</strong> &gt; <strong>Download ZIP</strong> and unpack it. Then, in that folder:</p>
 <pre><code>npm install
 npm start</code></pre>
+<p>A launcher does the same for you: double-click <code>Start Project Sigma.bat</code> on Windows, or run <code>sh start.sh</code> on Linux and macOS. It checks that Node.js is new enough, installs what Project Σ needs on the first run and again after an update, starts the server and opens your browser on it. Keep its window open while you use the app; closing it stops the server.</p>
 <p>The server prints the address it listens on (port 7788 unless you change it). Open <a href="http://localhost:7788" target="_blank" rel="noopener">http://localhost:7788</a> in a browser and the app loads. Everything you add is kept in the <code>data/</code> folder next to the install; nothing is sent anywhere unless you browse an online site or chat through a connection you set up.</p>
 <p>To stop it, stop the <code>npm start</code> process. To change the port, the address it listens on, or turn on accounts, see the configuration table in the <a href="#overview/configuration">README</a>.</p>
 <p>To run it with Docker instead, <code>docker compose -f docker/compose.yaml up -d</code> in the same folder starts it in a container, with everything you add kept in a Docker volume. The <code>docker</code> folder's own README covers updating, the volumes, and the optional browser for the sites behind Cloudflare.</p>

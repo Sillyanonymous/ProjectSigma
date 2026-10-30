@@ -94,6 +94,10 @@ npm install
 npm start
 ```
 
+Or let a launcher do it: double-click `Start Project Sigma.bat` on Windows, or run `sh start.sh` on Linux and macOS. It
+checks that Node.js is new enough, installs what Project Σ needs on the first run and again after an update, starts the
+server and opens your browser on it. Keep its window open while you use the app; closing it stops the server.
+
 Open http://localhost:7788 and the app loads. All state lives in the `data/` folder next to the install. To use it from
 your phone, open the same address with this computer's network address in place of `localhost`.
 
