@@ -13,6 +13,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: project-sigma:local
+    # built here, never looked up on a registry (a pull of the local tag only fails, loudly)
+    pull_policy: build
     container_name: project-sigma
     restart: unless-stopped
     init: true
@@ -31,6 +33,7 @@ services:
     profiles: ["browser"]
     build: ../tools/hosted-browser
     image: cl-hosted-browser:local
+    pull_policy: build
     container_name: project-sigma-browser
     restart: unless-stopped
     init: true

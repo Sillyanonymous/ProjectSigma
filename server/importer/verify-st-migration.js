@@ -7,7 +7,8 @@ import { cardSourceOf } from '../lib/card-normalize.js';
 import { entryUid } from '../lib/world-entry.js';
 import { readJsonFile } from '../lib/json-file.js';
 import { PROVIDER_NAMESPACES } from '../lib/provider-namespaces.js';
-import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS } from './st-layout.js';
+import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS, stWorldInfo } from './st-layout.js';
+import { expandSuppliedGreeting } from '../llm/prompt.js';
 
 // the ST personas whose library row kept its own picture, as the migration's run records them
 export const PERSONA_PICTURES_KEY = 'st-migration-persona-pictures';
@@ -174,17 +175,19 @@ export function verifyStMigration(userDir, db, paths, { files = null, mediaBytes
                 const rows = chatMessages.all(chat.id);
                 check(rows.length === messages.length,
                     `${file}: chat "${chatName}" has ${rows.length} rows for ${messages.length} source messages`);
+                // the import stores a greeting ST never expanded (a chat nobody replied in) expanded, and what its macros set
+                const greeted = expandSuppliedGreeting(db, { charId, name: chatName, header, chatId: chat.id }, messages);
                 const n = Math.min(rows.length, messages.length);
                 for (let i = 0; i < n; i++) {
                     // the store aligns the active alternate to mes on import, so the source is compared in that shape
-                    if (!deepEqual(JSON.parse(rows[i].data), alignActiveSwipe(messages[i]))) {
+                    if (!deepEqual(JSON.parse(rows[i].data), alignActiveSwipe(greeted.messages[i]))) {
                         flag(`${file}: chat "${chatName}" message ${i} diverges from source`);
                         break;
                     }
                 }
                 checked++;
                 // the header's world_info lifts to the head chat_worlds row, so the blob is compared without it and the row checked
-                const expectedMeta = header.chat_metadata && typeof header.chat_metadata === 'object' ? { ...header.chat_metadata } : {};
+                const expectedMeta = { ...(header.chat_metadata && typeof header.chat_metadata === 'object' ? header.chat_metadata : {}), ...greeted.changes?.metadata };
                 const boundWorld = typeof expectedMeta.world_info === 'string' ? expectedMeta.world_info.trim() : '';
                 delete expectedMeta.world_info;
                 check(deepEqual(JSON.parse(chat.chat_metadata || '{}'), expectedMeta),
@@ -257,7 +260,8 @@ export function verifyStMigration(userDir, db, paths, { files = null, mediaBytes
     }
 
     // charLore links: every source ref whose character migrated must be a char_worlds row
-    const charLore = Array.isArray(settings?.world_info?.charLore) ? settings.world_info.charLore : [];
+    const lore = stWorldInfo(settings);
+    const charLore = Array.isArray(lore.charLore) ? lore.charLore : [];
     for (const entry of charLore) {
         if (!entry || typeof entry.name !== 'string') continue;
         const charId = baseToChar.get(entry.name) ?? byAvatar.get(`${entry.name}.png`)?.char_id;
@@ -323,7 +327,7 @@ export function verifyStMigration(userDir, db, paths, { files = null, mediaBytes
     }
 
     // global lorebooks: every selected name is a global_worlds row (a dangling one as a placeholder)
-    const globalSelect = Array.isArray(settings?.world_info?.globalSelect) ? settings.world_info.globalSelect : [];
+    const globalSelect = Array.isArray(lore.globalSelect) ? lore.globalSelect : [];
     const globalRows = new Set(db.prepare('SELECT world_name FROM global_worlds').all().map(r => r.world_name));
     for (const name of new Set(globalSelect.filter(n => typeof n === 'string').map(n => n.trim()).filter(Boolean))) {
         check(globalRows.has(name), `global lorebook "${name}": missing from global_worlds`);

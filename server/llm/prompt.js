@@ -4,11 +4,12 @@ import { getWorld } from '../db/worlds-store.js';
 import { listWorldsFor } from '../db/world-links-store.js';
 import { resolvePersona } from '../db/personas-store.js';
 import { resolveChatPreset, presetBlockRows } from '../db/presets-store.js';
-import { getChatRow, listMessageRows, readMessageRow, countMessages, chatMetadataOf, alignActiveSwipe, syncActiveSwipe, chatIdNamed } from '../db/chats-store.js';
+import seedrandom from 'seedrandom';
+import { getChatRow, listMessageRows, readMessageRow, countMessages, chatMetadataOf, alignActiveSwipe, syncActiveSwipe, chatIdNamed, parseStDate } from '../db/chats-store.js';
 import { GLOBAL_VARIABLES_KEY, appendMessageWithMacros, commitChatMacros, createChatWithMacros } from '../db/chat-macros.js';
 import { profileContextSize, profileRow, resolveChatProfile, maxImagesOf } from '../db/llm-profiles-store.js';
 import { DEFAULT_BLOCKS, DEFAULT_MAIN_PROMPT, assembleBlocks, blocksFromRows, resolveBlocksInOrder } from './preset.js';
-import { buildMacroEnv, chatCardTexts, expandMacros, unansweredMacros } from './macros.js';
+import { buildMacroEnv, chatCardTexts, expandMacros, stringHash, unansweredMacros } from './macros.js';
 import { mayHoldMacros } from './macro-engine.js';
 import { selectLore, scanWindow } from './lore.js';
 import { NOTE_POSITION, NOTE_ROLES, chatNoteOf, chatNoteState, noteDefaults, noteSeed, wrapNote } from './authors-note.js';
@@ -193,7 +194,7 @@ export function chatAuthorsNote(db, chatRow) {
  * @param {object|null} opts.persona the resolved persona row (chatNames), its description and pronouns read here
  * @param {Array<object>} opts.chat every stored message, oldest first, as the chat macros read them
  * @param {number|null} [opts.lastSeq] the newest row the text is written after, told to extension macros
- * @param {object} [opts.build] model, maxContext, maxResponse, generationType, input, firstDisplayed, now
+ * @param {object} [opts.build] model, maxContext, maxResponse, generationType, input, firstDisplayed, now, random
  * @returns {{ env: object, fields: object, expand: (text: string, opts?: object) => string, changes: () => object }}
  */
 function chatMacroEnv(db, chatRow, { card, charName, userName, persona, chat, lastSeq = null, build = {} }) {
@@ -225,6 +226,7 @@ function chatMacroEnv(db, chatRow, { card, charName, userName, persona, chat, la
             input: build.input ?? '',
             generationType: build.generationType ?? '',
             firstDisplayed: build.firstDisplayed ?? null,
+            random: build.random ?? null,
             authorsNote: chatNoteOf(meta, noteDefs).prompt,
             defaultAuthorsNote: noteDefs.prompt,
             extensionOn: (id) => {
@@ -279,11 +281,11 @@ export function storeSentTurn(db, chatRow, mes, { firstDisplayed = null, attachm
 }
 
 // the first message's shown text and what its macros set, written nowhere; changes null when nothing expanded
-function expandFirstMessage(db, chatRow, msg, chat = null) {
+function expandFirstMessage(db, chatRow, msg, chat = null, build = {}) {
     if (msg.is_user || !promptVisible(msg) || !mayHoldMacros(msg.mes)) return { shown: msg.mes, changes: null };
     const rows = chat ? chat.slice() : listMessageRows(db, chatRow.id).map(r => r.msg);
     rows[0] = msg;
-    const macros = macrosForChat(db, chatRow, { chat: rows });
+    const macros = macrosForChat(db, chatRow, { chat: rows, build });
     return { shown: macros.expand(msg.mes), changes: macros.changes() };
 }
 
@@ -314,14 +316,17 @@ export function expandStoredGreeting(db, chatId) {
  * A supplied chat's greeting expanded before the write; chatId is a chat the write replaces, whose persona it keeps.
  * @returns {{ messages: object[], changes: { metadata: object, globals: object|null }|null }}
  */
-function expandSuppliedGreeting(db, { charId, name, header, chatId = null }, messages) {
+export function expandSuppliedGreeting(db, { charId, name, header, chatId = null }, messages) {
     const first = messages.length ? alignActiveSwipe(messages[0]) : null;
     if (!first || first.is_user || first.is_system || !mayHoldMacros(first.mes)) return { messages, changes: null };
     // the chats row upsertChat will write, as the macros read a stored chat's
     const meta = header.chat_metadata && typeof header.chat_metadata === 'object' ? { ...header.chat_metadata } : {};
     delete meta.world_info;
     const chatRow = { id: chatId, name, char_id: charId, user_name: header.user_name ?? null, character_name: header.character_name ?? null, chat_metadata: JSON.stringify(meta) };
-    const { shown, changes } = expandFirstMessage(db, chatRow, first, messages.map(m => alignActiveSwipe(m)));
+    // the clock is the greeting's own send date and the dice are seeded by the chat, never the moment of the write
+    const sent = parseStDate(first.send_date);
+    const build = { now: sent ? new Date(sent) : null, random: seedrandom(String(stringHash(`${name}\n${first.mes}`))) };
+    const { shown, changes } = expandFirstMessage(db, chatRow, first, messages.map(m => alignActiveSwipe(m)), build);
     if (typeof shown !== 'string' || shown === first.mes) return { messages, changes };
     const greeting = structuredClone(first);
     greeting.mes = shown;

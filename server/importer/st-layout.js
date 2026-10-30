@@ -12,3 +12,9 @@ export const STORE_DOC_MAP = [
 
 // the extension settings that travel: raw custom CSS is user-authored styling, not configuration
 export const CSS_SETTING_KEYS = ['customCSS', 'customCSSMode'];
+
+/** ST's lore settings (charLore, globalSelect) read as ST reads them: under world_info_settings, the top level in older files. */
+export function stWorldInfo(settings) {
+    const wi = (settings?.world_info_settings ?? settings)?.world_info;
+    return wi && typeof wi === 'object' && !Array.isArray(wi) ? wi : {};
+}

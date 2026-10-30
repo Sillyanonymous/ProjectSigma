@@ -15,7 +15,7 @@ import { snapshotCardAsItStood } from './card-import.js';
 import { upsertWorld } from '../db/worlds-store.js';
 import { applyWorldsFor } from '../db/world-links-store.js';
 import { verifyStMigration, PERSONA_PICTURES_KEY } from './verify-st-migration.js';
-import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS } from './st-layout.js';
+import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS, stWorldInfo } from './st-layout.js';
 import { warmAvatarThumbs, warmMediaThumbs } from '../lib/thumb-warm.js';
 
 // the one-time ST-with-extension to standalone migration: filename-first identity, duplicates as copies, the whole estate, a run that verifies itself
@@ -211,7 +211,8 @@ export function scanStDir(userDir, { only = null, sample = null, excludeTags = [
 
     const filesDir = path.join(userDir, 'user', 'files');
     const settings = readJsonFile(path.join(userDir, 'settings.json'));
-    const charLore = Array.isArray(settings?.world_info?.charLore) ? settings.world_info.charLore : [];
+    const lore = stWorldInfo(settings);
+    const charLore = Array.isArray(lore.charLore) ? lore.charLore : [];
     const personas = settings?.power_user?.personas && typeof settings.power_user.personas === 'object'
         ? settings.power_user.personas : {};
     const versionDocs = selected.filter(f => f.versionUid
@@ -253,7 +254,7 @@ export function scanStDir(userDir, { only = null, sample = null, excludeTags = [
             groupChatFiles: groupChats.length,
             versionDocs: versionDocs.length,
             charLoreEntries: charLore.length,
-            globalWorlds: Array.isArray(settings?.world_info?.globalSelect) ? settings.world_info.globalSelect.length : 0,
+            globalWorlds: Array.isArray(lore.globalSelect) ? lore.globalSelect.length : 0,
             playlistsDoc,
             personas: Object.keys(personas).length,
             storeDocs: storeDocs.length,
@@ -292,7 +293,8 @@ function importVersions(db, filesDir, plan, fileToChar, summary) {
 }
 
 function importCharLore(db, settings, baseToChar, summary) {
-    const entries = Array.isArray(settings?.world_info?.charLore) ? settings.world_info.charLore : [];
+    const { charLore } = stWorldInfo(settings);
+    const entries = Array.isArray(charLore) ? charLore : [];
     for (const entry of entries) {
         if (!entry || typeof entry.name !== 'string') continue;
         const charId = baseToChar.get(entry.name);
@@ -303,7 +305,8 @@ function importCharLore(db, settings, baseToChar, summary) {
 }
 
 function importGlobalWorlds(db, settings, summary) {
-    const names = Array.isArray(settings?.world_info?.globalSelect) ? settings.world_info.globalSelect : [];
+    const { globalSelect } = stWorldInfo(settings);
+    const names = Array.isArray(globalSelect) ? globalSelect : [];
     // worlds import under their ST filename base so globalSelect matches verbatim; appended after existing rows, so re-runs are idempotent
     summary.globalWorlds += applyWorldsFor(db, 'global', null, { add: names.filter(n => typeof n === 'string'), ensure: true }).added.length;
 }
@@ -514,16 +517,18 @@ export function migrateStDir(userDir, opts = {}) {
             }
         }
 
+        const filesDir = path.join(userDir, 'user', 'files');
+        const settings = readJsonFile(path.join(userDir, 'settings.json'));
+        // personas before chats: a greeting stored expanded names the ST default persona, as ST showed it
+        importPersonas(db, paths, userDir, settings, summary);
+
         importChatsDir(db, path.join(userDir, 'chats'), summary, { allowDirs: new Set(scan.selectedBases) });
         log(`chats ${summary.chats} imported, ${summary.chatsUnmatched} unmatched${summary.chatLinesDropped ? `, ${summary.chatLinesDropped} lines dropped (torn, or not a message)` : ''}`);
 
-        const filesDir = path.join(userDir, 'user', 'files');
-        const settings = readJsonFile(path.join(userDir, 'settings.json'));
         importVersions(db, filesDir, scan.plan, fileToChar, summary);
         importCharLore(db, settings, baseToChar, summary);
         importGlobalWorlds(db, settings, summary);
         importPlaylists(db, readJsonFile(path.join(filesDir, '_cl_playlists.json')), fileToChar, summary);
-        importPersonas(db, paths, userDir, settings, summary);
         importStoreDocs(db, filesDir, summary);
         importCssSettings(db, settings, summary);
 

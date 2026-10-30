@@ -80,7 +80,14 @@ guide is one page that opens in any browser: online at that link, in the app und
 
 ## Quick start
 
-Requires Node.js 22.15 or newer.
+Requires Node.js 22.15 or newer. Get the code with git:
+
+```
+git clone https://github.com/Sillyanonymous/ProjectSigma.git
+cd ProjectSigma
+```
+
+or with **Code** > **Download ZIP** on GitHub, unpacked. Then, in that folder:
 
 ```
 npm install
