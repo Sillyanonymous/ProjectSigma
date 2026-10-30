@@ -1,0 +1,18 @@
+{
+    "id": "theme-midnight",
+    "name": "Midnight theme",
+    "version": "2.0.0",
+    "author": "Project Σ",
+    "description": "A new look for the whole app: an observatory at night. A rail of views down the left edge, portraits in arched windows, replies set on the night under their speaker's name, a character's details opening on their portrait's light, names in an engraved serif, accents that glow, a sky drawn behind everything and a conversation tinted by its character's portrait. Every part of the layout, the type and the motion can be switched back to a plainer form in its section. Four palettes, palettes of your own and an Auto palette that follows the time of day, from its section here, the Next Palette verb in the menu or its commands. Your own theme settings and custom CSS still apply on top. Ships off; switch it on to use it.",
+    "requires": { "api": "2.3" },
+    "defaultOff": true,
+    "settings": {
+        "palette": "midnight", "sky": true, "density": "balanced", "tint": true,
+        "nav": "rail", "bar": "capsule", "tiles": "window", "frame": "arch", "names": "always", "chat": "editorial", "hero": "on",
+        "font": "marcellus", "corners": "soft", "motion": "full", "lift": "on"
+    },
+    "contributes": ["app.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

@@ -1,0 +1,821 @@
+/* Chat Timeline: a map of cards over quiet lines, styled through --ctl-* properties a map style sets. */
+
+.ctl-root {
+    /* the App style's values, which the map style on the element overrides */
+    --ctl-char: var(--accent);
+    --ctl-you: #5cc8a8;
+    --ctl-path: var(--accent);
+    --ctl-line: color-mix(in srgb, var(--text-primary) 20%, transparent);
+    --ctl-bg: var(--bg-primary);
+    --ctl-card: var(--bg-secondary);
+    --ctl-ink: var(--text-primary);
+    --ctl-radius: 10px;
+    /* derived: every style gets its quiet tones from its own ink */
+    --ctl-ink-dim: color-mix(in srgb, var(--ctl-ink) 60%, transparent);
+    --ctl-ink-faint: color-mix(in srgb, var(--ctl-ink) 38%, transparent);
+    --ctl-edge: color-mix(in srgb, var(--ctl-ink) 14%, transparent);
+    --ctl-chip: color-mix(in srgb, var(--ctl-ink) 7%, transparent);
+    --ctl-glass: color-mix(in srgb, var(--ctl-card) 88%, transparent);
+
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    /* clip, not hidden: a hidden box still scrolls when something in it takes focus */
+    overflow: clip;
+    container-type: inline-size;
+    color: var(--text-primary);
+}
+
+.ctl-layout {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+
+.ctl-main {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: clip;
+    background-color: var(--ctl-bg);
+    color: var(--ctl-ink);
+    font-family: var(--font-stack-ui);
+    isolation: isolate;
+}
+
+/* the style's type: one of the app's three stacks */
+.ctl-root[data-font="prose"] .ctl-main { font-family: var(--font-stack-prose); }
+.ctl-root[data-font="mono"] .ctl-main { font-family: var(--font-stack-mono); }
+
+/* ---------------------------------------------------------------- the background patterns */
+.ctl-root[data-pattern="dots"] .ctl-main {
+    background-image: radial-gradient(circle, color-mix(in srgb, var(--ctl-ink) 11%, transparent) 1.1px, transparent 1.4px);
+    background-size: 22px 22px;
+}
+
+.ctl-root[data-pattern="grid"] .ctl-main {
+    background-image:
+        linear-gradient(color-mix(in srgb, var(--ctl-ink) 12%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--ctl-ink) 12%, transparent) 1px, transparent 1px),
+        linear-gradient(color-mix(in srgb, var(--ctl-ink) 5%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--ctl-ink) 5%, transparent) 1px, transparent 1px);
+    background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+}
+
+.ctl-root[data-pattern="paper"] .ctl-main {
+    background-image:
+        radial-gradient(ellipse 85% 75% at 50% 45%, transparent 55%, color-mix(in srgb, var(--ctl-ink) 16%, transparent) 100%),
+        radial-gradient(circle, color-mix(in srgb, var(--ctl-ink) 8%, transparent) 1px, transparent 1.3px);
+    background-size: 100% 100%, 26px 26px;
+}
+
+.ctl-root[data-pattern="stars"] .ctl-main {
+    background-image:
+        radial-gradient(1.2px 1.2px at 12% 18%, color-mix(in srgb, var(--ctl-ink) 70%, transparent), transparent),
+        radial-gradient(1px 1px at 38% 72%, color-mix(in srgb, var(--ctl-ink) 50%, transparent), transparent),
+        radial-gradient(1.4px 1.4px at 64% 32%, color-mix(in srgb, var(--ctl-you) 70%, transparent), transparent),
+        radial-gradient(1px 1px at 82% 58%, color-mix(in srgb, var(--ctl-ink) 45%, transparent), transparent),
+        radial-gradient(1.2px 1.2px at 91% 12%, color-mix(in srgb, var(--ctl-char) 70%, transparent), transparent),
+        radial-gradient(ellipse 60% 55% at 25% 45%, color-mix(in srgb, var(--ctl-char) 14%, transparent), transparent 70%);
+    background-size: 380px 380px, 380px 380px, 380px 380px, 380px 380px, 380px 380px, 100% 100%;
+}
+
+/* ---------------------------------------------------------------- the stage and its viewport */
+.ctl-stage {
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    outline: none;
+}
+
+.ctl-root.is-panning .ctl-stage { cursor: grabbing; }
+
+.ctl-viewport {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+}
+
+.ctl-svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.ctl-cards { position: absolute; left: 0; top: 0; }
+
+.ctl-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    color: var(--ctl-ink-dim);
+    font-size: var(--font-md);
+    pointer-events: none;
+    text-align: center;
+    padding: var(--space-2xl);
+}
+
+.ctl-state p { margin: 0; }
+.ctl-loader { font-size: var(--font-lg); color: var(--ctl-char); }
+.ctl-error { color: var(--cl-error); }
+
+/* ---------------------------------------------------------------- the lines */
+.ctl-wire {
+    fill: none;
+    stroke: var(--ctl-line);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    transition: stroke var(--dur-fast) ease;
+}
+
+.ctl-wire.is-current { stroke: var(--ctl-path); stroke-width: 2.5; }
+.ctl-wire.is-ghost { stroke-dasharray: 3 5; }
+
+/* ---------------------------------------------------------------- a card */
+.ctl-seg,
+.ctl-ghost {
+    position: absolute;
+    box-sizing: border-box;
+    width: 210px;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    padding: 0 var(--space-md) 0 var(--space-sm-md);
+    background: var(--ctl-card);
+    border: 1px solid var(--ctl-edge);
+    border-radius: var(--ctl-radius);
+    box-shadow: var(--cl-shadow-paper);
+    cursor: pointer;
+    transition: border-color var(--dur-fast) ease, opacity var(--dur-base) ease, box-shadow var(--dur-fast) ease;
+}
+
+.ctl-seg:hover,
+.ctl-ghost:hover { border-color: color-mix(in srgb, var(--ctl-ink) 32%, transparent); }
+.ctl-seg.is-current { border-color: var(--ctl-path); }
+.ctl-seg.is-hit { box-shadow: 0 0 0 2px var(--ctl-path); }
+.ctl-seg.is-dim,
+.ctl-ghost.is-dim { opacity: 0.25; }
+.ctl-seg.is-selected,
+.ctl-ghost.is-selected { border-color: var(--ctl-char); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ctl-char) 35%, transparent); }
+
+.ctl-root.is-intro .ctl-seg,
+.ctl-root.is-intro .ctl-ghost,
+.ctl-root.is-intro .ctl-flag { animation: ctlArrive var(--dur-slow) var(--ease-decel) both; }
+
+@keyframes ctlArrive {
+    from { opacity: 0; }
+}
+
+.ctl-card-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+
+.ctl-card-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs-sm);
+    min-width: 0;
+    font-size: var(--font-2xs);
+    white-space: nowrap;
+}
+
+.ctl-who { font-weight: 700; color: var(--ctl-char); overflow: hidden; text-overflow: ellipsis; }
+.ctl-seg.is-user .ctl-who { color: var(--ctl-you); }
+.ctl-seg.is-system .ctl-who { color: var(--ctl-ink-dim); }
+.ctl-meta { color: var(--ctl-ink-faint); flex-shrink: 0; }
+/* a run several chats share says how many */
+.ctl-shared { display: inline-flex; align-items: baseline; gap: var(--space-2xs); margin-left: auto; color: var(--ctl-ink-dim); flex-shrink: 0; }
+.ctl-shared i { font-size: var(--font-3xs); }
+.ctl-swipes { margin-left: auto; color: var(--ctl-ink-faint); flex-shrink: 0; }
+.ctl-shared + .ctl-swipes { margin-left: 0; }
+
+.ctl-line {
+    font-size: var(--font-md);
+    font-weight: 500;
+    color: var(--ctl-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* the speaker's face */
+.ctl-av {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    overflow: hidden;
+    font-size: var(--font-xs);
+    box-shadow: 0 0 0 1.5px var(--ctl-char);
+    color: var(--ctl-char);
+    background: color-mix(in srgb, var(--ctl-char) 18%, transparent);
+}
+
+.ctl-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ctl-av.is-user { color: var(--ctl-you); box-shadow: 0 0 0 1.5px var(--ctl-you); background: color-mix(in srgb, var(--ctl-you) 18%, transparent); }
+.ctl-av.is-system { color: var(--ctl-ink-dim); box-shadow: 0 0 0 1.5px var(--ctl-ink-faint); background: var(--ctl-chip); }
+.ctl-av.is-ghost { color: var(--ctl-ink-dim); box-shadow: none; border: 1.5px dashed var(--ctl-ink-faint); background: transparent; }
+.ctl-av.is-small { width: 24px; height: 24px; font-size: var(--font-2xs); }
+
+/* an unused swipe: a faded card on a dashed line */
+.ctl-ghost { background: transparent; border-style: dashed; border-color: var(--ctl-ink-faint); opacity: 0.75; box-shadow: none; }
+.ctl-ghost:hover,
+.ctl-ghost.is-selected { opacity: 1; }
+.ctl-ghost .ctl-who { color: var(--ctl-ink-dim); font-weight: 600; }
+.ctl-ghost .ctl-line { color: var(--ctl-ink-dim); font-style: italic; }
+
+/* "You are here" over the open chat's last card */
+.ctl-here-pill {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + var(--space-xs-sm));
+    transform: translateX(-50%);
+    padding: 1px var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--ctl-path);
+    color: var(--ctl-bg);
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* the end of a chat: a chip after its last card, opening it */
+.ctl-flag {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    max-width: 210px;
+    height: 26px;
+    padding: 0 var(--space-sm-md);
+    border: 1px solid var(--ctl-edge);
+    border-radius: var(--radius-pill);
+    background: var(--ctl-chip);
+    color: var(--ctl-ink-dim);
+    font: inherit;
+    font-size: var(--font-xs);
+    font-weight: 500;
+    cursor: pointer;
+    transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.ctl-flag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-flag i { font-size: var(--font-3xs); }
+.ctl-flag:hover { color: var(--ctl-ink); border-color: color-mix(in srgb, var(--ctl-ink) 32%, transparent); }
+.ctl-flag.is-here { color: var(--ctl-path); border-color: var(--ctl-path); background: color-mix(in srgb, var(--ctl-path) 14%, transparent); font-weight: 700; }
+/* a chat that stops where others go on: a tab under the card, the card's width shared by the chats that stop there */
+.ctl-flag.is-tab { height: 20px; max-width: 190px; font-size: var(--font-2xs); padding: 0 var(--space-sm); }
+.ctl-flag.is-more { color: var(--ctl-ink-faint); }
+
+/* the character the map grows from */
+.ctl-origin {
+    position: absolute;
+    width: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    pointer-events: none;
+}
+
+.ctl-origin-pic {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 2.5px var(--ctl-char), var(--cl-shadow-md);
+    background: var(--ctl-card);
+    color: var(--ctl-char);
+    font-size: var(--font-xl);
+}
+
+.ctl-origin-pic img { width: 100%; height: 100%; object-fit: cover; }
+.ctl-origin-name { margin-top: var(--space-xs); font-weight: 700; font-size: var(--font-md); color: var(--ctl-ink); text-align: center; width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-origin-sub { font-size: var(--font-2xs); color: var(--ctl-ink-dim); }
+
+/* ---------------------------------------------------------------- the bar over the map */
+.ctl-bar {
+    position: absolute;
+    top: var(--space-md);
+    left: var(--space-md);
+    right: var(--space-md);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    pointer-events: none;
+}
+
+.ctl-bar > * { pointer-events: auto; }
+
+.ctl-find {
+    flex: 1;
+    min-width: 0;
+    max-width: 340px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    height: 34px;
+    padding: 0 var(--space-xs) 0 var(--space-md);
+    border-radius: var(--radius-pill);
+    background: var(--ctl-glass);
+    border: 1px solid var(--ctl-edge);
+    color: var(--ctl-ink-dim);
+    backdrop-filter: blur(var(--cl-blur-chrome));
+    cursor: text;
+}
+
+.ctl-find:focus-within { border-color: var(--ctl-char); }
+
+.ctl-search {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ctl-ink);
+    font: inherit;
+    font-size: var(--font-md);
+    outline: none;
+}
+
+.ctl-search::placeholder { color: var(--ctl-ink-faint); }
+.ctl-search::-webkit-search-cancel-button { cursor: pointer; }
+.ctl-find-count { font-size: var(--font-2xs); color: var(--ctl-ink-dim); white-space: nowrap; padding-left: var(--space-xs); }
+
+.ctl-find-step {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ctl-ink-dim);
+    cursor: pointer;
+    font-size: var(--font-2xs);
+}
+
+.ctl-find-step:hover { background: var(--ctl-chip); color: var(--ctl-ink); }
+
+.ctl-count { font-size: var(--font-xs); color: var(--ctl-ink-dim); white-space: nowrap; }
+.ctl-tools { margin-left: auto; display: flex; gap: var(--space-sm); }
+
+.ctl-group {
+    display: flex;
+    border-radius: var(--radius-md);
+    background: var(--ctl-glass);
+    border: 1px solid var(--ctl-edge);
+    overflow: hidden;
+    backdrop-filter: blur(var(--cl-blur-chrome));
+}
+
+.ctl-tool {
+    height: 32px;
+    min-width: 32px;
+    padding: 0 var(--space-sm-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs-sm);
+    border: 0;
+    background: transparent;
+    color: var(--ctl-ink-dim);
+    font: inherit;
+    font-size: var(--font-xs);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.ctl-tool + .ctl-tool { border-left: 1px solid var(--ctl-edge); }
+.ctl-tool:hover { color: var(--ctl-ink); background: var(--ctl-chip); }
+.ctl-tool.is-on { color: var(--ctl-char); background: color-mix(in srgb, var(--ctl-char) 15%, transparent); }
+.ctl-tool:focus-visible,
+.ctl-find-step:focus-visible,
+.ctl-flag:focus-visible { outline: 2px solid var(--ctl-char); outline-offset: -2px; }
+
+/* a verb without a word beside its glyph keeps its name for a reader of the screen and the phone */
+.ctl-tool:not(.is-labelled) .ctl-tool-label { display: none; }
+
+.ctl-legend {
+    position: absolute;
+    left: var(--space-md-lg);
+    bottom: var(--space-md-lg);
+    z-index: 1;
+    display: flex;
+    gap: var(--space-md-lg);
+    font-size: var(--font-xs);
+    color: var(--ctl-ink-dim);
+    pointer-events: none;
+}
+
+.ctl-legend > span { display: inline-flex; align-items: center; gap: var(--space-xs-sm); }
+.ctl-key { width: 9px; height: 9px; border-radius: 3px; background: var(--ctl-char); display: inline-block; }
+.ctl-key.is-user { background: var(--ctl-you); }
+.ctl-key.is-path { width: 16px; height: 3px; border-radius: 2px; background: var(--ctl-path); }
+.ctl-key.is-ghost { background: transparent; border: 1px dashed var(--ctl-ink-dim); }
+
+.ctl-zoom { position: absolute; right: var(--space-md); bottom: var(--space-md); z-index: 2; }
+.ctl-zoom-level { min-width: 52px; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- the panel: chats, a moment, its swipes */
+.ctl-panel {
+    display: none;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-stack-ui);
+}
+
+.ctl-root.is-panel-open .ctl-panel { display: flex; }
+
+.ctl-root.is-docked .ctl-panel {
+    width: 330px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--glass-border);
+}
+
+/* narrow, the panel is a card over the map's foot */
+.ctl-root:not(.is-docked) .ctl-panel {
+    position: absolute;
+    left: var(--space-sm);
+    right: var(--space-sm);
+    bottom: var(--space-sm);
+    z-index: 3;
+    max-height: 55%;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--cl-shadow-lg);
+    animation: ctlRise var(--dur-base) var(--ease-decel);
+}
+
+@keyframes ctlRise {
+    from { opacity: 0; transform: translateY(var(--space-sm-md)); }
+}
+
+.ctl-root:not(.is-docked).is-panel-open .ctl-zoom,
+.ctl-root:not(.is-docked).is-panel-open .ctl-legend { display: none; }
+
+.ctl-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm-md) var(--space-sm-md) var(--space-sm) var(--space-md-lg);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.ctl-panel-title { margin: 0; flex: 1; font-size: var(--font-md); font-weight: 700; }
+.ctl-panel-count { margin-left: var(--space-xs); font-weight: 500; color: var(--text-muted); }
+
+.ctl-back {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: 600 var(--font-sm) var(--font-stack-ui);
+    padding: var(--space-xs) 0;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ctl-back:hover { color: var(--text-primary); }
+
+.ctl-x {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.ctl-x:hover { color: var(--text-primary); background: var(--cl-ghost-mid); }
+
+.ctl-panel-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-md) var(--space-md-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.ctl-panel-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    padding: var(--space-sm-md) var(--space-md-lg);
+    border-top: 1px solid var(--glass-border);
+}
+
+/* the moment's verbs share one row: each takes what it needs and the rest is split */
+.ctl-panel-foot .cl-btn { flex: 1 1 auto; justify-content: center; padding-inline: var(--space-md); white-space: nowrap; }
+.ctl-panel-sub { margin: var(--space-xs) 0 0; font-size: var(--font-2xs); font-weight: 600; color: var(--text-muted); }
+.ctl-hint { margin: 0; font-size: var(--font-xs); color: var(--text-muted); line-height: var(--leading-prose); }
+
+/* a chat in a list: its name and how long ago, a click lights its path, the arrow opens it */
+.ctl-chats { display: flex; flex-direction: column; gap: var(--space-xs-sm); }
+
+.ctl-chat {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.ctl-chat:hover { background: var(--cl-ghost-mid); }
+.ctl-chat.is-focus { border-color: var(--accent); }
+
+.ctl-chat-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    padding: var(--space-sm) var(--space-sm-md);
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+/* a name of the reader's own can be long: two lines before it ends */
+.ctl-chat-name { max-width: 100%; font-size: var(--font-sm); font-weight: 600; color: var(--text-primary); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.ctl-chat-sub { max-width: 100%; font-size: var(--font-2xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-chat-sub b { color: var(--accent); font-weight: 700; }
+
+.ctl-chat-open {
+    width: 38px;
+    flex-shrink: 0;
+    border: 0;
+    border-left: 1px solid var(--glass-border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.ctl-chat-open:hover { color: var(--accent); background: var(--cl-ghost-mid); }
+
+/* a moment: the chat it is read in, where it stands, then how its run starts and ends */
+.ctl-moment-head { display: flex; align-items: center; gap: var(--space-sm-md); }
+.ctl-moment-head > div { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
+.ctl-moment-chat { font-size: var(--font-md); font-weight: 700; color: var(--text-primary); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow-wrap: anywhere; }
+.ctl-panel-range { font-size: var(--font-2xs); color: var(--text-muted); }
+.ctl-panel-range b { color: var(--accent); font-weight: 700; }
+/* the chat a moment is read in wears the speaker ring in the accent */
+.ctl-panel .ctl-av.is-chat { --ctl-you: var(--accent); }
+
+.ctl-panel .ctl-av {
+    --ctl-char: var(--accent);
+    --ctl-you: #5cc8a8;
+    --ctl-ink-dim: var(--text-muted);
+    --ctl-ink-faint: var(--text-faint);
+    --ctl-chip: var(--cl-ghost-faint);
+}
+
+.ctl-msg { display: flex; gap: var(--space-sm-md); }
+.ctl-msg-main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
+.ctl-msg-who { font-size: var(--font-2xs); font-weight: 700; color: var(--text-secondary); }
+.ctl-msg-who span { font-weight: 500; color: var(--text-muted); }
+
+.ctl-msg p,
+.ctl-said p,
+.ctl-alt p,
+.ctl-found p {
+    margin: 0;
+    font-family: var(--font-stack-prose);
+    font-size: var(--font-sm);
+    line-height: var(--leading-prose);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.ctl-gap {
+    align-self: flex-start;
+    margin-left: 34px;
+    padding: var(--space-2xs) var(--space-sm-md);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-2xs);
+    color: var(--text-muted);
+}
+
+.ctl-found {
+    padding: var(--space-sm) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ctl-found > span,
+.ctl-said > span { display: block; margin-bottom: var(--space-2xs); font-size: var(--font-2xs); font-weight: 600; color: var(--text-muted); }
+.ctl-found mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text-primary); border-radius: 2px; }
+
+.ctl-alts { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.ctl-alt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-sm-md);
+    border: 1px dashed var(--glass-border);
+    border-radius: var(--radius-md);
+}
+
+.ctl-alt p { font-style: italic; }
+
+/* ---------------------------------------------------------------- the style editor */
+.ctl-pop {
+    position: absolute;
+    top: 54px;
+    right: var(--space-md);
+    z-index: 4;
+    width: 330px;
+    max-height: calc(100% - 66px);
+    overflow-y: auto;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    box-shadow: var(--cl-shadow-xl);
+    font-family: var(--font-stack-ui);
+    cursor: default;
+}
+
+.ctl-pop-head { display: flex; align-items: center; }
+.ctl-pop-head h4 { margin: 0; flex: 1; font-size: var(--font-sm); }
+.ctl-pop-note { margin: 0; font-size: var(--font-2xs); color: var(--text-muted); }
+
+.ctl-swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); }
+
+.ctl-swatch {
+    padding: 0;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: left;
+}
+
+.ctl-swatch.is-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ctl-swatch.is-empty { border-style: dashed; background: transparent; }
+.ctl-swatch.is-empty:hover { border-color: var(--accent); color: var(--text-primary); }
+.ctl-swatch.is-empty:hover .ctl-swatch-pv { color: var(--accent); }
+
+.ctl-swatch-pv {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    color: var(--text-muted);
+}
+
+.ctl-swatch-pv { background: var(--sw-bg); }
+.ctl-swatch-pv i { position: absolute; height: 8px; border-radius: 3px; }
+.ctl-swatch-pv i:nth-child(1) { left: 8px; top: 9px; width: 38px; background: var(--sw-a); }
+.ctl-swatch-pv i:nth-child(2) { left: 26px; top: 23px; width: 44px; background: var(--sw-b); }
+.ctl-swatch-pv i:nth-child(3) { left: 58px; top: 9px; width: 26px; background: var(--sw-c); }
+.ctl-swatch.is-empty .ctl-swatch-pv i { position: static; height: auto; }
+.ctl-swatch-name { display: block; padding: var(--space-xs) var(--space-sm); font-size: var(--font-2xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ctl-colours { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-xs-sm) var(--space-md); }
+.ctl-colour { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-xs); color: var(--text-secondary); cursor: pointer; }
+
+.ctl-colour input {
+    width: 28px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs);
+    background: none;
+    cursor: pointer;
+}
+
+.ctl-pop-row { display: flex; flex-direction: column; gap: var(--space-xs); font-size: var(--font-xs); color: var(--text-muted); }
+
+.ctl-seg-pick {
+    display: flex;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.ctl-seg-pick button {
+    flex: 1;
+    padding: var(--space-xs-sm) var(--space-xs);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: var(--font-xs) var(--font-stack-ui);
+    cursor: pointer;
+}
+
+.ctl-seg-pick button + button { border-left: 1px solid var(--glass-border); }
+.ctl-seg-pick button:hover { background: var(--cl-ghost-mid); }
+.ctl-seg-pick button.is-on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-primary); font-weight: 600; }
+.ctl-pop-foot { display: flex; gap: var(--space-sm); }
+
+/* ---------------------------------------------------------------- narrow: glyphs alone, the count and legend go */
+@container (max-width: 640px) {
+    .ctl-tool.is-labelled .ctl-tool-label { display: none; }
+    .ctl-count,
+    .ctl-legend { display: none; }
+    .ctl-find { max-width: none; }
+}
+
+@container (max-width: 420px) {
+    .ctl-bar { flex-wrap: wrap; row-gap: var(--space-xs-sm); }
+    .ctl-find { flex: 1 0 100%; }
+    .ctl-tools { margin-left: 0; }
+}
+
+/* ---------------------------------------------------------------- the dialog */
+.cl-modal-content.ctl-dialog {
+    width: min(1240px, 94vw);
+    height: min(800px, 88vh);
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+}
+
+.ctl-dialog .cl-modal-body {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    overflow: clip;
+    display: flex;
+    flex-direction: column;
+}
+
+.ctl-dialog .cl-modal-body > .ctl-root { flex: 1; }
+
+/* ---------------------------------------------------------------- the phone */
+/* a phone: each verb with its word, on one row that scrolls sideways; the find field on a row of its own */
+html.cl-mobile .ctl-dialog .cl-modal-body { padding: 0; }
+html.cl-mobile .ctl-bar { flex-wrap: wrap; row-gap: var(--space-xs-sm); }
+html.cl-mobile .ctl-find { flex: 1 0 100%; max-width: none; height: var(--touch-target-slim); }
+html.cl-mobile .ctl-tools { margin-left: 0; flex: 1 0 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+html.cl-mobile .ctl-tools .ctl-group { flex-shrink: 0; }
+html.cl-mobile .ctl-tool { height: var(--touch-target-slim); min-width: var(--touch-target-slim); }
+html.cl-mobile .ctl-tool .ctl-tool-label { display: inline; }
+html.cl-mobile .ctl-count,
+html.cl-mobile .ctl-legend { display: none; }
+html.cl-mobile .ctl-find-step,
+html.cl-mobile .ctl-x { width: var(--touch-target-slim); height: var(--touch-target-slim); }
+html.cl-mobile .ctl-chat-open { width: var(--touch-target-min); }
+html.cl-mobile .ctl-panel-foot .cl-btn { min-height: var(--touch-target-min); }
+/* the phone's input floor: under the app's size a focus zooms the page */
+html.cl-mobile .ctl-search { font-size: var(--mobile-input-size); }
+/* the phone's material pair: no desktop blur over a moving map */
+html.cl-mobile .ctl-find,
+html.cl-mobile .ctl-group { backdrop-filter: var(--cl-blur-mobile); }
+html.cl-mobile .ctl-pop { left: var(--space-sm); right: var(--space-sm); width: auto; }
+html.cl-mobile .ctl-root:not(.is-docked) .ctl-panel { bottom: calc(var(--space-sm) + var(--safe-bottom)); }
+/* a tap leaves no hover behind */
+html.cl-mobile .ctl-seg:hover,
+html.cl-mobile .ctl-flag:hover { border-color: var(--ctl-edge); }
+
+@media (prefers-reduced-motion: reduce) {
+    .ctl-root *, .ctl-root { animation: none !important; transition: none !important; }
+}

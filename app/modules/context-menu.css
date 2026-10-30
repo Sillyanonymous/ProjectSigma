@@ -1,0 +1,188 @@
+/* ========================================
+   Context Menu Styles
+   ======================================== */
+
+.cl-context-menu {
+    display: none;
+    position: fixed;
+    background: var(--cl-sheet-bg);
+    backdrop-filter: blur(var(--cl-blur-panel));
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-2xl);
+    box-shadow:
+        var(--cl-shadow-xl),
+        0 0 40px var(--cl-shade-30),
+        inset 0 1px 0 var(--cl-ghost-mid);
+    z-index: var(--z-modal);
+    min-width: 200px;
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
+    padding: var(--space-xs-sm);
+    opacity: 0;
+    transform: scale(0.97);
+    transform-origin: top left;
+    transition: opacity var(--dur-quick) ease-out, transform var(--dur-quick) ease-out;
+}
+
+.cl-context-menu.visible {
+    display: block;
+    animation: clContextMenuSlide var(--dur-fast) ease forwards;
+}
+
+@keyframes clContextMenuSlide {
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.cl-context-menu-item {
+    padding: 7px var(--space-md);
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    transition: background var(--dur-quick);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    color: var(--cl-text-primary);
+    font-size: var(--font-sm);
+    user-select: none;
+}
+
+.cl-context-menu-item i {
+    width: 16px;
+    text-align: center;
+    opacity: 0.8;
+    font-size: var(--font-sm);
+}
+
+.cl-context-menu-item:hover {
+    background: rgba(var(--accent-rgb), 0.2);
+}
+
+.cl-context-menu-item:hover i {
+    opacity: 1;
+}
+
+.cl-context-menu-item.danger {
+    color: var(--cl-danger-text);
+}
+
+.cl-context-menu-item.danger:hover {
+    background: rgba(var(--cl-error-rgb), 0.25);
+}
+
+.cl-context-menu-item.secondary {
+    color: var(--cl-text-secondary);
+}
+
+.cl-context-menu-item.secondary:hover {
+    background: var(--cl-ghost-mid);
+}
+
+/* the row of a control its bar shows lit (a view, a tab, a mode): it reads lit behind a More too */
+.cl-context-menu-item.is-current,
+.cl-context-menu-item.is-current:hover {
+    color: var(--accent);
+}
+
+.cl-context-menu-item.is-current i {
+    opacity: 1;
+}
+
+.cl-context-menu-item.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* a row's picture and its second line (versions of one character: who made each, when, how long) */
+.cl-context-menu-img {
+    width: var(--avatar-xs);
+    height: var(--avatar-xs);
+    border-radius: var(--radius-md);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.cl-context-menu-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.cl-context-menu-text > span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cl-context-menu-hint {
+    font-size: var(--font-2xs);
+    color: var(--cl-text-secondary);
+}
+
+.cl-context-menu-separator {
+    height: 1px;
+    background: var(--cl-border);
+    margin: var(--space-xs) 0;
+}
+
+.cl-context-menu-header {
+    padding: var(--space-sm) var(--space-md-lg);
+    font-size: var(--font-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--cl-text-secondary);
+    font-weight: 600;
+}
+
+/* ========================================
+   Mobile Overrides
+   ======================================== */
+/* Desktop context menu hidden on mobile (replaced by bottom sheet) */
+html.cl-mobile .cl-context-menu {
+    display: none !important;
+}
+
+/* Context-menu items cloned into the canonical .mobile-sheet bottom drawer
+   (the sheet shell, slide, handle + scrim all come from .mobile-sheet). */
+html.cl-mobile .mobile-sheet .cl-context-menu-separator {
+    height: 1px;
+    background: var(--glass-border);
+    margin: var(--space-xs) var(--space-md);
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-header {
+    padding: var(--space-sm-md) var(--space-xl) var(--space-xs-sm);
+    font-size: var(--font-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #999);
+    font-weight: 600;
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md-lg) var(--space-xl);
+    min-height: 48px;
+    font-size: var(--font-md);
+    color: var(--text-primary, #eee);
+    cursor: pointer;
+    border-radius: 0;
+    transition: background var(--dur-fast);
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-item:active {
+    background: var(--cl-ghost-strong);
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-item i {
+    width: 22px;
+    text-align: center;
+    opacity: 0.8;
+    font-size: var(--font-base);
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-item.danger {
+    color: var(--cl-danger-text);
+}
+html.cl-mobile .mobile-sheet .cl-context-menu-item.is-current {
+    color: var(--accent);
+}

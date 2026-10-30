@@ -1,0 +1,4072 @@
+/* ========================================
+   Chats Module Styles
+   ======================================== */
+
+/* --- Modal Chats Tab --- */
+
+.chats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.chats-header h4 {
+    margin: 0;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+}
+
+.chats-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.chats-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    max-height: calc(100vh - 350px);
+    overflow-y: auto;
+}
+
+.chats-loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.chat-item {
+    display: flex;
+    align-items: center;
+    padding: var(--space-lg);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xl);
+    transition: all var(--dur-base) ease;
+    cursor: pointer;
+}
+
+.chat-item:hover {
+    background: var(--cl-ghost-strong);
+    border-color: var(--accent);
+}
+
+.chat-item-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: var(--radius-xl);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: var(--space-lg);
+    flex-shrink: 0;
+}
+
+.chat-item-icon i {
+    color: var(--accent-text);
+    font-size: var(--font-lg);
+}
+
+.chat-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat-item-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-item-meta {
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs) var(--space-lg);
+    min-width: 0;
+}
+
+.chat-item-actions {
+    display: flex;
+    gap: var(--space-xs);
+    opacity: 0;
+    transition: opacity var(--dur-base);
+}
+
+.chat-item:hover .chat-item-actions {
+    opacity: 1;
+}
+
+/* Kebab is a mobile-only affordance; desktop uses the hover-revealed action row. */
+.chat-item-kebab { display: none; }
+
+.chat-action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--glass-border);
+    background: var(--cl-shade-30);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--dur-base);
+}
+
+.chat-action-btn:hover {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+}
+
+.chat-action-btn.danger:hover {
+    background: var(--cl-error-bright);
+    border-color: var(--cl-error-bright);
+}
+
+.no-chats {
+    text-align: center;
+    padding: 60px var(--space-xl);
+    color: var(--text-secondary);
+}
+
+.no-chats i {
+    font-size: var(--font-4xl);
+    margin-bottom: var(--space-lg);
+    opacity: 0.5;
+}
+
+.no-chats p {
+    margin: 0;
+}
+
+/* --- The two segmented toggles (view lens, layout), the Online tab's view-toggle vocabulary --- */
+
+.chats-seg {
+    display: flex;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    background: var(--cl-shade-30);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+}
+
+.chats-seg.hidden {
+    display: none;
+}
+
+.chats-seg-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-sm) var(--space-md);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-md);
+    cursor: pointer;
+    transition: background var(--dur-base) ease, color var(--dur-base) ease;
+}
+
+.chats-seg-btn:hover {
+    color: var(--text-primary);
+    background: var(--cl-ghost-mid);
+}
+
+.chats-seg-btn.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* ========================================
+   Chats View Grid
+   ======================================== */
+.chats-view {
+    padding: var(--space-xl);
+    height: 100%;
+    overflow-y: auto;
+}
+
+.chats-view.hidden {
+    display: none;
+}
+
+/* ========================================
+   Chats browse view: the conversation index
+   ======================================== */
+.chats-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+}
+
+.chats-grid.hidden {
+    display: none;
+}
+
+/* --- Recency bands: a time spine for the flat/recency view --- */
+.chat-band {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.chat-band.is-bare { gap: 0; }
+
+.chat-band-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+.chat-band-label {
+    flex: none;
+    font-size: var(--font-xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.chat-band-count {
+    flex: none;
+    padding: var(--space-2xs) var(--space-sm);
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--cl-ghost-mid);
+    border-radius: var(--radius-pill);
+    font-variant-numeric: tabular-nums;
+}
+.chat-band-rule {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--cl-accent-tint-border), var(--cl-ghost-mid) 32%, transparent);
+}
+.chat-band-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--space-md);
+}
+
+/* --- The Continue hero: the newest storyline as a poster; the whole card is the verb, the accent one play glyph --- */
+.chat-hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-lg);
+    padding: var(--space-sm-md);
+    border-radius: var(--radius-2xl);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--cl-ghost-mid);
+    box-shadow: var(--cl-shadow-md), inset 0 1px 0 var(--cl-sheet-highlight);
+    cursor: pointer;
+    transition: transform var(--dur-base) ease, border-color var(--dur-base) ease, box-shadow var(--dur-base) ease;
+}
+.chat-hero:hover {
+    transform: translateY(-2px);
+    border-color: var(--cl-ghost-strong);
+    box-shadow: var(--cl-shadow-lg), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+/* the character's own art, blurred and pushed back: a one-off filter on one image, never a backdrop */
+.chat-hero-bleed {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 20%;
+    transform: scale(1.4);
+    filter: blur(28px) saturate(1.5);
+    opacity: 0.3;
+    pointer-events: none;
+    transition: opacity var(--dur-base) ease;
+}
+.chat-hero:hover .chat-hero-bleed { opacity: 0.42; }
+/* the scrim over the bleed keeps the text side crisp and lets the poster side glow */
+.chat-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(90deg, transparent, var(--cl-shade-40) 40%, var(--cl-shade-60));
+    pointer-events: none;
+}
+.chat-hero-poster {
+    position: relative;
+    flex: none;
+    width: 112px;
+    height: 148px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--cl-shade-30);
+    box-shadow: var(--cl-shadow-md);
+}
+.chat-hero-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* the character card's crop: faces sit in the upper third of a portrait */
+    object-position: center 20%;
+    transition: transform var(--dur-chat) ease;
+}
+.chat-hero:hover .chat-hero-image { transform: scale(1.06); }
+.chat-hero-poster::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, var(--cl-shade-60), transparent 55%);
+    pointer-events: none;
+}
+.chat-hero-poster-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--cl-ghost-mid);
+    color: var(--text-muted);
+    font-size: var(--font-xl);
+}
+.chat-hero-play {
+    position: absolute;
+    left: var(--space-sm);
+    bottom: var(--space-sm);
+    z-index: 1;
+    width: 30px;
+    height: 30px;
+    padding-left: var(--space-2xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-circle);
+    background: var(--cl-shade-60);
+    border: 1px solid var(--cl-ghost-strong);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.chat-hero:hover .chat-hero-play {
+    background: var(--accent);
+    color: var(--accent-text);
+}
+.chat-hero-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding-right: var(--space-sm);
+}
+.chat-hero-title {
+    font-size: var(--font-xl);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-xs-sm);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+.chat-hero-meta > span { white-space: nowrap; }
+.chat-hero-meta > span + span::before {
+    content: '\00b7';
+    margin-right: var(--space-xs-sm);
+    color: var(--text-muted);
+}
+.chat-hero-meta > .chat-chip::before { content: none; }
+.chat-hero-meta > .chat-chip { align-self: center; }
+/* the stamp keeps the meta's own size and colour; the class is for the phone date repair */
+.chat-hero-meta > .chat-card-time {
+    font-size: inherit;
+    color: inherit;
+}
+/* a link, so the link colour; a name the card cant hold ends in an ellipsis */
+.chat-hero-char {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--accent);
+    font-weight: 600;
+    cursor: pointer;
+}
+.chat-hero-char:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
+.chat-hero-preview {
+    margin: var(--space-2xs) 0 0;
+    max-width: 78ch;
+    padding-left: var(--space-sm);
+    border-left: 2px solid var(--cl-ghost-strong);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+/* an unsent draft IS the body line: the reader's own words, in their voice, with a pen for the tell */
+.chat-hero-preview.is-draft {
+    color: var(--text-primary);
+    font-style: italic;
+}
+.chat-hero-preview.is-draft i {
+    margin-right: var(--space-2xs);
+    color: var(--text-muted);
+    font-size: var(--font-3xs);
+    font-style: normal;
+}
+
+/* --- The tile: ghost material, storyline-forward --- */
+.chat-card {
+    position: relative;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-2xl);
+    cursor: pointer;
+    transition: transform var(--dur-base) ease, background var(--dur-base) ease, border-color var(--dur-base) ease, box-shadow var(--dur-base) ease;
+}
+.chat-card:hover {
+    transform: translateY(-2px);
+    background: var(--cl-ghost-mid);
+    border-color: var(--cl-ghost-strong);
+    box-shadow: var(--cl-shadow-md);
+}
+.chat-card-portrait { flex: none; }
+
+/* Avatar wrap + shimmer, shared by the card, the group header and the hero */
+.chat-avatar-wrap {
+    position: relative;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--cl-shade-30);
+    border: 1px solid var(--cl-ghost-mid);
+}
+.chat-avatar-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Top-bias so faces survive the crop; matches .card-image on grid cards. */
+    object-position: center 20%;
+    border: none;
+    border-radius: 0;
+    background: none;
+    opacity: 0;
+    transition: opacity var(--dur-slow) ease;
+}
+.chat-avatar-wrap.loaded img { opacity: 1; }
+.chat-avatar-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(110deg, transparent 30%, var(--cl-ghost-mid) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: chat-avatar-shimmer 1.8s ease-in-out infinite;
+    pointer-events: none;
+}
+.chat-avatar-wrap.loaded::before { display: none; }
+@keyframes chat-avatar-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.chat-card-avatar-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+    font-size: var(--font-lg);
+}
+
+.chat-card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.chat-card-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+.chat-card-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: var(--font-md);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-card-time {
+    flex: none;
+    font-size: var(--font-2xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.chat-card-sub {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs) var(--space-sm);
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+.chat-card-char {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 55%;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Clickable character name in the chats view */
+.clickable-char-name {
+    cursor: pointer;
+    transition: color var(--dur-fast) ease;
+}
+.clickable-char-name:hover {
+    color: var(--accent) !important;
+    text-decoration: underline;
+}
+.chat-card-count {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    flex: none;
+    color: var(--text-muted);
+}
+.chat-card-count i {
+    font-size: var(--font-3xs);
+    opacity: 0.8;
+}
+.chat-card-preview {
+    padding-left: var(--space-sm);
+    border-left: 2px solid var(--cl-ghost-strong);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    /* clip + content-box ends the preview on a whole line rather than mid-glyph. */
+    overflow: hidden;
+    overflow: clip;
+    overflow-clip-margin: content-box;
+}
+.chat-card-noprev {
+    font-style: italic;
+    opacity: 0.6;
+}
+
+/* Meta chips (draft cue; the lorebook toggle keeps its own rule elsewhere) */
+.chat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    flex: none;
+    padding: var(--space-2xs) var(--space-xs);
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    line-height: 1;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+}
+.chat-chip-draft {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--accent);
+}
+/* The persona chip names an override, on the ghost material since it is a fact, not a state. */
+.chat-chip-persona {
+    background: var(--cl-ghost-mid);
+    border-color: var(--cl-ghost-strong);
+    color: var(--text-secondary);
+}
+
+/* stamp and actions share one grid cell, so the hover swap moves nothing and covers nothing */
+.chat-card-meta-slot {
+    flex: none;
+    display: grid;
+    align-items: center;
+    justify-items: end;
+}
+.chat-card-meta-slot > * { grid-area: 1 / 1; }
+.chat-card-meta-slot > .chat-card-time { transition: opacity var(--dur-base) ease; }
+/* the faded stamp (opacity < 1) stacks above the actions, so it drops the pointer; desktop only, a phone keeps hover after a tap */
+html:not(.cl-mobile) .chat-card:hover .chat-card-meta-slot > .chat-card-time,
+html:not(.cl-mobile) .chat-card:focus-within .chat-card-meta-slot > .chat-card-time,
+html:not(.cl-mobile) .chat-group-item:hover .chat-card-meta-slot > .chat-card-time,
+html:not(.cl-mobile) .chat-group-item:focus-within .chat-card-meta-slot > .chat-card-time { opacity: 0; pointer-events: none; }
+.chat-card-actions {
+    display: flex;
+    gap: var(--space-xs);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-base) ease;
+}
+.chat-card:hover .chat-card-actions,
+.chat-card:focus-within .chat-card-actions,
+.chat-group-item:hover .chat-card-actions,
+.chat-group-item:focus-within .chat-card-actions { opacity: 1; pointer-events: auto; }
+.chat-card-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: var(--font-xs);
+    line-height: 1;
+    transition: all var(--dur-fast) ease;
+}
+/* the card under the pointer is already on ghost-mid, so a hovered action steps up the ladder
+   or it reads as nothing but its border */
+.chat-card-action:hover {
+    background: var(--cl-ghost-heavy);
+    border-color: var(--cl-ghost-strong);
+    color: var(--text-primary);
+}
+.chat-card-action.danger:hover {
+    background: rgba(var(--cl-error-rgb), 0.22);
+    border-color: rgba(var(--cl-error-rgb), 0.55);
+    color: var(--cl-error-vivid);
+}
+/* the book verb wears the accent tint while the chat carries books: the bound state lives here */
+.chat-card-action.chat-lore-bound {
+    color: var(--accent);
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+}
+.chat-card-action.chat-lore-bound:hover {
+    color: var(--accent);
+    background: var(--cl-accent-tint-border);
+    border-color: var(--cl-accent-tint-border);
+}
+/* The phone's row menu: the one visible verb, at the row's corner, since the hover actions are
+   hidden there; desktop never shows it. */
+.chat-card-kebab { display: none; }
+/* A row is a keyboard target too (Enter opens it): the app's focus glow, never an outline box. */
+.chat-card:focus-visible,
+.chat-hero:focus-visible,
+.chat-group-item:focus-visible {
+    outline: none;
+    box-shadow: var(--cl-focus-glow);
+}
+
+/* --- Layout (chatCardDensity setting: list is the tile grid, cards the previous card) --- */
+.chat-card-avatar-size { width: var(--avatar-lg); height: var(--avatar-lg); }
+
+/* Cards: the previous three-band card, kept whole as an opt-in layout */
+.chat-layout-cards .chat-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--card-bg);
+    border-color: var(--glass-border);
+    transition: all var(--dur-base) ease;
+}
+.chat-layout-cards .chat-card:hover {
+    transform: translateY(-3px);
+    background: var(--card-bg);
+    border-color: var(--accent);
+    box-shadow: 0 8px 25px var(--cl-shade-30), 0 0 15px var(--accent-glow);
+}
+.chat-layout-cards .chat-card-avatar-size { width: 50px; height: 50px; }
+.chat-layout-cards .chat-avatar-wrap,
+.chat-layout-cards .chat-card-avatar-fallback {
+    border-radius: var(--radius-circle);
+    border: 2px solid var(--glass-border);
+}
+.chat-layout-cards .chat-card-avatar-fallback { background: rgba(var(--accent-rgb), 0.2); }
+.chat-card-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--cl-shade-20);
+    border-bottom: 1px solid var(--glass-border);
+}
+.chat-card-char-info { flex: 1; min-width: 0; }
+.chat-card-char-name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.chat-card-char-name-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-card-chat-name {
+    margin-top: var(--space-2xs);
+    font-size: var(--font-md);
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+}
+.chat-layout-cards .chat-card-preview {
+    min-height: 60px;
+    padding: var(--space-sm-md);
+    border-left: 0;
+    border-radius: var(--radius-lg);
+    background: var(--cl-shade-15);
+    font-size: var(--font-md);
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+}
+.chat-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm-md) var(--space-md);
+    background: var(--cl-shade-15);
+    border-top: 1px solid var(--glass-border);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+.chat-card-meta {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-xs) var(--space-md);
+    min-width: 0;
+    overflow: hidden;
+}
+.chat-card-meta > span {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+.chat-card-meta i { font-size: var(--font-xs); opacity: 0.7; }
+.chat-layout-cards .chat-card-actions {
+    flex-shrink: 0;
+    gap: var(--space-xs-sm);
+}
+.chat-layout-cards .chat-card-action {
+    padding: var(--space-xs-sm) var(--space-sm);
+    background: var(--cl-shade-30);
+    border-color: var(--glass-border);
+    color: var(--text-secondary);
+}
+.chat-layout-cards .chat-card-action:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+}
+.chat-layout-cards .chat-card-action.danger:hover {
+    background: var(--cl-error-bright);
+    border-color: var(--cl-error-bright);
+    color: var(--accent-text);
+}
+
+/* ========================================
+   Grouped Chats View (by character)
+   ======================================== */
+.chats-grouped-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+.chats-grouped-view.hidden { display: none; }
+
+.chat-group {
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-2xl);
+    overflow: hidden;
+}
+.chat-group-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--cl-ghost-mid);
+    cursor: pointer;
+    transition: background var(--dur-base) ease;
+}
+.chat-group-header:hover { background: var(--cl-ghost-strong); }
+.chat-group-portrait { flex: none; }
+.chat-group-avatar-size { width: var(--avatar-md); height: var(--avatar-md); }
+.chat-group-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+.chat-group-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-group-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+.chat-group-count { color: var(--text-secondary); }
+.chat-group-toggle {
+    flex: none;
+    color: var(--text-muted);
+    transition: transform var(--dur-slow) ease;
+}
+.chat-group.collapsed .chat-group-toggle { transform: rotate(-90deg); }
+.chat-group-content {
+    border-top: 1px solid var(--cl-ghost-mid);
+    display: flex;
+    flex-direction: column;
+}
+.chat-group.collapsed .chat-group-content { display: none; }
+
+.chat-group-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: var(--space-sm-md) var(--space-lg);
+    border-bottom: 1px solid var(--cl-ghost-soft);
+    cursor: pointer;
+    transition: background var(--dur-base) ease;
+}
+.chat-group-item:last-child { border-bottom: none; }
+.chat-group-item:hover { background: var(--cl-ghost-mid); }
+.chat-group-item-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.chat-group-item-preview { -webkit-line-clamp: 1; line-clamp: 1; }
+
+/* a child of the card grid: span every column or it sits in the first track; min-height centres it in the view */
+.chats-empty {
+    grid-column: 1 / -1;
+    min-height: min(60vh, 520px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px var(--space-xl);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.chats-empty i {
+    font-size: 4rem;
+    margin-bottom: var(--space-xl);
+    opacity: 0.3;
+}
+
+.chats-empty h3 {
+    color: var(--text-primary);
+    margin-bottom: var(--space-sm-md);
+    border: none;
+}
+
+.chats-empty p {
+    font-size: var(--font-base);
+    max-width: 400px;
+}
+
+/* Loading state */
+.chats-view .chats-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm-md);
+    padding: 60px;
+    color: var(--text-secondary);
+    font-size: var(--font-lg);
+}
+
+/* When chats-loading uses cl-loading helper, restore vertical layout */
+.chats-view .chats-loading.cl-loading {
+    flex-direction: column;
+    gap: var(--space-sm);
+    font-size: var(--font-md);
+}
+
+/* ========================================
+   Conversation Mode (live chat in the chats view)
+   ======================================== */
+.chat-conv {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    font-family: var(--font-stack-prose);
+}
+
+/* .hidden has .chat-conv's specificity and loads earlier, so the hidden state is restated higher */
+.chat-conv.hidden {
+    display: none;
+}
+
+/* the backdrop is an inset:0 sibling, so the header needs its own stacking context or it is painted over */
+.chat-conv-header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    padding: var(--space-2xs) var(--space-md);
+    border-bottom: 1px solid var(--glass-border);
+    background: var(--cl-chat-head-bg);
+    backdrop-filter: blur(var(--cl-chat-head-blur));
+    -webkit-backdrop-filter: blur(var(--cl-chat-head-blur));
+    flex-shrink: 0;
+    min-height: 0;
+}
+
+
+.chat-conv-back {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-lg);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+}
+
+.chat-conv-back:hover {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.12);
+}
+
+/* the minimize button is the phone's way out (revealed in the mobile block); scoped to outrank the cluster's reveal */
+.chat-conv-header-right .chat-conv-minimize { display: none; }
+
+/* The portrait opens the gallery, like the message-row portraits do. */
+.chat-conv-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-circle);
+    object-fit: cover;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* takes the slack so the cluster sits at the far edge; past its floor the openers wait behind More (fitRow) */
+.chat-conv-heading {
+    flex: 1 1 0;
+    min-width: min(6em, 30%);
+}
+
+/* THE home for header chrome: everything the header grows goes in here, one right-aligned, bottom-aligned group */
+.chat-conv-header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    margin-left: auto;
+    min-width: 0;
+}
+
+/* ONE rule for every cluster button; a panel keeps only its active colour (per-panel styling drifted into three buttons) */
+/* the inline-flex outranks the global .hidden, so host-toggled buttons need the counter-rule at this scope */
+.chat-conv-header-right button.hidden { display: none; }
+.chat-conv-header-right button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: var(--cl-chat-bar-h);
+    height: var(--cl-chat-bar-h);
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-md);
+    transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
+}
+
+.chat-conv-header-right button:hover {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.12);
+}
+
+/* The open panel's button stays lit, whichever panel it belongs to (openChatWindow sets it). */
+.chat-conv-header-right button.is-panel-open {
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.16);
+}
+
+/* a lorebook the engine cant see: a dot, since the active state owns the colour; it says something is here, not wrong */
+.chat-conv-header-right button.has-embedded-lore {
+    position: relative;
+}
+.chat-conv-header-right button.has-embedded-lore::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-circle);
+    background: var(--cl-warning);
+    pointer-events: none;
+}
+
+/* the name opens the character, so a hover-only underline says so while the resting header stays quiet */
+.chat-conv-title {
+    font-size: var(--font-md-lg);
+    line-height: 1.25;
+    color: var(--text-primary);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    width: fit-content;
+    max-width: 100%;
+    text-decoration: 1px solid underline transparent;
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.chat-conv-title:hover {
+    color: var(--accent);
+    text-decoration-color: currentColor;
+}
+
+.chat-conv-sub {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Layer 1. Progressive enhancement: the surface has to read with the blur unsupported,
+   so the wallpaper is optional and the flat colour underneath carries it alone. */
+.chat-conv-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: var(--bg-primary);
+    backdrop-filter: blur(var(--cl-chat-backdrop-blur));
+    -webkit-backdrop-filter: blur(var(--cl-chat-backdrop-blur));
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* layer 1b, the wallpaper: a pseudo-element so its opacity and filter never dim the flat colour; no attribute, nothing painted */
+.chat-conv-backdrop::after { content: none; }
+
+.chat-conv-backdrop[data-wallpaper]::after {
+    content: '';
+    position: absolute;
+    /* blur samples transparency from OUTSIDE the box, so inset by twice the radius or the edges fade */
+    inset: calc(-2 * var(--cl-chat-wallpaper-blur, 0px));
+    background-image: var(--cl-chat-wallpaper);
+    background-position: var(--cl-chat-wallpaper-pos, center);
+    background-size: var(--cl-chat-wallpaper-size, cover);
+    background-repeat: var(--cl-chat-wallpaper-repeat, no-repeat);
+    opacity: var(--cl-chat-wallpaper-opacity, 1);
+    filter: var(--cl-chat-wallpaper-filter, none);
+    transition: opacity var(--dur-chat) var(--ease-standard);
+}
+
+/* layer 2, a pseudo plate (never the scroller's background); no isolation, transform or z-index, or it paints behind the pane */
+/* the movable window: header and column travel together; percentages, since UI Scale is zoom and pixels stop meaning anything */
+.chat-conv-window {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: clamp(320px, var(--fw-w, 62%), 100%);
+    height: var(--fw-h, 100%);
+    margin-inline: auto;
+    /* left/top, NOT transform: a percentage translate resolves against the element's own width, so it never reached the edge */
+    left: var(--fw-x, 0%);
+    top: var(--fw-y, 0%);
+}
+
+/* The header is the move handle, the way a title bar is. */
+.chat-conv-header { cursor: grab; }
+.chat-conv-window.fw-moving .chat-conv-header { cursor: grabbing; }
+.chat-conv-header button,
+.chat-conv-header select { cursor: pointer; }
+
+html.cl-mobile .chat-conv-window {
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+}
+html.cl-mobile .chat-conv-header { cursor: default; }
+
+.chat-conv-column {
+    position: relative;
+    /* The window owns width and position now; the column just fills it. */
+    width: 100%;
+    margin-inline: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+    padding: 0 var(--space-sm-md);
+    padding-right: var(--space-sm);
+}
+
+
+.chat-conv-column::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--cl-chat-plate-bg);
+    backdrop-filter: blur(var(--cl-chat-plate-blur));
+    -webkit-backdrop-filter: blur(var(--cl-chat-plate-blur));
+    pointer-events: none;
+}
+
+/* a flex column itself: flex:1 + min-height:0 on the scroller mean nothing in a block parent */
+.chat-conv-scrollwrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+/* layer 3 is a rule, not a token: a second backdrop-filter here flattens the stack to grey; the mask keeps rows off the chrome */
+.chat-conv-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--space-2xs);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    overscroll-behavior-y: contain;
+    /* top edge only: the reading edge is never dimmed (a bottom fade sat over the newest message) */
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 var(--cl-chat-fade), #000 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 var(--cl-chat-fade), #000 100%);
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+    -webkit-mask-repeat: no-repeat;
+}
+
+/* an overlay bar takes no width and widens under the pointer, so the rows keep a lane it cannot cover */
+html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
+    scrollbar-width: thin;
+    scrollbar-color: var(--cl-ghost-heavy) transparent;
+    padding-inline-end: var(--space-md);
+}
+
+/* Pinned to the scroller, not the column, so it tracks the messages and not the composer. */
+.chat-conv-jump {
+    position: absolute;
+    right: var(--space-lg);
+    bottom: var(--space-md);
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    border-radius: var(--radius-circle);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-shade-60);
+    color: var(--cl-chat-body);
+    cursor: pointer;
+    box-shadow: var(--cl-shadow-ambient);
+    transition: color var(--dur-chat) ease, border-color var(--dur-chat) ease;
+}
+
+.chat-conv-jump:hover { color: var(--accent); border-color: var(--accent); }
+.chat-conv-jump.has-new { border-color: var(--accent); color: var(--accent); }
+.chat-conv-jump.hidden { display: none; }
+
+/* authored CSS stays contained; every chat scroller that can hold third-party markup belongs in this list */
+.chat-conv-column [style*="position:fixed"], .chat-conv-column [style*="position: fixed"],
+.chat-conv-column [style*="position:sticky"], .chat-conv-column [style*="position: sticky"],
+.chat-conv-scrollwrap [style*="position:fixed"], .chat-conv-scrollwrap [style*="position: fixed"],
+.chat-conv-scrollwrap [style*="position:sticky"], .chat-conv-scrollwrap [style*="position: sticky"],
+.chat-conv-messages [style*="position:fixed"], .chat-conv-messages [style*="position: fixed"],
+.chat-conv-messages [style*="position:sticky"], .chat-conv-messages [style*="position: sticky"],
+.chat-card-preview [style*="position:fixed"], .chat-card-preview [style*="position: fixed"],
+.chat-card-preview [style*="position:sticky"], .chat-card-preview [style*="position: sticky"],
+.chat-group-item-preview [style*="position:fixed"], .chat-group-item-preview [style*="position: fixed"],
+.chat-group-item-preview [style*="position:sticky"], .chat-group-item-preview [style*="position: sticky"] {
+    position: static !important;
+}
+.chat-conv-messages [style*="z-index"] {
+    z-index: auto !important;
+}
+
+
+/* ---- The message card (Layout A) ---- */
+/* every row is its own card, never grouped; role is plate alpha plus the speaker tick; top padding is the band's height */
+/* a grid, not padding plus negative transforms: a transform moves pixels, not layout, so they overflowed and got sliced */
+.chat-conv-msg {
+    position: relative;
+    display: grid;
+    grid-template-columns: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px) minmax(0, 1fr);
+    grid-template-areas:
+        "avatar head"
+        "avatar body";
+    column-gap: var(--space-sm);
+    row-gap: var(--space-xs);
+    /* the scroller is a flex column: without this every card squeezes into the viewport */
+    flex-shrink: 0;
+    padding: var(--space-lg);
+    margin-top: var(--space-sm-md);
+    border-radius: var(--radius-3xl);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-chat-plate-char);
+    box-shadow: var(--cl-shadow-paper);
+    overflow: hidden;
+    overflow-anchor: none;
+    contain: layout style;
+}
+
+.chat-conv-msg.user { background: var(--cl-chat-plate-user); }
+
+.chat-conv-msg.last-message { margin-bottom: var(--space-sm-md); }
+
+/* the speaker tick, the role signal beyond plate alpha; 4px whole, since body zoom aliases a sub-pixel border */
+.chat-conv-msg-head {
+    grid-area: head;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    min-height: 45px;
+    position: relative;
+    z-index: 2;
+}
+
+/* two boxes: one <img> cant be the portrait and its ring; border-box keeps the moat exact */
+.chat-conv-msg-avatar-frame {
+    box-sizing: border-box;
+    width: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px);
+    height: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px);
+    grid-area: avatar;
+    align-self: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--cl-chat-body);
+    border-radius: var(--radius-circle);
+    z-index: 2;
+}
+
+.chat-conv-msg-avatar {
+    width: var(--cl-chat-avatar);
+    height: var(--cl-chat-avatar);
+    border: 0;
+    border-radius: var(--radius-circle);
+    object-fit: cover;
+    object-position: center 20%;
+    flex-shrink: 0;
+}
+
+/* the streaming bubble's bare avatar sits where the framed one will, so the settle doesnt jump */
+.chat-conv-msg > .chat-conv-msg-avatar {
+    position: absolute;
+    top: calc(var(--space-md) + var(--cl-avatar-ring-gap) + 1px);
+    left: calc(var(--space-lg) + var(--cl-avatar-ring-gap) + 1px);
+    z-index: 2;
+}
+
+/* no vertical margins: in a centre-aligned flex row a margin shifts one child off its siblings */
+/* the NAME is the band's one shrink absorber: shrinking the meta crushed the chips into debris */
+.chat-conv-msg-name {
+    margin: 0;
+    font-size: var(--font-pre-base);
+    font-weight: 700;
+    color: var(--cl-chat-body);
+    text-shadow: var(--cl-text-halo);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-conv-msg-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+/* tabular figures: #12 / 3.4s / 842t change mid-stream; no translateY, this is one centre-aligned row */
+.chat-conv-msg-chip {
+    padding: 0 var(--space-sm);
+    border-radius: var(--radius-lg);
+    background: var(--cl-veil-2);
+    opacity: 0.8;
+    font-size: var(--font-3xs);
+    font-weight: 400;
+    line-height: 1.7;
+    color: var(--cl-chat-narration);
+    font-variant-numeric: tabular-nums;
+    /* A chip is one token: "1 Jan 01:00" folding into two stacked lines read as debris. */
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Never display:none: hiding them would reflow the band on every hover. */
+.chat-conv-msg-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    opacity: 0.4;
+    transition: opacity var(--dur-chat) ease;
+}
+
+.chat-conv-msg:hover .chat-conv-msg-actions,
+.chat-conv-msg:focus-within .chat-conv-msg-actions { opacity: 0.8; }
+
+/* visibility, not display, so the ellipsis never shifts; a class pins it on tap since touch has no hover */
+.chat-conv-msg-more-wrap { position: relative; display: inline-flex; }
+
+.chat-conv-msg-overflow {
+    position: absolute;
+    right: 0;
+    top: calc(100% + var(--space-2xs));
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-shade-60);
+    box-shadow: var(--cl-shadow-ambient);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--dur-chat) ease, visibility 0s linear var(--dur-chat);
+}
+
+.chat-conv-msg-more-wrap:hover .chat-conv-msg-overflow,
+.chat-conv-msg.actions-open .chat-conv-msg-overflow {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--dur-chat) ease;
+}
+
+/* A hidden message stays readable and says why it is dimmer, rather than vanishing. */
+.chat-conv-msg.is-hidden .chat-conv-msg-body { opacity: var(--op-disabled); }
+
+.chat-conv-msg-act {
+    font-size: var(--font-pre-base);
+    color: var(--cl-chat-body);
+    background: none;
+    border: 0;
+    padding: 0 var(--space-2xs);
+    cursor: pointer;
+    filter: drop-shadow(0 0 3px var(--cl-shade-60));
+}
+
+/* Empty placeholder where regenerate does not apply, so every row's band aligns. */
+.chat-conv-msg-act-slot {
+    display: inline-block;
+    width: 15px;
+}
+
+.chat-conv[data-generating] .chat-conv-msg.last-message .chat-conv-msg-actions {
+    visibility: hidden;
+}
+
+/* The body slides up under the band, which is what closes the gap the 45px inset opens. */
+.chat-conv-msg-body {
+    grid-area: body;
+    min-width: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    position: relative;
+    z-index: 1;
+}
+
+/* row-reverse puts the counter between the two arrows. */
+/* a bare textarea takes its cols width and monospace, a narrow ribbon taller than the viewport */
+.chat-conv-edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.chat-conv-edit-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 6em;
+    max-height: 50vh;
+    resize: vertical;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    color: var(--cl-chat-body);
+    font-family: inherit;
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    transition: border-color var(--dur-chat) var(--ease-standard);
+}
+
+.chat-conv-edit-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.chat-conv-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
+/* While editing, the rendered copy would otherwise sit above the box saying the same
+   thing twice. */
+.chat-conv-msg.editing .chat-conv-msg-text { display: none; }
+
+/* The cluster is absolutely positioned at the row's bottom right, which is exactly where
+   the editor puts save and cancel. */
+.chat-conv-msg.editing .chat-conv-swipes { display: none; }
+
+/* the pill's measures, read by the pill and by the room its message keeps; --swipe-room is how far it rises above the body */
+.chat-conv-msg {
+    --swipe-btn: 22px;
+    --swipe-gap: var(--space-2xs);
+    --swipe-count-min: 30px;
+    --swipe-h: calc(var(--swipe-btn) + 2 * var(--space-2xs) + 2px);
+    --swipe-room: calc(var(--space-sm) + var(--swipe-h) - var(--space-lg));
+    --swipe-count: '0000/0000';
+}
+
+/* the copy's counter: as long as the one shown, and tabular digits are all one width, so it measures the same */
+.chat-conv-msg[data-swipe-len="3"] { --swipe-count: '0/0'; }
+.chat-conv-msg[data-swipe-len="4"] { --swipe-count: '0/00'; }
+.chat-conv-msg[data-swipe-len="5"] { --swipe-count: '00/00'; }
+.chat-conv-msg[data-swipe-len="6"] { --swipe-count: '00/000'; }
+.chat-conv-msg[data-swipe-len="7"] { --swipe-count: '000/000'; }
+
+.chat-conv-msg:has(> .chat-conv-swipes .chat-conv-swipe-combine) {
+    --swipe-combine: calc(var(--swipe-btn) + var(--swipe-gap) + var(--space-2xs));
+}
+
+.chat-conv-swipes {
+    position: absolute;
+    right: var(--space-lg);
+    bottom: var(--space-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--swipe-gap);
+    padding: var(--space-2xs);
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-pill);
+    background: var(--cl-chat-plate-char);
+    z-index: 2;
+}
+
+/* Pressing this calls the model rather than paging to text that already exists, and it is
+   the only place in the cluster that says so. */
+.chat-conv-swipes.will-generate { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.chat-conv-swipes.will-generate [data-dir="1"] { color: var(--accent); opacity: 1; }
+/* a message revealed by openChatById: a fading focus ring on the motion token (reduced motion ends it) */
+.chat-conv-msg.is-revealed {
+    animation: convReveal calc(var(--dur-slow) * 5) ease-out;
+}
+
+/* layered over the plate's paper shadow, which the animation would otherwise replace */
+@keyframes convReveal {
+    0%, 35% { box-shadow: var(--cl-focus-glow), var(--cl-shadow-paper); }
+    100% { box-shadow: var(--cl-shadow-paper); }
+}
+
+/* Nothing to page back to, so it reads as unavailable; convSwipe still flashes on press. */
+.chat-conv-swipes.at-start [data-dir="-1"] { opacity: 0.3; }
+
+.chat-conv-swipe-count {
+    min-width: var(--swipe-count-min);
+    text-align: center;
+    opacity: 0.9;
+    font-size: var(--font-2xs);
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-wide);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat-conv-swipe-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--swipe-btn);
+    height: var(--swipe-btn);
+    padding: 0;
+    opacity: 0.75;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-circle);
+    font-size: var(--font-2xs);
+    color: var(--cl-chat-narration);
+    cursor: pointer;
+    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease, background var(--dur-chat) ease;
+}
+
+.chat-conv-swipe-btn:hover { opacity: 1; color: var(--accent); background: var(--cl-veil-1); }
+
+/* the combiner sits right of the pager behind a hairline: paging browses, combining makes a new alternate */
+.chat-conv-swipe-combine {
+    margin-left: var(--space-2xs);
+    padding-left: var(--space-2xs);
+    border-left: 1px solid var(--cl-ghost-mid);
+    /* Right corners follow the pill cap it sits inside: a 4px corner here made the
+       hover fill poke square edges through the cluster's fully-rounded end. */
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+}
+
+/* an unseen copy as wide as the pill ends the last line, so a line running under it wraps; a same-length counter sizes it */
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+    content: var(--swipe-count);
+    display: inline-block;
+    box-sizing: content-box;
+    height: 0;
+    overflow: hidden;
+    min-width: var(--swipe-count-min);
+    padding-left: calc(2 * var(--swipe-btn) + 2 * var(--swipe-gap) + 2 * var(--space-2xs) + 2px + var(--swipe-combine, 0px));
+    font-size: var(--font-2xs);
+    font-weight: 400;
+    letter-spacing: var(--tracking-wide);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    visibility: hidden;
+    user-select: none;
+    pointer-events: none;
+}
+
+/* a last line keeps the room the pill needs beyond it; only the phone's touch-sized pill needs any */
+.chat-conv-msg:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(p, ul, ol):last-child {
+    margin-bottom: max(0.6em, calc(var(--swipe-room) - 1lh));
+}
+
+/* a code block, table, quote, rule or island cant hold the copy, so the pill takes a line of its own below */
+.chat-conv-msg:has(> .chat-conv-swipes) .chat-conv-msg-text:has(> :last-child:not(p, ul, ol))::after,
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text:empty::after {
+    content: '';
+    display: block;
+    height: var(--swipe-room);
+    margin-top: var(--space-sm);
+}
+
+/* mid-stream the cluster sits out, and its copy at the line's end with it: the streaming caret is that ::after */
+.chat-conv-msg.streaming .chat-conv-swipes {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* System lines are narration: dimmed by colour, not by opacity, so a nested voice
+   inside one keeps its own hue. */
+.chat-conv-msg.system {
+    text-align: center;
+    padding: var(--space-xs);
+    font-size: var(--font-md);
+    line-height: var(--leading-prose);
+    color: var(--cl-chat-narration);
+    background: none;
+    border: 0;
+    box-shadow: none;
+}
+
+.chat-conv-msg.system .chat-conv-msg-head { min-height: 0; }
+.chat-conv-msg.system .chat-conv-msg-body { transform: none; }
+.chat-conv-msg.system .chat-conv-msg-text { padding: 0; }
+.chat-conv-msg.system .chat-conv-msg-text p { margin: 0; }
+.chat-conv-msg.system .chat-conv-msg-avatar-frame { visibility: hidden; }
+
+/* ---- Prose ---- */
+/* The halo is load-bearing rather than decorative: without it a dim italic smears into
+   the backdrop wherever the wallpaper is busy. */
+.chat-conv-msg-text {
+    max-width: var(--cl-chat-measure);
+    padding-right: 0;
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    font-weight: 500;
+    color: var(--cl-chat-body);
+    letter-spacing: 0;
+    text-shadow: var(--cl-text-halo);
+    overflow-wrap: anywhere;
+}
+
+/* Asymmetric on purpose: adjacent paragraphs collapse to the larger of the two, and the
+   lead-in only ever shows above the first one. */
+.chat-conv-msg-text p { margin: 0.4em 0 0.6em; }
+
+/* The prose speaks in three voices; bold adds weight, never a colour. */
+.chat-conv-msg-text .cl-quote { color: var(--cl-chat-speech); }
+.chat-conv-msg-text :is(em, i) { color: var(--cl-chat-narration); }
+.chat-conv-msg-text u { color: var(--cl-chat-emphasis); text-decoration: none; }
+.chat-conv-msg-text :is(strong, b) { font-weight: 700; }
+
+/* A voice yields to the colour around it: emphasis in speech, every voice in a card's own colour (font[color] loses to any author rule). */
+.chat-conv-msg-text .cl-quote :is(em, i, strong),
+.chat-conv-msg-text .cl-quote strong em,
+.chat-conv-msg-text [style*="color"] :is(em, i, u),
+.chat-conv-msg-text [style*="color"] .cl-quote,
+.chat-conv-msg-text font[color] :is(em, i, u),
+.chat-conv-msg-text font[color] .cl-quote { color: inherit; }
+
+/* The one colour change that crosses hue, so it takes the slowest rung on the ladder. */
+.chat-conv-msg-text a {
+    color: var(--accent-muted);
+    font-weight: 700;
+    text-decoration: none;
+    border-bottom: 1px dotted var(--cl-veil-3);
+    transition: color var(--dur-reveal) ease, border-bottom-color var(--dur-reveal) ease;
+}
+
+.chat-conv-msg-text a:hover { color: var(--accent-warm); border-bottom-color: var(--accent-warm); }
+
+.chat-conv ::selection { background: color-mix(in srgb, var(--accent) 50%, transparent); color: #fff; }
+
+/* ---- Rich text blocks ---- */
+/* Code is the one construct that keeps a box, and it is drawn with the accent. */
+.chat-conv-msg-text .cl-code-block {
+    border-radius: var(--radius-xl);
+    padding: var(--space-xl);
+    border: 1px solid rgba(var(--accent-rgb), 0.8);
+    box-shadow: 0 0 5px var(--accent-glow);
+    margin: var(--space-lg) 0;
+}
+
+.chat-conv-msg-text .cl-code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    font-size: var(--font-xs);
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-ui);
+    margin-bottom: var(--space-sm);
+}
+
+/* Same ceiling as every other control in this surface: available, never urgent. */
+.chat-conv-msg-text .cl-code-copy {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    color: var(--cl-chat-narration);
+    font-size: var(--font-xs);
+    opacity: 0.4;
+    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease;
+}
+
+.chat-conv-msg-text .cl-code-copy:hover { opacity: 0.8; color: var(--accent); }
+
+.chat-conv-msg-text .cl-code-block pre { overflow-x: auto; margin: 0; }
+
+.chat-conv-msg-text .cl-code-block code {
+    display: block;
+    white-space: pre;
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-md);
+    line-height: 1.5;
+    color: var(--cl-chat-body);
+    letter-spacing: 0;
+    background: none;
+    padding: 0;
+}
+
+/* Inline code lives in a sentence but is chrome, so the em padding tracks its host text. */
+.chat-conv-msg-text code {
+    border-radius: var(--radius-sm);
+    padding: 0.2em 0.4em;
+    margin: 0 var(--space-xs);
+    background: var(--cl-shade-60);
+    color: var(--accent-muted);
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-xs);
+    letter-spacing: var(--tracking-ui);
+}
+
+/* A rule, never a box. */
+.chat-conv-msg-text blockquote {
+    border-left: 3px solid var(--accent-muted);
+    padding-left: var(--space-lg);
+    margin: var(--space-lg) 0;
+    background: none;
+    color: inherit;
+    font-style: normal;
+    border-radius: 0;
+}
+
+.chat-conv-msg-text ul,
+.chat-conv-msg-text ol { padding-left: var(--space-xl); margin: 0.4em 0 0.6em; }
+.chat-conv-msg-text li::marker { color: var(--cl-chat-narration); }
+/* Models use empty list items as spacers; collapsing them loses the author's break. */
+.chat-conv-msg-text li:empty { min-height: var(--leading-prose); }
+
+.chat-conv-msg-text h1,
+.chat-conv-msg-text h2,
+.chat-conv-msg-text h3,
+.chat-conv-msg-text h4,
+.chat-conv-msg-text h5,
+.chat-conv-msg-text h6 { letter-spacing: var(--tracking-ui); }
+.chat-conv-msg-text h1 { font-size: var(--font-xl); font-weight: 700; color: var(--cl-chat-body); margin-top: var(--space-lg); }
+.chat-conv-msg-text h2 { font-size: var(--font-lg); font-weight: 700; color: var(--cl-chat-body); }
+.chat-conv-msg-text h3 { font-size: var(--font-base); font-weight: 700; color: var(--cl-chat-body); }
+.chat-conv-msg-text h4 { font-size: var(--font-pre-base); font-weight: 700; color: var(--cl-chat-body); }
+.chat-conv-msg-text h5 { font-size: var(--font-pre-base); font-weight: 600; color: var(--cl-chat-narration); }
+.chat-conv-msg-text h6 { font-size: var(--font-pre-base); font-weight: 600; color: var(--cl-veil-5); text-transform: uppercase; }
+
+.chat-conv-msg-text hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cl-veil-3), transparent);
+    margin: 1.5em 0;
+}
+
+.chat-conv-msg-text .cl-table-scroll { overflow-x: auto; }
+.chat-conv-msg-text table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.chat-conv-msg-text th,
+.chat-conv-msg-text td { border: 1px solid var(--cl-veil-2); padding: var(--space-xs) var(--space-sm); }
+.chat-conv-msg-text thead tr { background: var(--cl-veil-1); }
+
+/* ---- Reasoning: marginalia, a rule and dimmer text, never a plate ---- */
+.chat-conv-msg-body > .cl-reasoning {
+    border-left: 1.5px solid var(--cl-veil-5);
+    padding-left: var(--space-md);
+    margin-top: var(--space-xs-sm);
+    margin-bottom: var(--space-md);
+    background: none;
+    border-radius: 0;
+}
+
+.chat-conv-msg-body > .cl-reasoning > summary {
+    padding: var(--space-sm);
+    background: var(--cl-veil-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: var(--font-md);
+    font-weight: 500;
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-ui);
+    list-style: none;
+    transition: background var(--dur-chat) ease;
+}
+
+.chat-conv-msg-body > .cl-reasoning > summary:hover { background: var(--cl-veil-3); }
+.chat-conv-msg-body > .cl-reasoning > summary::-webkit-details-marker { display: none; }
+
+/* Collapsed points DOWN ("there is more below"), open points up. The rotation runs
+   0 to 180 rather than -90 to 0 because that direction survives RTL. */
+.chat-conv-msg-body > .cl-reasoning > summary::before {
+    content: '\f078';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    font-size: var(--font-3xs);
+    margin-right: var(--space-sm);
+    display: inline-block;
+    transform: rotate(0deg);
+    transition: transform var(--dur-slow) ease;
+}
+
+.chat-conv-msg-body > .cl-reasoning[open] > summary::before { transform: rotate(180deg); }
+
+.cl-reasoning-body {
+    padding: var(--space-sm) 0 0;
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    color: var(--cl-veil-5);
+    white-space: pre-wrap;
+}
+
+/* Real markup once it has settled, so pre-wrap must not fight the paragraphs. */
+.cl-reasoning-body:has(p) { white-space: normal; }
+
+/* list markers sit outside the box and the reset zeroes the padding, so they landed on the block's rule */
+.cl-reasoning-body ul,
+.cl-reasoning-body ol { padding-left: var(--space-xl); margin: 0.4em 0 0.6em; }
+.cl-reasoning-body li::marker { color: var(--cl-chat-narration); }
+
+/* ---- Day, session and context dividers ---- */
+.chat-conv-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin: var(--space-xl) var(--space-lg) var(--space-sm);
+    font-size: var(--font-3xs);
+    letter-spacing: var(--tracking-ui);
+    color: var(--cl-chat-narration);
+    flex-shrink: 0;
+}
+
+.chat-conv-divider::before,
+.chat-conv-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--cl-veil-2);
+}
+
+/* the context boundary: an ELEMENT, since every layout mode owns the row's plate and hid a row-borne marker */
+.chat-conv-divider.chat-conv-context-divider {
+    color: var(--accent);
+}
+
+.chat-conv-context-divider::before {
+    background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.6));
+}
+
+.chat-conv-context-divider::after {
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.6), transparent);
+}
+
+/* An edge state on an edge: the plate never changes colour for it. */
+.chat-conv-msg-chip.is-interrupted { color: var(--cl-warning-pale); }
+/* The head is NOT dimmed by is-hidden (only the body is), so this label stays readable
+   over the message it explains. */
+.chat-conv-msg-chip.is-hidden-flag { color: var(--cl-warning-pale); background: rgba(var(--cl-warning-rgb), 0.12); }
+
+/* ---- Loading skeleton ---- */
+/* Same shimmer as the gallery tiles, in the card's anatomy, so the history arrives as a
+   fill rather than replacing a spinner with a wall. */
+.chat-conv-skeleton {
+    display: grid;
+    grid-template-columns: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px) minmax(0, 1fr);
+    column-gap: var(--space-sm);
+    row-gap: var(--space-sm);
+    padding: var(--space-lg);
+    margin-top: var(--space-sm-md);
+    border-radius: var(--radius-3xl);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-chat-plate-char);
+}
+
+.chat-conv-skel-avatar {
+    grid-row: 1 / span 4;
+    width: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px);
+    height: calc(var(--cl-chat-avatar) + 2 * var(--cl-avatar-ring-gap) + 2px);
+    border-radius: var(--radius-circle);
+    background: var(--cl-veil-2);
+    animation: chatSkelPulse 1.4s ease-in-out infinite;
+}
+
+.chat-conv-skel-bar {
+    height: 0.7em;
+    border-radius: var(--radius-sm);
+    background: var(--cl-veil-1);
+    animation: chatSkelPulse 1.4s ease-in-out infinite;
+}
+
+.chat-conv-skel-bar:nth-child(2) { width: 32%; }
+.chat-conv-skel-bar:nth-child(3) { width: 70%; }
+.chat-conv-skel-bar:nth-child(4) { width: 45%; }
+
+@keyframes chatSkelPulse {
+    0%, 100% { background: var(--cl-veil-1); }
+    50% { background: var(--cl-veil-2); }
+}
+
+/* ---- Display options: one root attribute each, same DOM underneath ---- */
+
+.chat-conv[data-timestamps="false"] .chat-conv-msg-chip.is-time { display: none; }
+.chat-conv[data-meta="false"] .chat-conv-msg-chip.is-meta { display: none; }
+
+.chat-conv[data-avatars="false"] .chat-conv-msg-avatar-frame { display: none; }
+.chat-conv[data-avatars="false"] .chat-conv-msg {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "body";
+}
+
+/* full-width prose: the avatar gives the column back below itself; auto resolves here, so a viewport flip needs no JS */
+.chat-conv[data-avatars="true"][data-body-layout="full"] .chat-conv-msg,
+html.cl-mobile .chat-conv[data-avatars="true"][data-body-layout="auto"] .chat-conv-msg {
+    grid-template-areas:
+        "avatar head"
+        "body body";
+}
+
+/* expanded actions, desktop only; the opacity/visibility restores matter, the base state is the hidden popover */
+html:not(.cl-mobile) .chat-conv[data-expand-actions="true"] .chat-conv-msg-more { display: none; }
+html:not(.cl-mobile) .chat-conv[data-expand-actions="true"] .chat-conv-msg-overflow {
+    display: flex;
+    position: static;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ---- Layout B: column ---- */
+/* column mode, subtractive: no banner, no row plate, the bubble carries the hairline, the swipes back in flow */
+.chat-conv[data-mode="column"] .chat-conv-msg {
+    padding: var(--space-sm-md) 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+    /* the bubble is filled, so breathing room goes OUTSIDE the fill rather than the base row-gap */
+    row-gap: var(--space-sm);
+}
+
+/* The bubble's own padding already insets the block; the banner-family margin-top would
+   just hollow out the bubble's top. */
+.chat-conv[data-mode="column"] .chat-conv-msg-body > .cl-reasoning { margin-top: 0; }
+
+.chat-conv[data-mode="column"] .chat-conv-msg-body {
+    padding: var(--space-lg);
+    border-radius: var(--radius-3xl);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-chat-plate-char);
+    box-shadow: var(--cl-shadow-paper);
+}
+
+.chat-conv[data-mode="column"] .chat-conv-msg.user .chat-conv-msg-body { background: var(--cl-chat-plate-user); }
+
+/* ---- Message fill off: the bare look ---- */
+/* no plate: fill, outline and lift go, padding and grid stay so nothing reflows; the swipe pill and skeleton keep theirs */
+.chat-conv[data-msg-fill="false"] .chat-conv-msg,
+.chat-conv[data-msg-fill="false"] .chat-conv-msg.user {
+    background: none;
+    border-color: transparent;
+    box-shadow: none;
+}
+.chat-conv[data-msg-fill="false"][data-mode="column"] .chat-conv-msg-body,
+.chat-conv[data-msg-fill="false"][data-mode="column"] .chat-conv-msg.user .chat-conv-msg-body {
+    background: none;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* overlaid in the bubble's corner; the grid AREA is its containing block, and unplaced it would crush into the avatar track */
+.chat-conv[data-mode="column"] .chat-conv-swipes {
+    grid-area: body;
+}
+
+/* What the evening cost so far. Hidden until there is a figure, so an idle header carries
+   no empty slot. */
+.chat-conv-session-tokens {
+    font-size: var(--font-3xs);
+    color: var(--cl-chat-narration);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+/* Reasoning is marginalia, not prose. */
+.chat-conv-msg-text details > summary {
+    font-size: var(--font-md);
+    font-weight: 500;
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-ui);
+    cursor: pointer;
+}
+
+.chat-conv-msg-text details > :not(summary) {
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    font-weight: 400;
+    color: var(--cl-veil-5);
+}
+
+/* authored art gets a width AND a height ceiling; !important beats an authored inline size */
+.chat-conv-msg-text img {
+    max-width: 100%;
+    max-height: 60vh;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+}
+
+/* a turn's pictures (a chat message's, an assistant or studio turn's): a wrapping row of thumbs under the text, each opening full screen */
+.cl-pics {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.cl-pic {
+    max-width: 100%;
+    padding: 0;
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    overflow: hidden;
+    cursor: zoom-in;
+    line-height: 0;
+    transition: border-color var(--dur-chat) ease;
+}
+
+.cl-pic:hover,
+.cl-pic:focus-visible { border-color: var(--accent); }
+
+.cl-pic img {
+    display: block;
+    max-width: 240px;
+    max-height: 180px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+/* ---- Motion ---- */
+/* Live append only, removed on animationend, or a 60-message page animates itself in. */
+.chat-conv-msg.entering { animation: chatMsgEnter var(--dur-fast) ease-out; }
+
+@keyframes chatMsgEnter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Opacity only: animating height here would reflow every row below mid-swipe. */
+.chat-conv-msg.swiping .chat-conv-msg-text {
+    opacity: 0.4;
+    transition: opacity var(--dur-base) ease-out;
+}
+
+.chat-conv-msg.streaming .chat-conv-msg-body { transform: none; }
+
+/* the one permitted ambient loop (user-disableable), on the last block so it trails the sentence being written */
+.chat-conv-msg.streaming .chat-conv-msg-text > :last-child::after,
+.chat-conv-msg.streaming .chat-conv-msg-text:empty::after {
+    content: '';
+    display: inline-block;
+    width: 1ch;
+    height: 1em;
+    vertical-align: -0.1em;
+    background: var(--accent-muted);
+    animation: chatCaretBreathe var(--dur-expand) ease-in-out infinite;
+}
+
+@keyframes chatCaretBreathe {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+html.cl-no-ambient .chat-conv-msg.streaming .chat-conv-msg-text > :last-child::after,
+html.cl-no-ambient .chat-conv-msg.streaming .chat-conv-msg-text:empty::after {
+    animation: none;
+    opacity: 1;
+}
+
+.chat-conv-msg.gen-error { border-color: rgba(var(--cl-error-rgb), 0.4); }
+
+/* header icons grouped by hairlines (people | media | reading | prompt | settings) so the row is learnable */
+.chat-conv-head-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--cl-ghost-mid);
+    flex-shrink: 0;
+    margin: 0 var(--space-2xs);
+}
+
+
+.chat-conv-error-act { margin-left: var(--space-sm); flex-shrink: 0; }
+
+.chat-conv-error {
+    margin: 0 var(--space-md) var(--space-sm);
+    padding: var(--space-sm) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    background: rgba(var(--cl-error-rgb), 0.12);
+    border: 1px solid var(--cl-error);
+    color: var(--cl-error-pale);
+    font-size: var(--font-sm);
+}
+
+/* extensions' buttons above the composer, in its controls' look: one row, the rest behind its More (fitRow) */
+.chat-conv-ext-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 0 var(--space-md) var(--space-2xs);
+}
+
+/* a hairline between one extension's buttons and the next one's */
+.chat-conv-ext-sep {
+    width: 1px;
+    height: var(--space-lg);
+    margin: 0 var(--space-2xs);
+    background: var(--cl-elev-hairline);
+    flex-shrink: 0;
+}
+
+/* pictures waiting for the next send (the chat composer's, the assistant's and the studio's), a strip above the box */
+.cl-pic-tray {
+    display: flex;
+    gap: var(--space-xs);
+    flex: 0 0 auto;
+    overflow-x: auto;
+}
+
+/* the conversation's strip sits in the extension strip's inset */
+.chat-conv-pending { padding: 0 var(--space-md) var(--space-xs); }
+
+.cl-pic-tray-item {
+    position: relative;
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    overflow: hidden;
+}
+
+.cl-pic-tray-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* the remove mark sits on the thumb's corner like the gallery tile's chat mark */
+.cl-pic-tray-remove {
+    position: absolute;
+    top: var(--space-2xs);
+    right: var(--space-2xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--cl-shade-60);
+    color: var(--text-primary);
+    font-size: var(--font-2xs);
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.cl-pic-tray-remove:hover,
+.cl-pic-tray-remove:focus-visible { opacity: 1; color: var(--accent); }
+
+/* dormant, hovered, focused; the container border is the focus affordance, a trade only this and the filter bar get */
+.chat-conv-composer {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-sm);
+    /* Symmetric. It was 8 top / 12 bottom, which pushed every control in the bar ~2px
+       above the centre of the rounded pill they sit in. */
+    padding: var(--space-sm) var(--space-md);
+    flex: 0 0 auto;
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-3xl);
+    opacity: 0.6;
+    transition: opacity var(--dur-chat) ease, border-color var(--dur-chat) ease;
+}
+
+/* the bar recedes while reading and comes forward when addressed; the one element allowed full opacity */
+.chat-conv-composer:hover { opacity: 0.8; }
+.chat-conv-composer:focus-within { opacity: 1; border-color: var(--accent); }
+.chat-conv-composer:focus-within .chat-conv-send { color: var(--accent); text-shadow: var(--cl-focus-glow); }
+
+/* every control is one --cl-chat-bar-h square, so flex-end puts them all on the field's centre line */
+.chat-conv-opt-btn,
+.chat-conv-attach,
+.chat-conv-quick,
+.chat-conv-send,
+.chat-conv-stop,
+.chat-conv-ext-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cl-chat-bar-h);
+    height: var(--cl-chat-bar-h);
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    color: var(--cl-chat-narration);
+    font-size: var(--font-md);
+    opacity: 0.6;
+    flex-shrink: 0;
+    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease, background var(--dur-chat) ease;
+}
+
+.chat-conv-opt-btn:hover,
+.chat-conv-attach:hover,
+.chat-conv-quick:hover,
+.chat-conv-send:hover,
+.chat-conv-stop:hover,
+.chat-conv-ext-btn:hover { opacity: 1; color: var(--accent); background: var(--cl-veil-1); }
+.chat-conv-opt-btn[aria-expanded="true"] { opacity: 1; color: var(--accent); }
+
+/* mandatory counter-rule: the display above beats .hidden, so send and stop would both paint */
+.chat-conv-send.hidden,
+.chat-conv-stop.hidden { display: none; }
+
+/* the committed action is told apart by colour; a filled disc was the loudest thing and off the line */
+.chat-conv-send { color: var(--accent); opacity: 0.85; }
+.chat-conv-stop { color: var(--cl-error); opacity: 0.85; }
+
+/* order, not DOM position: continue and impersonate always sit left of send however the
+   markup is later rearranged. */
+.chat-conv-composer-right {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+.chat-conv-composer-right .chat-conv-attach { order: 0; }
+.chat-conv-composer-right .chat-conv-quick { order: 1; }
+.chat-conv-composer-right .chat-conv-send,
+.chat-conv-composer-right .chat-conv-stop { order: 2; }
+
+/* opens UPWARD, so the base's top and right are unset: top beside bottom stretched it across the composer */
+.chat-conv-options-menu {
+    position: absolute;
+    top: auto;
+    right: auto;
+    bottom: calc(100% + var(--space-xs));
+    left: var(--space-sm);
+    margin-top: 0;
+    z-index: 6;
+    width: max-content;
+    min-width: 232px;
+    max-width: min(320px, calc(100% - 2 * var(--space-sm)));
+    max-height: 60vh;
+    overflow-y: auto;
+    box-shadow: var(--cl-shadow-ambient);
+}
+
+.chat-conv-options-menu .dropdown-section-title {
+    padding: var(--space-xs) var(--space-sm) var(--space-2xs);
+    font-size: var(--font-4xs);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.chat-conv-options-menu .dropdown-item[disabled] { opacity: var(--op-disabled); pointer-events: none; }
+
+/* a switch row reads label then state, the toggle at the far edge to keep the action rows' rhythm */
+.dropdown-item.is-toggle { align-items: center; }
+.dropdown-item.is-toggle > span { flex: 1; }
+
+.chat-conv-opt-state {
+    margin-left: auto;
+    font-size: var(--font-md);
+    color: var(--text-muted);
+    opacity: 0.7;
+    transition: color var(--dur-chat) ease, opacity var(--dur-chat) ease;
+}
+
+.chat-conv-opt-state.is-on { color: var(--accent); opacity: 1; }
+
+/* A row that holds state of the chat's own (the chat card) ends in the openers' still dot. */
+.chat-conv-opt-mark {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-circle);
+    background: var(--accent);
+}
+.chat-conv-options-menu .dropdown-item.danger:hover { color: var(--cl-error); }
+
+/* the Windows grid: a phone's only door to the panels; tiles keep eight to two lines, verbs in thumb reach */
+.chat-conv-win-grid {
+    display: grid;
+    /* minmax(0, ...): an extension window's long label ellipsizes in its column instead of widening it */
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-sm) var(--space-xs);
+}
+
+.chat-conv-win-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2xs);
+    min-height: var(--touch-target-min);
+    padding: var(--space-sm) var(--space-2xs);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.chat-conv-win-tile i {
+    font-size: var(--font-base);
+    color: var(--accent);
+}
+
+.chat-conv-win-tile span {
+    font-size: var(--font-3xs);
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.chat-conv-win-tile:active { background: var(--cl-ghost-mid); }
+
+/* a reply on its way behind a closed panel: its openers breathe; the options button's dot is still while the card row is marked */
+.chat-conv-header-right button.is-working,
+.ccs-opener.is-working,
+.chat-conv-header-right button.is-marked,
+.chat-conv-opt-btn.is-marked,
+.chat-conv-win-tile.is-working,
+.chat-conv-win-tile.is-marked { position: relative; }
+.chat-conv-header-right button.is-working::after,
+.ccs-opener.is-working::after,
+.chat-conv-header-right button.is-marked::after,
+.chat-conv-opt-btn.is-marked::after,
+.chat-conv-win-tile.is-working::after,
+.chat-conv-win-tile.is-marked::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-circle);
+    background: var(--accent);
+    pointer-events: none;
+}
+.chat-conv-header-right button.is-working::after,
+.ccs-opener.is-working::after,
+.chat-conv-win-tile.is-working::after { animation: cl-working-dot 1.2s ease-in-out infinite; }
+@keyframes cl-working-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Lit, not outlined: a text-shadow rather than a ring. */
+.chat-conv-composer:focus-within .chat-conv-send {
+    color: var(--accent);
+    text-shadow: var(--cl-focus-glow);
+}
+
+/* height from the buttons' token, so field and controls share a centre line; convAutosize grows it from there */
+.chat-conv-input {
+    flex: 1;
+    resize: none;
+    min-height: var(--cl-chat-bar-h);
+    max-height: 200px;
+    /* centres one line on the bar: a textarea puts spare height below the text; derived so the mobile bar centres too */
+    padding: calc((var(--cl-chat-bar-h) - 1.4em - 2px) / 2) var(--space-sm-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-md);
+    line-height: 1.4;
+}
+
+.chat-conv-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* impersonate's wait chip takes the textarea's slot (same chrome) until the first token or a cancel */
+.chat-conv-composer.gen-wait .chat-conv-input { display: none; }
+
+.chat-conv-gen-hint {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: var(--cl-chat-bar-h);
+    padding: calc((var(--cl-chat-bar-h) - 1.4em - 2px) / 2) var(--space-sm-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    background: var(--bg-secondary);
+    font-size: var(--font-md);
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
+.chat-conv-gen-hint i { color: var(--accent); font-size: var(--font-sm); }
+
+.chat-conv-input:disabled {
+    opacity: var(--op-disabled);
+}
+
+/* The grid scrolls the page; the conversation owns its own scroller, so the
+   view stops scrolling as a whole while a conversation is open. */
+#chatsView.conv-open {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* reading a chat isnt browsing the list: its controls go (they live outside #chatsView, hence the root class) */
+html.cl-chat-open #chatsFilterArea {
+    display: none;
+}
+
+/* the search box is the topbar's flex spacer, so it stays in flow, hidden; !important beats switchView's inline writes */
+html.cl-chat-open .search-area {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+/* a conversation is full-bleed: the gallery and view padding stacked into a dead band above the first message */
+html.cl-chat-open .gallery-content,
+html.cl-chat-open #chatsView {
+    padding: 0;
+}
+
+/* the bottom nav and search FAB paint over the composer and act on nothing here; Android back still closes */
+html.cl-chat-open.cl-mobile #mobileBottomNav,
+html.cl-chat-open.cl-mobile #mobileFab {
+    display: none !important;
+}
+
+/* the nav's reserved height would be 56px of dead band under the composer with the nav gone */
+html.cl-chat-open.cl-mobile .app-container {
+    padding-bottom: 0 !important;
+}
+
+/* a parked conversation reports through the toggles: breathing while generating, steady once a reply landed unseen */
+.view-toggle-btn[data-view="chats"],
+.mobile-bottom-nav-tab[data-view="chats"] {
+    position: relative;
+}
+
+.view-toggle-btn.cl-chat-live::after,
+.view-toggle-btn.cl-chat-unseen::after,
+.mobile-bottom-nav-tab.cl-chat-live::after,
+.mobile-bottom-nav-tab.cl-chat-unseen::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.6);
+    pointer-events: none;
+}
+
+.view-toggle-btn.cl-chat-live::after,
+.mobile-bottom-nav-tab.cl-chat-live::after {
+    animation: cl-chat-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes cl-chat-live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.75); }
+}
+
+/* ========================================
+   Chat Lore (chat-bound lorebook)
+   ======================================== */
+
+.chat-lore-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    background: rgba(var(--accent-rgb), 0.12);
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-xs);
+    max-width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The book name truncates; the icon never shrinks away. */
+.chat-lore-pill i {
+    font-size: var(--font-3xs);
+    opacity: 0.85;
+    flex-shrink: 0;
+}
+
+.chat-lore-modal-content {
+    width: min(460px, 92vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-lore-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.chat-lore-subhead {
+    font-size: var(--font-md);
+    color: var(--text-secondary);
+}
+
+.chat-lore-subhead strong {
+    color: var(--text-primary);
+}
+
+.chat-lore-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.chat-lore-search-wrap > i {
+    position: absolute;
+    left: var(--space-sm);
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+    pointer-events: none;
+}
+
+.chat-lore-search {
+    width: 100%;
+    padding-left: calc(var(--space-lg) + var(--space-sm));
+}
+
+.chat-lore-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-height: 0;
+}
+
+.chat-lore-empty {
+    padding: var(--space-xl);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+}
+
+.chat-lore-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid transparent;
+    background: var(--cl-veil-1);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background var(--dur-chat) ease, border-color var(--dur-chat) ease;
+}
+
+.chat-lore-row:hover {
+    background: var(--cl-veil-3);
+}
+
+.chat-lore-row.current {
+    background: rgba(var(--accent-rgb), 0.16);
+    border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.chat-lore-row > i:first-child {
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.chat-lore-row.current > i:first-child {
+    color: var(--accent);
+}
+
+.chat-lore-row-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--font-md);
+}
+
+.chat-lore-row-check {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+/* a bound name with no file behind it: said, not hidden, so it can still be unbound */
+.chat-lore-row-note {
+    flex-shrink: 0;
+    font-size: var(--font-xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.chat-lore-footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* ========================================
+   THE CONVERSATION WINDOW (canonical)
+   ======================================== */
+
+/* @canonical cl-cwin */
+
+/* the window face, self-hosted (no CDN reaches a self-contained install), scoped to the window family */
+@font-face {
+    font-family: 'InterVariable';
+    src: url('../../webfonts/InterVariable.woff2') format('woff2-variations');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+.cl-cwin {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    /* The layer takes no pointer events, so the conversation stays usable behind an open
+       panel. Only the sheet is interactive. */
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--dur-base) var(--ease-standard), visibility 0s linear var(--dur-base);
+}
+
+.cl-cwin.is-open {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--dur-base) var(--ease-standard);
+}
+
+.cl-cwin.is-open .cl-cwin-sheet { pointer-events: auto; }
+
+.cl-cwin-sheet {
+    position: absolute;
+    top: var(--fw-y, 0%);
+    left: var(--fw-x, auto);
+    height: var(--fw-h, 100%);
+    width: var(--fw-w, min(440px, 100%));
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--cl-elev-hairline);
+    border-radius: var(--radius-xl);
+    background: var(--cl-sheet-bg);
+    /* these float over the transcript, where prose reads through the gaps; docked panels too, one look */
+    backdrop-filter: blur(var(--cl-blur-panel)) saturate(var(--cl-sheet-saturate));
+    box-shadow: var(--cl-elev-shadow), inset 0 1px 0 var(--cl-sheet-highlight);
+    overflow: hidden;
+    font-family: 'InterVariable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* A window arrives, it does not appear: the same settle every .cl-modal does. */
+    transform: scale(0.96);
+    transition: transform var(--dur-base) var(--ease-standard);
+}
+
+.cl-cwin.is-open .cl-cwin-sheet { transform: none; }
+
+/* a closed window leaves layout and paint, its scroll kept; the delay holds content through the fade */
+.cl-cwin:not(.is-open) .cl-cwin-sheet {
+    content-visibility: hidden;
+    transition: transform var(--dur-base) var(--ease-standard), content-visibility 0s linear var(--dur-base);
+    transition-behavior: allow-discrete;
+}
+
+/* ---- Header ---- */
+
+/* compact, not cramped, on the ordinary space and font scales; only the square control size has its own token */
+.cl-cwin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--cl-elev-hairline);
+    /* The one header wash every window and dialog wears; the Header tint knob sets its strength. */
+    background: var(--cl-sheet-head);
+    flex-shrink: 0;
+    cursor: grab;
+}
+
+.cl-cwin-sheet.fw-moving .cl-cwin-header { cursor: grabbing; }
+.cl-cwin-header button { cursor: pointer; }
+
+/* ONE LINE, the gallery viewer's shape: glyph, name, separator, state; a stacked eyebrow made each window look like a page */
+.cl-cwin-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* The house title-glyph treatment: accent-to-secondary gradient clip, same as the
+   leading icon in every .cl-modal-header h3. */
+.cl-cwin-title > i {
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    flex-shrink: 0;
+    font-size: var(--font-xs);
+}
+
+.cl-cwin-name {
+    font-size: var(--font-md-lg);
+    line-height: 1.2;
+    font-weight: 500;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    /* a name past the header ends in an ellipsis; the meta gives first (its ratio below) */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* the name is fixed and the STATE gives way: Connect… beside a whole count is the wrong thing to keep */
+.cl-cwin-sep {
+    color: var(--text-muted);
+    opacity: 0.5;
+    flex-shrink: 0;
+    font-size: var(--font-3xs);
+    line-height: 1;
+}
+
+.cl-cwin-meta {
+    font-size: var(--font-2xs);
+    line-height: 1.2;
+    color: var(--text-secondary);
+    flex: 0 1000 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-cwin-meta b {
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* An empty state span must not leave a dangling separator. */
+.cl-cwin-meta:empty,
+.cl-cwin-meta:empty + .cl-cwin-sep,
+.cl-cwin-sep:has(+ .cl-cwin-meta:empty) { display: none; }
+
+.cl-cwin-controls {
+    display: flex;
+    gap: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+.cl-cwin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cl-cwin-btn);
+    height: var(--cl-cwin-btn);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--dur-chat) ease, color var(--dur-chat) ease;
+}
+
+/* Accent is reserved for the committed state; a hover is a veil, never a flood. */
+.cl-cwin-btn:hover { background: var(--cl-veil-2); color: var(--text-primary); }
+.cl-cwin-btn.is-on { background: var(--accent); color: var(--accent-text); }
+
+/* the dense text field the panels share, its mobile font floor included so no panel forgets the zoom-on-focus guard */
+/* A flat veil on the glass, the lore panel's shape adopted by the whole family. */
+.cl-cwin-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--cl-veil-1);
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-xs);
+    transition: border-color var(--dur-chat) ease;
+}
+
+.cl-cwin-input:focus { outline: none; border-color: var(--accent); }
+
+/* the family's converted selects: the container takes the layout slot, the trigger fills it, chrome stays OFF the select */
+.cl-cwin .custom-select-container,
+.ccs-panel .custom-select-container { display: flex; min-width: 0; }
+.cl-cwin .custom-select-trigger,
+.ccs-panel .custom-select-trigger {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    justify-content: space-between;
+}
+
+/* one control: a converted select wears the field's inset, corner and type, the connection editor's in Settings too */
+.cl-cwin .custom-select-trigger,
+.ccs-panel .custom-select-trigger,
+.ce-editor .custom-select-trigger {
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    font-size: var(--font-xs);
+}
+
+/* one-line fields stand on the family's control height, a floor larger text grows past; never a textarea, whose minimum it would lower */
+.cl-cwin-input:not(textarea),
+.cl-cwin .custom-select-trigger,
+.ccs-panel .custom-select-trigger,
+.ce-editor .custom-select-trigger { min-height: var(--cl-cwin-btn); }
+
+/* the phone: the input size on box and select alike (the zoom guard is the box's), and the touch floor */
+html.cl-mobile .cl-cwin-input,
+html.cl-mobile .cl-cwin .custom-select-trigger,
+html.cl-mobile .ccs-panel .custom-select-trigger,
+html.cl-mobile .ce-editor .custom-select-trigger { font-size: var(--mobile-input-size); }
+
+html.cl-mobile .cl-cwin-input:not(textarea),
+html.cl-mobile .cl-cwin .custom-select-trigger,
+html.cl-mobile .ccs-panel .custom-select-trigger,
+html.cl-mobile .ce-editor .custom-select-trigger { min-height: var(--touch-target-min); }
+
+/* a row holding a field: every button in it stands at the field's height, stretched to it where the row lays it out */
+.cl-cwin-fieldrow button:not(.custom-select-trigger) {
+    min-height: var(--cl-cwin-btn);
+    align-self: stretch;
+}
+
+html.cl-mobile .cl-cwin-fieldrow button:not(.custom-select-trigger) { min-height: var(--touch-target-min); }
+
+/* the slim filter bar, in the canon since the inspector needed the same one; is-empty turns the field red where the query was typed */
+.cl-cwin-filterbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    flex-shrink: 0;
+}
+
+.cl-cwin-filter-icon {
+    position: absolute;
+    left: calc(var(--space-md) + var(--space-sm));
+    color: var(--text-muted);
+    font-size: var(--font-2xs);
+    pointer-events: none;
+}
+
+/* the field takes the bar's free width, so verbs a window sets beside it keep theirs */
+.cl-cwin-filter {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-2xl);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-veil-2);
+    background: var(--cl-veil-1);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-xs);
+    min-height: var(--cl-cwin-btn);
+    transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.cl-cwin-filter:focus { outline: none; border-color: var(--accent); }
+
+.cl-cwin-filter.is-empty,
+.cl-cwin-filter.is-empty:focus { border-color: var(--cl-error); }
+
+/* Here rather than per panel, so a new one cannot forget the zoom-on-focus guard or the touch floor. */
+html.cl-mobile .cl-cwin-filter {
+    font-size: var(--mobile-input-size);
+    min-height: var(--touch-target-min);
+}
+
+/* Closing is the one destructive-feeling verb up here, and it is the only control that
+   goes red rather than accent. */
+.cl-cwin-btn.is-close:hover {
+    background: color-mix(in srgb, var(--cl-error) 30%, transparent);
+    color: var(--cl-error);
+}
+
+/* @canonical cl-range */
+.cl-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* track pseudos cant share a selector list across engines (one unknown pseudo kills the whole rule), hence the copies */
+.cl-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-xs);
+    background: linear-gradient(to right,
+        var(--accent) 0 var(--cl-range-fill, 50%),
+        var(--cl-ghost-mid) var(--cl-range-fill, 50%) 100%);
+}
+
+.cl-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: var(--radius-circle);
+    background: var(--accent);
+    border: 0;
+    box-shadow: var(--cl-shadow-sm);
+    transition: box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.cl-range:hover::-webkit-slider-thumb,
+.cl-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 1px 4px var(--cl-shade-40), 0 0 0 4px var(--cl-accent-tint);
+}
+
+.cl-range::-moz-range-track {
+    height: 4px;
+    border-radius: var(--radius-xs);
+    background: var(--cl-ghost-mid);
+}
+
+.cl-range::-moz-range-progress {
+    height: 4px;
+    border-radius: var(--radius-xs);
+    background: var(--accent);
+}
+
+.cl-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-circle);
+    background: var(--accent);
+    border: 0;
+    box-shadow: var(--cl-shadow-sm);
+    transition: box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.cl-range:hover::-moz-range-thumb,
+.cl-range:focus-visible::-moz-range-thumb {
+    box-shadow: 0 1px 4px var(--cl-shade-40), 0 0 0 4px var(--cl-accent-tint);
+}
+
+.cl-range:focus-visible { outline: none; }
+
+html.cl-mobile .cl-range {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+/* @canonical cl-cwin-btn-text */
+.cl-cwin-btn-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs-sm);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    padding: var(--space-2xs) var(--space-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    font-family: inherit;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+
+.cl-cwin-btn-text:hover:not(:disabled) {
+    background: var(--cl-ghost-mid);
+    border-color: var(--cl-ghost-strong);
+    color: var(--text-primary);
+}
+
+.cl-cwin-btn-text:disabled { opacity: var(--op-disabled); cursor: default; }
+
+.cl-cwin-btn-text.is-primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: var(--accent-text);
+}
+
+.cl-cwin-btn-text.is-primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+
+.cl-cwin-btn-text.is-danger { color: var(--cl-error-pale); border-color: var(--cl-error); }
+
+.cl-cwin-btn-text.is-danger:hover:not(:disabled) {
+    background: var(--cl-error);
+    border-color: var(--cl-error);
+    color: #fff;
+}
+
+html.cl-mobile .cl-cwin-btn-text {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}
+
+/* the composer strip: the ai-composer pill's language over a tool-capable grid, one copy for every strip */
+/* one row, bottom-anchored (tools, field, send), sized by --strip-ctl; a real tool set graduates to a toolbar row */
+.cl-cwin-input-row {
+    --strip-ctl: 32px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: end;
+    gap: var(--space-xs);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-2xl);
+    background: var(--cl-shade-20);
+    padding: var(--space-xs-sm);
+    transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.cl-cwin-input-row:focus-within { border-color: rgba(var(--accent-rgb), 0.4); }
+
+/* display: grid above outranks the global .hidden; a consumer that hides its row by the
+   class needs it honoured (the attribute always wins). */
+.cl-cwin-input-row.hidden { display: none; }
+
+/* source order [tools][textarea][send] for focus; send/stop share the last cell; ghost circles so the field owns the plate */
+.cl-cwin-input-row > button {
+    grid-row: 1;
+    grid-column: 1;
+    width: var(--strip-ctl);
+    height: var(--strip-ctl);
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-circle);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-sm);
+    transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+.cl-cwin-input-row > button:hover {
+    background: rgba(var(--accent-rgb), 0.12);
+    border-color: rgba(var(--accent-rgb), 0.3);
+    color: var(--accent);
+}
+.cl-cwin-input-row > button.cl-cwin-send { grid-column: 3; }
+
+/* a tool that belongs to what is sent (a panel's paperclip) sits beside send, in a fourth cell */
+.cl-cwin-input-row.has-end-tool { grid-template-columns: auto 1fr auto auto; }
+.cl-cwin-input-row > button.cl-cwin-tool-end { grid-column: 3; }
+.cl-cwin-input-row.has-end-tool > button.cl-cwin-send { grid-column: 4; }
+
+/* the composer's own text size; the rest height meets the controls, one row of aligned circles round a centred line */
+.cl-cwin-input-row > textarea {
+    grid-row: 1;
+    grid-column: 2;
+    resize: none;
+    min-height: var(--strip-ctl);
+    max-height: 9em;
+    overflow-y: auto;
+    line-height: 1.4;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-md);
+    padding: calc((var(--strip-ctl) - 1.4em) / 2) var(--space-xs);
+}
+
+.cl-cwin-input-row > textarea:focus { outline: none; }
+.cl-cwin-input-row > textarea::placeholder { color: var(--text-secondary); opacity: 0.5; }
+
+/* The stop face, same soft tint vocabulary as .cl-ai-send.is-stop. */
+.cl-cwin-send.is-stop {
+    background: rgba(229, 115, 115, 0.15);
+    border-color: rgba(229, 115, 115, 0.25);
+    color: var(--cl-error-pale);
+}
+.cl-cwin-send.is-stop:hover { background: rgba(229, 115, 115, 0.3); }
+
+/* MANDATORY counter-rule. display: grid above outranks the global low-specificity
+   .hidden, so without this both send and stop paint at once. */
+.cl-cwin-input-row > button.hidden { display: none; }
+
+/* On a phone the controls take the pill's own mobile size and the field follows the
+   knob through the base calcs. */
+html.cl-mobile .cl-cwin-input-row { --strip-ctl: 36px; }
+
+html.cl-mobile .cl-cwin-input-row > button { touch-action: manipulation; }
+
+html.cl-mobile .cl-cwin-input-row > textarea {
+    font-size: var(--mobile-input-size);
+}
+
+/* @canonical cl-cwin-row */
+.cl-cwin-row {
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    transition: background var(--dur-base) var(--ease-standard), border-color var(--dur-base) var(--ease-standard);
+}
+
+.cl-cwin-row:hover {
+    background: var(--cl-ghost-mid);
+    border-color: var(--cl-ghost-strong);
+}
+
+.cl-cwin-row.is-active {
+    box-shadow: inset 2px 0 0 var(--accent);
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+}
+/* Held open for editing, not in use: a ghost step, no accent. */
+.cl-cwin-row.is-editing { background: var(--cl-ghost-mid); border-color: var(--cl-ghost-strong); }
+/* a switched-off row dims whole; a panel whose toggle must stay bright keeps a local child rule (cpm-off) */
+.cl-cwin-row.is-off { opacity: var(--op-disabled); }
+
+/* @canonical cl-cwin-tag */
+.cl-cwin-tag {
+    flex-shrink: 0;
+    padding: 1px var(--space-2xs);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-4xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-ui);
+    background: var(--cl-veil-2);
+    color: var(--text-secondary);
+}
+.cl-cwin-tag.is-accent { background: rgba(var(--accent-rgb), 0.2); color: var(--accent); }
+
+/* @canonical cl-cwin-inforce */
+/* first in a window holding a per-chat choice: what is in force in this chat, and whose choice it is */
+.cl-cwin-inforce {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
+    border-radius: var(--radius-lg);
+    background: var(--cl-accent-tint);
+    flex-shrink: 0;
+}
+.cl-cwin-inforce > i {
+    font-size: var(--font-lg);
+    color: var(--accent);
+    flex-shrink: 0;
+}
+.cl-cwin-inforce > div {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+.cl-cwin-inforce > div > strong {
+    font-size: var(--font-md-lg);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cl-cwin-inforce > div > span {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+/* nothing chosen is a state, not an error: muted, since plenty of readers never choose and nothing is broken */
+.cl-cwin-inforce.is-none {
+    border-color: var(--cl-ghost-strong);
+    background: var(--cl-ghost-soft);
+}
+.cl-cwin-inforce.is-none > i { color: var(--text-faint); }
+
+/* @canonical cl-cwin-tile */
+.cl-cwin-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: var(--space-xs-sm);
+}
+
+.cl-cwin-tile {
+    aspect-ratio: 16 / 10;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.cl-cwin-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cl-cwin-tile:hover {
+    border-color: var(--cl-ghost-heavy);
+    transform: translateY(-1px);
+    box-shadow: var(--cl-shadow-md);
+}
+.cl-cwin-tile.is-active { border-color: var(--accent); }
+
+html.cl-mobile .cl-cwin-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+
+/* @canonical cl-cwin-empty */
+.cl-cwin-empty {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-2xl) var(--space-md);
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: var(--font-sm);
+}
+
+.cl-cwin-empty > i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-circle);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+    font-size: var(--font-lg);
+    flex-shrink: 0;
+}
+
+.cl-cwin-empty.is-error > i {
+    background: color-mix(in srgb, var(--cl-error) 12%, transparent);
+    color: var(--cl-error);
+}
+
+.cl-cwin-empty p { margin: 0; }
+
+.cl-cwin-dim {
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    max-width: 34em;
+}
+
+
+/* ---- Body ---- */
+
+.cl-cwin-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* ---- Extension windows ---- */
+
+/* the host pads its shell (the canon body has none), so an extension gets a padded box to render into */
+.cxw-body { padding: var(--space-md); }
+/* One hairline between the first-party openers and the extension ones. */
+.chat-conv-header-right .cxw-sep {
+    width: 1px;
+    height: var(--space-lg);
+    margin: 0 var(--space-2xs);
+    background: var(--cl-elev-hairline);
+    flex-shrink: 0;
+}
+.cxw-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--cl-warning);
+    font-size: var(--font-sm);
+}
+
+/* ---- Mobile ---- */
+
+/* full screen, no grips, slim-tier controls: a floating window is a postage stamp on a phone */
+html.cl-mobile .cl-cwin-sheet {
+    width: 100% !important;
+    height: 100% !important;
+    left: 0 !important;
+    top: 0 !important;
+    border: 0;
+    border-radius: 0;
+    /* Full-viewport, so nothing shows through: the solid form, and the phone pays no blur. */
+    background: var(--cl-sheet-bg-mobile);
+    backdrop-filter: var(--cl-blur-mobile);
+}
+
+/* chrome buttons take the slim tier: full-floor squares made buttoned headers chunky beside close-only ones */
+html.cl-mobile .cl-cwin-btn {
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+    font-size: var(--font-sm);
+}
+
+/* closing navigates back on mobile (the X is desktop chrome); one band height, so slim buttons in flow match a close-only header */
+html.cl-mobile .cl-cwin-header {
+    position: relative;
+    padding-left: var(--back-arrow-zone);
+    padding-block: 0;
+    height: calc(var(--touch-target-slim) + 2 * var(--space-xs));
+}
+html.cl-mobile .cl-cwin-btn.is-close {
+    position: absolute;
+    top: 50%;
+    left: var(--space-sm);
+    transform: translateY(-50%);
+    background: transparent;
+    z-index: 5;
+    touch-action: manipulation;
+}
+html.cl-mobile .cl-cwin-btn.is-close i { display: none; }
+html.cl-mobile .cl-cwin-btn.is-close::before {
+    content: '\f060';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    font-size: var(--font-xl);
+    line-height: 1;
+    color: var(--text-secondary);
+}
+html.cl-mobile .cl-cwin-btn.is-close:active::before { color: var(--text-primary); }
+
+html.cl-hide-back-arrows.cl-mobile .cl-cwin-btn.is-close {
+    display: none !important;
+    visibility: hidden !important;
+}
+html.cl-hide-back-arrows.cl-mobile .cl-cwin-header {
+    padding-left: var(--space-md) !important;
+}
+
+
+/* ========================================
+   Mobile Overrides
+   ======================================== */
+/* THE performance rule: two stacked backdrop-filters over a scroller tank mobile GPUs, so the plate loses only its blur */
+html.cl-mobile .chat-conv-column::before {
+    backdrop-filter: var(--cl-blur-mobile);
+    -webkit-backdrop-filter: var(--cl-blur-mobile);
+}
+
+html.cl-mobile {
+    --cl-chat-measure: none;
+    --cl-chat-bar-h: 40px;
+}
+
+html.cl-mobile .chat-conv-column { padding: 0; width: 100%; }
+html.cl-mobile .chat-conv-messages {
+    padding: 0 var(--space-sm);
+    scrollbar-width: none;
+}
+html.cl-mobile .chat-conv-messages::-webkit-scrollbar { display: none; }
+
+/* no indent and no full-width name: the grid already gives the band its column beside the avatar */
+html.cl-mobile .chat-conv-msg-name { margin: 0; }
+
+/* The reference's 24x20 target loses to the platform floor unconditionally; the glyph
+   just sits inside it. */
+/* two targets on the band (edit, more), glyphs a step calmer than the square; regenerate moves to the sheet */
+html.cl-mobile .chat-conv-msg-act {
+    font-size: var(--font-base);
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Edit and regenerate ride the overflow sheet on a phone (the harvest in
+   convOpenRowActionSheet picks them up); one ellipsis keeps the name readable. */
+html.cl-mobile .chat-conv-msg-actions [data-act="edit"],
+html.cl-mobile .chat-conv-msg-actions [data-act="regenerate"] { display: none; }
+
+/* expanded actions is desktop-only, so its switch doesnt sit in the phone's sheet looking functional */
+html.cl-mobile [data-opt="display:chatExpandActions"] { display: none; }
+
+/* The chips give back what they can too: same size, less air. */
+html.cl-mobile .chat-conv-msg-chip { padding: 0 var(--space-2xs); }
+/* the slot is a desktop spacer for the hover cluster; at the touch floor it was a 44px hole per row */
+html.cl-mobile .chat-conv-msg-act-slot { display: none; }
+
+/* the pill reads as the desktop's; a tap area past each button's edge keeps the platform floor */
+html.cl-mobile .chat-conv-msg {
+    --swipe-btn: 26px;
+    --swipe-gap: 0px;
+}
+/* inboard of the phone's edge, so a right-edge back-gesture swipe cannot land on the chevron */
+html.cl-mobile .chat-conv-swipes { right: var(--space-sm); background: var(--cl-veil-1); }
+html.cl-mobile .chat-conv-swipe-btn { position: relative; font-size: var(--font-xs); }
+html.cl-mobile .chat-conv-swipe-btn::before {
+    content: '';
+    position: absolute;
+    inset: calc((var(--touch-target-min) - var(--swipe-btn)) / -2);
+}
+/* next and the combiner split the gap between them, so a tap on one's face never opens the other (1px: the hairline) */
+html.cl-mobile .chat-conv-swipe-btn:has(+ .chat-conv-swipe-combine)::before { right: calc(var(--space-2xs) / -2); }
+html.cl-mobile .chat-conv-swipe-combine::before { left: calc(var(--space-2xs) / -2 - 1px); }
+
+/* a name row sits nearer its own bubble than the bubble before it */
+html.cl-mobile .chat-conv[data-mode="column"] .chat-conv-msg { margin-top: var(--space-2xs); }
+
+/* three targets, not five (the overflow took the rest), so the band stays one line */
+html.cl-mobile .chat-conv-msg-head {
+    min-height: 0;
+    row-gap: 0;
+    flex-wrap: nowrap;
+}
+
+html.cl-mobile .chat-conv-msg-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+html.cl-mobile .chat-conv-msg-actions {
+    justify-content: flex-end;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+html.cl-mobile .chat-conv-msg-text img { max-height: 50vh; }
+/* A wide table or code block should pan horizontally without stealing the page scroll. */
+html.cl-mobile .chat-conv-msg-text .cl-table-scroll,
+html.cl-mobile .chat-conv-msg-text pre { touch-action: pan-x; }
+
+/* No hover on touch, so the copy affordance rests visible and takes a real hit area. */
+html.cl-mobile .chat-conv-msg-text .cl-code-copy {
+    opacity: 0.7;
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+}
+
+/* the strip lines up with the docked composer; its buttons are an icon cluster, so the slim tier */
+html.cl-mobile .chat-conv-ext-strip { padding: var(--space-2xs) var(--space-lg); }
+html.cl-mobile .chat-conv-ext-btn {
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+    opacity: 0.8;
+    touch-action: manipulation;
+}
+
+/* composer controls at the platform floor; the quick buttons fold away (both verbs are in the options sheet) */
+html.cl-mobile .chat-conv-opt-btn {
+    grid-area: left;
+    justify-self: start;
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    opacity: 0.8;
+}
+
+html.cl-mobile .chat-conv-quick { display: none; }
+
+/* the overflow verbs open as a sheet built from these buttons, so the group stays in the DOM, unseen */
+html.cl-mobile .chat-conv-msg-overflow { display: none; }
+
+/* Docked composer. padding-bottom must follow the shorthand or the safe-area inset is
+   overwritten by the shorthand's zero. */
+html.cl-mobile .chat-conv-composer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "textarea textarea" "left right";
+    gap: 0;
+    padding: var(--space-sm) var(--space-lg) 0;
+    margin-bottom: 0;
+    border: 0;
+    border-top: 1px solid var(--cl-veil-4);
+    border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--cl-shade-60) 50%, transparent);
+    padding-bottom: var(--safe-bottom);
+}
+html.cl-mobile .chat-conv-composer:focus-within {
+    border-top-color: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+}
+html.cl-mobile .chat-conv-input {
+    grid-area: textarea;
+    width: 100%;
+    /* the desktop field's centring rule; a flat 5px parked one line ~4px high */
+    padding: calc((var(--cl-chat-bar-h) - 1.4em - 2px) / 2) var(--space-xs-sm);
+    margin-top: var(--space-xs);
+    box-sizing: border-box;
+    font-size: var(--mobile-input-size);
+}
+html.cl-mobile .chat-conv-gen-hint {
+    grid-area: textarea;
+    width: 100%;
+    padding: calc((var(--cl-chat-bar-h) - 1.4em - 2px) / 2) var(--space-xs-sm);
+    margin-top: var(--space-xs);
+    box-sizing: border-box;
+    font-size: var(--mobile-input-size);
+}
+html.cl-mobile .chat-conv-composer-right { grid-area: right; justify-content: flex-end; margin: var(--space-xs) 0; }
+html.cl-mobile .chat-conv-composer-right > * { width: var(--mobile-input-size); }
+/* the CLUSTER is the grid child, or send is placed as an item and flex-shrunk to an ellipse */
+html.cl-mobile .chat-conv-composer-right {
+    grid-area: right;
+    justify-self: end;
+    align-items: center;
+}
+
+html.cl-mobile .chat-conv-send,
+html.cl-mobile .chat-conv-stop,
+html.cl-mobile .chat-conv-attach,
+html.cl-mobile .chat-conv-quick,
+html.cl-mobile .chat-conv-opt-btn {
+    flex: 0 0 auto;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* mandatory counter-rule: the rule above outranks .hidden, so send and stop would both paint */
+html.cl-mobile .chat-conv-send.hidden,
+html.cl-mobile .chat-conv-stop.hidden { display: none !important; }
+html.cl-mobile .chat-conv-pending { padding: var(--space-xs) var(--space-lg); }
+html.cl-mobile .cl-pic-tray-item { width: 72px; height: 72px; }
+html.cl-mobile .cl-pic-tray-remove { width: var(--touch-target-slim); height: var(--touch-target-slim); }
+/* a phone fits two of a turn's pictures to a row */
+html.cl-mobile .cl-pic img { max-width: 160px; max-height: 160px; }
+
+html.cl-mobile .chat-conv-header {
+    padding: var(--space-xs) var(--space-sm);
+    backdrop-filter: var(--cl-blur-mobile);
+    -webkit-backdrop-filter: var(--cl-blur-mobile);
+}
+
+/* who you talk to is the point of this bar: the name takes the room, controls collapse to glyphs */
+html.cl-mobile .chat-conv-heading {
+    flex: 1 1 0;
+    min-width: 0;
+    position: relative;
+    min-height: var(--touch-target-min);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+html.cl-mobile .chat-conv-title,
+html.cl-mobile .chat-conv-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+html.cl-mobile .chat-conv-title {
+    font-size: var(--font-md-lg);
+    font-weight: 700;
+    color: var(--cl-chat-body);
+    touch-action: manipulation;
+}
+/* the title opens the character, and its tap area is the whole name block, both lines */
+html.cl-mobile .chat-conv-title::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+}
+
+/* The chat's own name is the second thing you need, not the first: it is nearly always a
+   generated timestamp. */
+html.cl-mobile .chat-conv-sub {
+    font-size: var(--font-3xs);
+    color: var(--text-muted);
+}
+
+html.cl-mobile .chat-conv-avatar { width: 34px; height: 34px; }
+/* The slim chrome tier for the whole cluster, stated once like the desktop rule above it. */
+html.cl-mobile .chat-conv-header-right button {
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+}
+
+/* panel openers give the header back on a phone; each is a Windows tile, kept in the DOM since tiles click them */
+html.cl-mobile .chat-conv-header-right > :not(.chat-conv-minimize) { display: none; }
+html.cl-mobile .chat-conv-header-right { gap: 0; }
+
+/* the one view-switch a phone has inside a chat; plain navigation, switchView's bridge parks the chat */
+html.cl-mobile .chat-conv-minimize {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-md);
+    border-radius: var(--radius-md);
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+    flex-shrink: 0;
+    touch-action: manipulation;
+}
+
+html.cl-mobile .chat-conv-minimize:active {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.12);
+}
+html.cl-mobile .ccm-open-btn {
+    max-width: none;
+    flex: 0 0 auto;
+    justify-content: center;
+}
+html.cl-mobile .chat-conv-jump { right: var(--space-sm); bottom: var(--space-sm); }
+
+html.cl-mobile .chat-lore-search { font-size: var(--mobile-input-size); }
+html.cl-mobile .chat-lore-row { min-height: 48px; }
+/* Partial-height comes from the shared .cl-drawer-partial class (library-mobile.css). */
+
+/* the modal's chat button on a phone: a compact accent pill with its label; the chain outweighs .modal-controls .cl-btn */
+html.cl-mobile .modal-controls .cl-btn.modal-chat-btn {
+    min-height: var(--touch-target-slim);
+    padding: 0 var(--space-md);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    gap: var(--space-xs);
+    border-radius: var(--radius-pill);
+    margin-right: var(--space-sm-md);
+    background: rgba(var(--accent-rgb), 0.14);
+    color: var(--accent);
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    box-shadow: none;
+}
+html.cl-mobile .modal-controls .cl-btn.modal-chat-btn i {
+    font-size: var(--font-sm);
+    color: var(--accent);
+}
+html.cl-mobile .mobile-chat-hidden {
+    display: none !important;
+}
+
+/* Chats tab (inside character modal) */
+html.cl-mobile .chats-header { display: none !important; }
+html.cl-mobile .chats-list { max-height: none; gap: var(--space-xs-sm); }
+html.cl-mobile .chat-item { padding: var(--space-sm-md); gap: var(--space-sm-md); flex-wrap: wrap; }
+html.cl-mobile .chat-item-icon { width: 32px; height: 32px; font-size: var(--font-sm); border-radius: var(--radius-lg); margin-right: 0; }
+html.cl-mobile .chat-item-info { min-width: 0; }
+html.cl-mobile .chat-item-name { font-size: var(--font-md); }
+html.cl-mobile .chat-item-meta { font-size: var(--font-2xs); gap: var(--space-sm); flex-wrap: wrap; }
+/* The action row collapses behind the kebab; tapping it reveals the buttons as a full-width row. */
+html.cl-mobile .chat-item-kebab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--touch-target-min); height: var(--touch-target-min);
+    min-width: var(--touch-target-min); min-height: var(--touch-target-min);
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    background: var(--cl-shade-30);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+html.cl-mobile .chat-item-actions {
+    display: none;
+    opacity: 1;
+    flex-basis: 100%;
+    justify-content: flex-end;
+    gap: var(--space-xs);
+}
+html.cl-mobile .chat-item.menu-open .chat-item-actions { display: flex; }
+html.cl-mobile .chat-action-btn { width: var(--touch-target-min); height: var(--touch-target-min); min-width: var(--touch-target-min); min-height: var(--touch-target-min); border-radius: var(--radius-lg); }
+
+/* Let gallery-content own the scroll; nested overflow left a 40px gap */
+html.cl-mobile .chats-view {
+    padding: var(--space-sm);
+    padding-bottom: 0;
+    height: auto;
+    overflow-y: visible;
+}
+html.cl-mobile .chat-band-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+}
+html.cl-mobile .chat-band { gap: var(--space-sm); }
+html.cl-mobile .chat-band-head { gap: var(--space-sm); }
+
+/* Flat chat tiles */
+html.cl-mobile .chat-card {
+    padding: var(--space-sm-md);
+    gap: var(--space-sm);
+    border-radius: var(--radius-xl);
+}
+html.cl-mobile .chat-card:hover {
+    transform: none;
+    background: var(--cl-ghost-soft);
+    border-color: var(--cl-ghost-mid);
+    box-shadow: none;
+}
+html.cl-mobile .chat-hero:hover {
+    transform: none;
+    box-shadow: var(--cl-shadow-md);
+}
+/* the hero on a phone: tile padding, a narrower poster so the words get the column (the name ran under the edge at 360px) */
+html.cl-mobile .chats-grid { gap: var(--space-md); }
+html.cl-mobile .chat-hero {
+    align-items: center;
+    padding: var(--space-sm-md);
+    gap: var(--space-sm-md);
+    border-radius: var(--radius-xl);
+}
+html.cl-mobile .chat-hero-poster {
+    width: 84px;
+    height: 112px;
+    border-radius: var(--radius-md);
+}
+html.cl-mobile .chat-hero-play {
+    left: var(--space-xs);
+    bottom: var(--space-xs);
+    width: 26px;
+    height: 26px;
+}
+html.cl-mobile .chat-hero-main {
+    gap: var(--space-xs);
+    padding-right: 0;
+}
+html.cl-mobile .chat-hero-title {
+    font-size: var(--font-lg);
+    line-height: 1.2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+html.cl-mobile .chat-hero-meta {
+    row-gap: var(--space-2xs);
+    font-size: var(--font-xs);
+}
+html.cl-mobile .chat-hero-meta > .chat-hero-char {
+    flex: 0 0 100%;
+    font-size: var(--font-sm);
+}
+/* the line after the character's own opens with no dot */
+html.cl-mobile .chat-hero-meta > .chat-hero-char + span::before { content: none; }
+html.cl-mobile .chat-hero-preview {
+    margin-top: var(--space-2xs);
+    padding-left: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    line-height: 1.4;
+}
+html.cl-mobile .chat-card-avatar-size,
+html.cl-mobile .chat-card-avatar-fallback { width: var(--avatar-sm); height: var(--avatar-sm); }
+html.cl-mobile .chat-card-title { font-size: var(--font-md); }
+html.cl-mobile .chat-card-preview {
+    font-size: var(--font-xs);
+    line-height: 1.4;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    word-break: break-word;
+}
+/* the row's verbs live in the sheet on a phone (kebab or long press); the top row leaves the corner to the kebab */
+html.cl-mobile .chat-card-actions { display: none; }
+html.cl-mobile .chat-card-kebab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: var(--space-2xs);
+    right: var(--space-2xs);
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    cursor: pointer;
+}
+html.cl-mobile .chat-card-top,
+html.cl-mobile .chat-layout-cards .chat-card-header { padding-right: var(--touch-target-slim); }
+
+/* Cards layout on phones: the previous card, one column */
+html.cl-mobile .chat-layout-cards .chat-card { padding: 0; gap: 0; }
+html.cl-mobile .chat-layout-cards .chat-card-header { padding: var(--space-sm) var(--space-sm-md); gap: var(--space-sm); }
+html.cl-mobile .chat-layout-cards .chat-card-avatar-size,
+html.cl-mobile .chat-layout-cards .chat-card-avatar-fallback { width: var(--avatar-sm); height: var(--avatar-sm); }
+html.cl-mobile .chat-card-char-name { font-size: var(--font-md); }
+html.cl-mobile .chat-card-chat-name { font-size: var(--font-2xs); }
+html.cl-mobile .chat-card-body { padding: var(--space-sm) var(--space-sm-md); gap: var(--space-xs); }
+html.cl-mobile .chat-layout-cards .chat-card-preview {
+    min-height: 0;
+    padding: var(--space-xs-sm) var(--space-sm);
+    border-radius: var(--radius-md);
+}
+html.cl-mobile .chat-card-footer { padding: var(--space-xs-sm) var(--space-sm-md); font-size: var(--font-2xs); }
+html.cl-mobile .chat-card-meta { gap: var(--space-sm); }
+
+/* Chats empty/loading states */
+html.cl-mobile .chats-empty { padding: 40px var(--space-lg); }
+html.cl-mobile .chats-empty i { font-size: 2.5rem; }
+html.cl-mobile .chats-empty h3 { font-size: var(--font-base); }
+html.cl-mobile .chats-empty p { font-size: var(--font-md); }
+html.cl-mobile .chats-view .chats-loading { padding: 40px; font-size: var(--font-base); }
+
+/* ========================================
+ * THE FORM FAMILY (.cl-cwin-group, -field, -block, -label, -hint and the rest): the
+ * label-and-control vocabulary every window with a form shares (chat settings, the chat
+ * card, connections, lore, the prompt manager, the assistant, personas, the creator studio).
+ * It lives here because every one of those sheets reads it; a panel sheet may add a local
+ * modifier, never redeclare one of these rules. A field is the canon .cl-cwin-input, its
+ * size the canon's.
+ * ======================================== */
+.cl-cwin-group {
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md) var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+.cl-cwin-group-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin: 0;
+    font-size: var(--font-md-lg);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+}
+
+.cl-cwin-group-title i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-md);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    flex-shrink: 0;
+}
+
+.cl-cwin-group-note {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    line-height: var(--leading-prose);
+}
+
+.cl-cwin-fields {
+    display: flex;
+    flex-direction: column;
+}
+
+.cl-cwin-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) 0;
+}
+
+.cl-cwin-block + .cl-cwin-block {
+    border-top: 1px solid var(--cl-elev-hairline);
+}
+
+.cl-cwin-block:last-child { padding-bottom: 0; }
+
+
+.cl-cwin-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    min-height: 24px;
+}
+
+.cl-cwin-field-label {
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+}
+
+.cl-cwin-field-control {
+    flex: 0 1 55%;
+    min-width: 0;
+}
+
+.cl-cwin-label {
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+}
+
+.cl-cwin-textarea {
+    resize: vertical;
+    min-height: 4.5em;
+    line-height: var(--leading-prose);
+    font-family: inherit;
+}
+
+.cl-cwin-toggle { cursor: pointer; }
+
+/* one extension window per row: a name line that shortens (the extension's gives first), then a switch per form factor */
+.cl-cwin-ext-id { display: flex; align-items: baseline; gap: var(--space-xs); min-width: 0; overflow: hidden; }
+.cl-cwin-ext-id i { flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-sm); }
+.cl-cwin-ext-name,
+.cl-cwin-ext-owner { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-cwin-ext-name { flex: 0 1 auto; }
+.cl-cwin-ext-owner { flex: 0 1000 auto; color: var(--text-faint); font-size: var(--font-xs); }
+.cl-cwin-ext-scopes { display: flex; align-items: center; gap: var(--space-md); flex-shrink: 0; }
+.cl-cwin-ext-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cl-cwin-range-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex: 0 1 55%;
+    min-width: 0;
+}
+
+.cl-cwin-range {
+    flex: 1;
+    min-width: 0;
+}
+
+.cl-cwin-readout {
+    flex: 0 0 auto;
+    min-width: 2.6em;
+    text-align: right;
+    font-size: var(--font-3xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-cwin-hint {
+    margin: 0;
+    padding-left: var(--space-sm);
+    border-left: 2px solid var(--cl-veil-2);
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    line-height: var(--leading-prose);
+}
+
+/* a phone reads a form row in two lines, label then full-width control; a toggle keeps its side-by-side shape */
+html.cl-mobile .cl-cwin-field:not(.cl-cwin-toggle) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--space-2xs);
+}
+
+html.cl-mobile .cl-cwin-field:not(.cl-cwin-toggle) > * {
+    width: 100%;
+    max-width: 100%;
+}
+
+html.cl-mobile .cl-cwin-toggle {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .cl-cwin-range {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}

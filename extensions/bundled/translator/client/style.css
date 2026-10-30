@@ -1,0 +1,84 @@
+/* The Translator's block inside a message: the reasoning disclosure's quiet left rule, a head naming
+   the language with the toggle, then the translation */
+.xtr-translation {
+    border-left: 1.5px solid var(--cl-veil-5);
+    padding-left: var(--space-md);
+    margin-top: var(--space-sm);
+}
+
+.xtr-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-ui);
+}
+
+.xtr-toggle {
+    margin-left: auto;
+    padding: var(--space-2xs) var(--space-xs);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--cl-chat-narration);
+    font: inherit;
+    cursor: pointer;
+}
+
+.xtr-toggle:hover { background: var(--cl-veil-2); }
+
+.xtr-text { margin-top: var(--space-xs); }
+
+/* In place: the original stays out until the toggle brings it back. Flipped either way, the
+   translation folds to its head. */
+html.xtr-mode-replace .xtr-wrap:not(.xtr-flipped) > .xtr-original { display: none; }
+.xtr-wrap.xtr-flipped > .xtr-translation > .xtr-text { display: none; }
+
+html.cl-mobile .xtr-toggle { min-height: var(--touch-target-slim); }
+
+/* The chat's choices, a window of the conversation; the whole body, so a read's state centers in it */
+.xtr-win {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    height: 100%;
+    min-height: 0;
+}
+
+.xtr-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.xtr-label {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.xtr-switch {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+/* the switch row is a list row on a phone: the full tier */
+html.cl-mobile .xtr-switch {
+    min-height: var(--touch-target-min);
+}
+
+.xtr-hint {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+/* the settings section's language, a name rather than a sentence */
+.xtr-lang-input {
+    width: 16em;
+    max-width: 100%;
+}

@@ -1,0 +1,51 @@
+/* ============================================
+   ChubAI Browse CSS
+   Extracted from library.css
+   ============================================ */
+
+/* Chub Gallery Info Modal */
+.chub-gallery-modal-content {
+    max-width: calc(600px * var(--modal-scale, 1));
+}
+
+[data-select-id="chubAuthorSortSelect"] .custom-select-trigger {
+    min-width: 150px;
+    font-size: var(--font-md);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+}
+
+
+/* ChubAI Favorite Button - Inline version in header */
+.chub-favorite-btn-inline {
+    cursor: pointer;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    transition: all var(--dur-base) ease;
+    background: transparent;
+}
+
+.chub-favorite-btn-inline:hover {
+    background: rgba(255, 100, 100, 0.15);
+}
+
+.chub-favorite-btn-inline i {
+    color: var(--cl-error-vivid);
+    transition: transform var(--dur-base) ease;
+}
+
+.chub-favorite-btn-inline:hover i {
+    transform: scale(1.15);
+}
+
+.chub-favorite-btn-inline.favorited i {
+    font-weight: 900;
+}
+
+.chub-favorite-btn-inline.favorited {
+    background: rgba(255, 100, 100, 0.1);
+}
+
+.chub-favorite-btn-inline.loading {
+    pointer-events: none;
+    opacity: 0.6;
+}

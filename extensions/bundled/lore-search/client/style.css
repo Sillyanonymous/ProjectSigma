@@ -1,0 +1,209 @@
+/* Lore Search: its dialog on the app's .cl-modal; the box is the link picker's shape, a result a quiet card. */
+
+/* a fixed height, so the dialog holds still as results come and go; the dialog family's own
+   max-height keeps it inside a short window */
+.cl-modal-content.lsr-content {
+    width: 100%;
+    max-width: calc(720px * var(--modal-scale, 1));
+    height: calc(600px * var(--modal-scale, 1));
+}
+
+.lsr-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+/* the chat's reach, a whole-row switch */
+.lsr-reach-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-faint);
+    cursor: pointer;
+}
+
+.lsr-reach-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+
+.lsr-reach-title {
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lsr-hint {
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.lsr-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.lsr-search-wrap > i {
+    position: absolute;
+    left: var(--space-sm);
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+    pointer-events: none;
+}
+
+/* wrap-scoped so it outranks .cl-input's padding shorthand and the text clears the icon */
+.lsr-search-wrap .lsr-search {
+    width: 100%;
+    padding-left: calc(var(--space-lg) + var(--space-sm));
+}
+
+.lsr-like {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.lsr-like b { color: var(--text-primary); }
+
+.lsr-note,
+.lsr-count {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.lsr-note.is-error { color: var(--cl-error); }
+
+.lsr-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.lsr-empty {
+    margin: 0;
+    padding: var(--space-xl) var(--space-md);
+    text-align: center;
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+}
+
+.lsr-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-faint);
+}
+
+.lsr-item-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.lsr-book {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    max-width: 40%;
+    flex-shrink: 0;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    background: var(--cl-veil-1);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.lsr-book > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lsr-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lsr-flag {
+    flex-shrink: 0;
+    font-size: var(--font-3xs);
+    text-transform: uppercase;
+    /* not --tracking-ui: that token is 0.8px, about double 0.04em at this size */
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.lsr-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.lsr-key {
+    padding: 0 var(--space-xs);
+    border-radius: var(--radius-sm);
+    background: var(--cl-veil-1);
+    font-size: var(--font-3xs);
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+.lsr-key.is-more { color: var(--text-muted); }
+
+.lsr-snippet {
+    margin: 0;
+    font-size: var(--font-xs);
+    line-height: 1.55;
+    color: var(--text-secondary);
+    overflow-wrap: break-word;
+}
+
+.lsr-snippet mark {
+    padding-inline: var(--space-2xs);
+    border-radius: var(--radius-sm);
+    background: rgba(var(--accent-rgb), 0.28);
+    color: var(--text-primary);
+}
+
+.lsr-item-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+}
+
+.lsr-setting {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+/* the phone: the dialog is already full screen; the book chip may take more of a narrow row */
+html.cl-mobile .lsr-book { max-width: 55%; }

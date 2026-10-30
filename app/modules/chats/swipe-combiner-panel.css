@@ -1,0 +1,105 @@
+/* Combine Swipes window: draft chips, a preview, an instruction and a compose/result footer; chrome from .cl-cwin. */
+
+.csw-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    min-height: 0;
+}
+
+.csw-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+}
+
+.csw-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--dur-chat) ease, border-color var(--dur-chat) ease, color var(--dur-chat) ease;
+}
+
+.csw-chip:hover { background: var(--cl-ghost-soft); border-color: var(--cl-ghost-strong); }
+
+.csw-chip.is-active {
+    border-color: var(--cl-accent-tint-border);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+}
+
+.csw-chip.is-out { opacity: var(--op-disabled); }
+
+.csw-chip input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+.csw-current {
+    font-size: var(--font-4xs);
+    color: var(--text-faint);
+}
+
+.csw-hint {
+    margin: 0;
+    font-size: var(--font-2xs);
+    color: var(--text-faint);
+}
+
+/* The preview is a reading pane: the accent rail says "this is the text under
+   discussion", the same dialect as the recommender's reason rail. */
+.csw-preview {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--space-sm-md) var(--space-md);
+    border: 1px solid var(--cl-ghost-mid);
+    border-left: 3px solid var(--cl-accent-tint-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-md);
+    line-height: var(--leading-prose);
+    word-break: break-word;
+}
+
+.csw-preview.is-result { border-left-color: var(--accent); }
+
+.csw-preview img { max-width: 100%; height: auto; border-radius: var(--radius-sm); }
+
+/* The composer row rides the .cl-cwin-input-row / .cl-cwin-send canon (chats.css); only
+   the slot in the body column is local. */
+.csw-compose-row { flex-shrink: 0; }
+
+.csw-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md) var(--space-md);
+}
+
+
+.csw-spacer { flex: 1; }
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+html.cl-mobile .csw-chip { min-height: var(--touch-target-slim); }
+
+
+html.cl-mobile .csw-foot {
+    flex-wrap: wrap;
+    padding-bottom: max(var(--space-sm), var(--safe-bottom));
+}
+
+html.cl-mobile .csw-btn {
+    flex: 1 1 auto;
+    min-height: var(--touch-target-min);
+}

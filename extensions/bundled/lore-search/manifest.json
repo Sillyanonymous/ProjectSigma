@@ -1,0 +1,13 @@
+{
+    "id": "lore-search",
+    "name": "Lore Search",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Searches every lorebook in your library at once, finds the entries most like one you are reading, and lets a chat reach into books it does not use: when the chat mentions an entry's keys, the entry joins its lore. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["app.action", "chat.action", "lore.entry.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

@@ -1,0 +1,587 @@
+/* --- Playlist Picker Modal --- */
+
+.pl-picker-count {
+    font-size: var(--font-md);
+    color: var(--cl-text-secondary);
+    margin-left: auto;
+    margin-right: var(--space-sm);
+    white-space: nowrap;
+}
+
+.pl-picker-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: var(--space-sm) var(--space-md) 0;
+}
+
+/* Icon centers on the input via the wrap's flex align-items (its abs static position),
+   so it survives any wrap padding - no padding-tuned translateY nudge needed. */
+.pl-picker-search-icon {
+    position: absolute;
+    left: 28px;
+    color: var(--cl-text-secondary);
+    font-size: var(--font-md);
+    pointer-events: none;
+}
+
+.pl-picker-search {
+    padding-left: 32px !important;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.pl-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.pl-picker-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 7px var(--space-sm-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--dur-fast);
+}
+
+.pl-picker-row:hover {
+    background: var(--cl-ghost-strong);
+}
+
+.pl-picker-check {
+    font-size: var(--font-lg);
+    color: var(--cl-text-secondary);
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.pl-picker-row.checked .pl-picker-check,
+.pl-picker-row.partial .pl-picker-check {
+    color: var(--accent);
+}
+
+.pl-picker-name {
+    flex: 1;
+    color: var(--cl-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.pl-picker-badge {
+    font-size: var(--font-sm);
+    color: var(--cl-text-secondary);
+    background: var(--cl-ghost-strong);
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-xl);
+    flex-shrink: 0;
+}
+
+.pl-picker-empty {
+    text-align: center;
+    color: var(--cl-text-secondary);
+    padding: 18px var(--space-lg);
+    font-size: var(--font-md);
+}
+
+/* Shared create-row (used in picker + manager lists) */
+
+.pl-create-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 7px var(--space-sm-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--dur-fast);
+    color: var(--accent);
+    border-top: 1px solid var(--cl-border);
+    margin-top: var(--space-2xs);
+}
+
+.pl-create-row:hover {
+    background: var(--cl-ghost-strong);
+}
+
+.pl-create-row-icon {
+    font-size: var(--font-base);
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.pl-create-row-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* --- Playlist Filter Dropdown --- */
+
+.playlist-filter-btn.active {
+    background: rgba(var(--accent-rgb), 0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* the state keeps its own hover, so a theme's generic glass hover never wipes it */
+.playlist-filter-btn.active:hover {
+    background: rgba(var(--accent-rgb), 0.22);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.playlist-filter-popup {
+    width: 240px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: 420px;
+}
+
+.pl-filter-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: var(--space-sm) var(--space-sm) 0;
+    flex-shrink: 0;
+}
+
+.pl-filter-search-icon {
+    position: absolute;
+    left: 20px;
+    color: var(--cl-text-secondary);
+    font-size: var(--font-md);
+    pointer-events: none;
+}
+
+.pl-filter-search {
+    padding-left: 30px !important;
+    width: 100%;
+    box-sizing: border-box;
+    font-size: var(--font-md);
+}
+
+.playlist-filter-content {
+    overflow-y: auto;
+    padding: var(--space-xs-sm);
+    flex: 1;
+    min-height: 0;
+}
+
+.pl-filter-footer {
+    flex-shrink: 0;
+    border-top: 1px solid var(--cl-border);
+    padding: var(--space-xs-sm);
+}
+
+.pl-filter-manage-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    width: 100%;
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    border: none;
+    border-radius: var(--radius-sm-alt);
+    background: transparent;
+    color: var(--cl-text-secondary);
+    font-size: var(--font-md);
+    cursor: pointer;
+    transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.pl-filter-manage-btn:hover {
+    background: var(--cl-ghost-strong);
+    color: var(--cl-text-primary);
+}
+
+.pl-filter-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    border-radius: var(--radius-sm-alt);
+    cursor: pointer;
+    transition: background var(--dur-fast);
+    color: var(--cl-text-primary);
+}
+
+.pl-filter-item:hover {
+    background: var(--cl-ghost-strong);
+}
+
+.pl-filter-item.active {
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--accent);
+}
+
+.pl-filter-item i {
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.pl-filter-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    font-size: var(--font-md);
+}
+
+.pl-filter-count {
+    font-size: var(--font-sm);
+    color: var(--cl-text-secondary);
+    flex-shrink: 0;
+}
+
+.pl-filter-separator {
+    height: 1px;
+    background: var(--cl-border);
+    margin: var(--space-xs) var(--space-sm);
+}
+
+/* --- Playlist Sidebar Chips --- */
+
+.playlists-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+}
+
+.pl-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm-md);
+    border-radius: var(--radius-2xl);
+    font-size: var(--font-sm);
+    background: var(--cl-ghost-strong);
+    color: var(--cl-text-primary);
+    cursor: pointer;
+    transition: background var(--dur-fast);
+    border: 1px solid transparent;
+}
+
+.pl-chip:hover {
+    background: var(--cl-ghost-heavy);
+}
+
+.pl-chip-add {
+    background: none;
+    border: 1px dashed var(--cl-border);
+    color: var(--cl-text-secondary);
+    font-size: var(--font-sm);
+    padding: var(--space-xs) var(--space-sm);
+}
+
+.pl-chip-add:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* hover corner X to leave a playlist without the picker; hidden on mobile, where the picker removes */
+.pl-chip-remove {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: var(--radius-circle);
+    background: var(--cl-error);
+    color: white;
+    border: 1.5px solid var(--bg-primary);
+    font-size: var(--font-3xs);
+    line-height: 1;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--cl-shadow-paper);
+}
+
+.pl-chip:hover .pl-chip-remove {
+    display: inline-flex;
+}
+
+.pl-chip-remove:hover {
+    background: var(--cl-error-bright);
+    transform: scale(1.1);
+}
+
+.pl-chip-add .pl-chip-remove { display: none !important; }
+
+/* hover doesnt apply on touch, picker covers removes on mobile */
+html.cl-mobile .pl-chip-remove { display: none !important; }
+
+/* --- Playlist Management Modal --- */
+
+.pl-manage-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: var(--space-sm) var(--space-md) 0;
+}
+
+.pl-manage-search-icon {
+    position: absolute;
+    left: 28px;
+    color: var(--cl-text-secondary);
+    font-size: var(--font-md);
+    pointer-events: none;
+}
+
+.pl-manage-search {
+    padding-left: 32px !important;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.pl-manage-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-xs-sm) var(--space-lg);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.pl-manage-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs-sm) var(--space-xs-sm);
+    border-radius: var(--radius-md);
+    position: relative;
+}
+
+.pl-manage-row:hover {
+    background: var(--cl-ghost-mid);
+}
+
+.pl-manage-icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-ghost-heavy);
+    background: var(--cl-ghost-mid);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color var(--dur-fast);
+    padding: 0;
+    color: var(--cl-text-primary);
+    font-size: var(--font-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pl-manage-icon-btn:hover {
+    border-color: var(--cl-veil-4);
+}
+
+.pl-color-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-circle);
+    border: none;
+    cursor: pointer;
+    transition: transform var(--dur-quick);
+    padding: 0;
+}
+
+.pl-color-swatch:hover {
+    transform: scale(1.2);
+}
+
+.pl-manage-icon-picker {
+    position: fixed;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm);
+    background: var(--cl-glass-bg);
+    border: 1px solid var(--cl-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--cl-shadow-xl);
+    backdrop-filter: blur(var(--cl-blur-popup));
+    max-width: 260px;
+}
+
+.pl-icon-picker-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs);
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.pl-icon-picker-colors {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--cl-border);
+}
+
+.pl-icon-picker-label {
+    font-size: var(--font-xs);
+    color: var(--cl-text-secondary);
+    margin-right: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+.pl-manage-icon-picker.hidden {
+    display: none;
+}
+
+.pl-icon-option {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--cl-text-primary);
+    font-size: var(--font-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--dur-quick);
+    padding: 0;
+}
+
+.pl-icon-option:hover {
+    background: var(--cl-ghost-heavy);
+}
+
+.pl-picker-icon {
+    font-size: var(--font-md);
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.pl-filter-icon {
+    font-size: var(--font-sm);
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.pl-chip-icon {
+    font-size: var(--font-md);
+    opacity: 0.8;
+}
+
+.pl-manage-name {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-xs-sm) var(--space-sm);
+    font-size: var(--font-md);
+}
+
+.pl-manage-count {
+    font-size: var(--font-sm);
+    color: var(--cl-text-secondary);
+    background: var(--cl-ghost-strong);
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-xl);
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.pl-manage-delete {
+    background: none;
+    border: none;
+    color: var(--cl-text-secondary);
+    cursor: pointer;
+    padding: var(--space-xs-sm);
+    font-size: var(--font-md);
+    opacity: 0.5;
+    transition: opacity var(--dur-fast), color var(--dur-fast);
+    flex-shrink: 0;
+}
+
+.pl-manage-delete:hover {
+    opacity: 1;
+    color: var(--cl-danger-text);
+}
+
+/* =========================================================
+   Mobile-mode overrides (html.cl-mobile)
+   ========================================================= */
+
+/* Drawer chrome (bottom-sheet slide + 75vh) comes from the shared
+   .cl-modal-drawer + .cl-drawer-partial classes on the modal. */
+
+html.cl-mobile .pl-picker-search {
+    font-size: var(--mobile-input-size);
+}
+
+html.cl-mobile .pl-picker-row {
+    min-height: var(--touch-target-min);
+    padding: var(--space-sm-md) var(--space-md-lg);
+}
+
+html.cl-mobile .pl-picker-list {
+    max-height: none;
+}
+
+html.cl-mobile .pl-create-row {
+    min-height: var(--touch-target-min);
+    padding: var(--space-sm-md) var(--space-md-lg);
+}
+
+/* Shell + slide come from the shared .mobile-fixed-popup (library-mobile.css),
+   added by relocatePopupAsSheet(). Only the inner rows are playlist-specific. */
+html.cl-mobile .playlist-filter-popup .pl-filter-search-wrap {
+    padding: var(--space-sm) var(--space-md-lg);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    background: var(--cl-glass-bg);
+    z-index: 1;
+}
+html.cl-mobile .playlist-filter-popup .pl-filter-search { font-size: var(--mobile-input-size); padding: var(--space-sm-md) var(--space-md); border-radius: var(--radius-lg); }
+html.cl-mobile .playlist-filter-popup .pl-filter-item { padding: var(--space-sm-md) var(--space-md-lg); min-height: var(--touch-target-min); margin: 0 var(--space-xs-sm); }
+html.cl-mobile .playlist-filter-popup .pl-filter-manage-btn { padding: var(--space-md) var(--space-md-lg); min-height: var(--touch-target-min); font-size: var(--font-md); }
+html.cl-mobile .playlist-filter-popup .pl-filter-footer { padding: var(--space-sm) var(--space-sm-md); padding-bottom: max(8px, var(--safe-bottom)); }
+html.cl-mobile .playlist-filter-content { padding: var(--space-xs) 0; }
+
+/* Playlist picker & manage modals: fill viewport, list uses all available space */
+html.cl-mobile .playlist-picker-modal .cl-modal-body,
+html.cl-mobile .playlist-manage-modal .cl-modal-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: hidden;
+}
+html.cl-mobile .pl-picker-list,
+html.cl-mobile .pl-manage-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none !important;
+}
+html.cl-mobile .pl-manage-search-wrap,
+html.cl-mobile .pl-picker-search-wrap {
+    flex-shrink: 0;
+}
+
+.pl-picker-content { max-width: calc(420px * var(--modal-scale, 1)); }
+.pl-manage-content { max-width: calc(500px * var(--modal-scale, 1)); }

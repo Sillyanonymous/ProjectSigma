@@ -1,0 +1,275 @@
+/* The background picker's body; the window furniture is .cl-cwin (chats.css). WHERE it applies and WHAT it looks like are two halves. */
+
+.cbg-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ========================================
+   SCOPE
+   ======================================== */
+
+/* Three mutually exclusive answers, so they read as one control rather than three buttons. */
+.cbg-scopes {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-sm-md) 0;
+    flex-shrink: 0;
+}
+
+.cbg-scope {
+    flex: 1;
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.cbg-scope:hover:not(:disabled) {
+    background: var(--cl-ghost-mid);
+    border-color: var(--cl-ghost-strong);
+    color: var(--text-primary);
+}
+
+.cbg-scope.is-on {
+    border-color: rgba(var(--accent-rgb), 0.4);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+}
+
+.cbg-scope:disabled { opacity: var(--op-disabled); cursor: default; }
+
+/* ========================================
+   SOURCE TABS + PICKER
+   ======================================== */
+
+.cbg-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-sm);
+}
+
+/* the tiles and their grid are the window family's (.cl-cwin-tiles / .cl-cwin-tile, chats.css) */
+
+/* the management rail is a sibling over the tile (buttons cant nest); opacity, not display, so :focus-within reveals it */
+.cbg-tile-wrap { position: relative; min-width: 0; }
+.cbg-tile-wrap .cl-cwin-tile { width: 100%; }
+
+.cbg-tile-acts {
+    position: absolute;
+    top: var(--space-2xs);
+    right: var(--space-2xs);
+    display: flex;
+    gap: var(--space-2xs);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.cbg-tile-wrap:hover .cbg-tile-acts,
+.cbg-tile-wrap:focus-within .cbg-tile-acts {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.cbg-tile-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--cl-modal-scrim);
+    color: var(--text-primary);
+    font-size: var(--font-2xs);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.cbg-tile-act:hover { background: var(--accent); color: var(--accent-text); }
+.cbg-tile-act.is-danger:hover { background: var(--cl-error); color: #fff; }
+
+/* Quiet "this is worn somewhere" marker; the count is the delete flow's early warning. */
+.cbg-tile-badge {
+    position: absolute;
+    left: var(--space-2xs);
+    bottom: var(--space-2xs);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 1px var(--space-xs);
+    border-radius: var(--radius-pill);
+    background: var(--cl-modal-scrim);
+    color: var(--text-primary);
+    font-size: var(--font-3xs);
+    pointer-events: none;
+}
+
+/* The gallery tab's leading tile: the character's portrait offered as a source. */
+.cbg-tile-avatar { position: relative; }
+.cbg-tile-tag {
+    position: absolute;
+    left: var(--space-2xs);
+    bottom: var(--space-2xs);
+    padding: 1px var(--space-xs);
+    border-radius: var(--radius-pill);
+    background: var(--cl-modal-scrim);
+    color: var(--text-primary);
+    font-size: var(--font-3xs);
+    pointer-events: none;
+}
+
+html.cl-mobile .cbg-tile-acts { display: none; }
+
+/* Empty, loading and error states are the shared .cl-cwin-empty (chats.css). */
+
+/* ---- Add tab ---- */
+
+.cbg-add { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.cbg-drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding: var(--space-xl);
+    border: 1px dashed var(--cl-ghost-heavy);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.cbg-drop:hover { border-color: var(--accent); color: var(--text-primary); background: rgba(var(--accent-rgb), 0.06); }
+.cbg-drop i { font-size: var(--font-lg); color: var(--accent); }
+
+.cbg-url-row { display: flex; gap: var(--space-xs); }
+.cbg-url-row .cbg-url { flex: 1; }
+
+/* ========================================
+   KNOBS
+   ======================================== */
+
+/* the knobs sit on the shared editor plate, so the grid above reads as content and this as its controls */
+.cbg-knobs {
+    flex-shrink: 0;
+    padding: var(--space-sm) var(--space-sm-md);
+    border-top: 1px solid var(--glass-border);
+    background: var(--cl-ghost-soft);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.cbg-row {
+    display: grid;
+    grid-template-columns: 68px 1fr 44px;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.cbg-label { font-size: var(--font-2xs); color: var(--text-secondary); }
+
+.cbg-row .cbg-select { grid-column: 2 / -1; }
+
+.cbg-range { width: 100%; }
+
+.cbg-readout {
+    font-size: var(--font-3xs);
+    color: var(--text-faint);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* What a resolution choice actually costs, quoted from the row's own dimensions. A picker
+   whose options cost different amounts silently is a mystery slider. */
+.cbg-cost {
+    margin: 0;
+    font-size: var(--font-3xs);
+    color: var(--text-muted);
+    text-align: right;
+    min-height: 1em;
+}
+
+/* ========================================
+   FOOTER
+   ======================================== */
+
+.cbg-footer {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-sm-md);
+    border-top: 1px solid var(--glass-border);
+    flex-shrink: 0;
+}
+
+/* "No background" and "Inherit" are OPPOSITE answers and must not read as the same button */
+.cbg-footer .cbg-btn { flex: 1; }
+.cbg-footer .is-primary { flex: 0 0 auto; }
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+/* phone rules, scoped by the mode class, never a bare width query */
+
+/* peek while a knob drags: everything but the knob strip steps aside so the wallpaper is seen changing */
+html.cl-mobile .cbg-sheet > *,
+html.cl-mobile .cbg-sheet .cbg-content > * {
+    transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+html.cl-mobile .cl-cwin-sheet.cbg-sheet.cbg-peek {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    backdrop-filter: var(--cl-blur-mobile);
+}
+
+html.cl-mobile .cbg-sheet.cbg-peek > :not(.cbg-content),
+html.cl-mobile .cbg-sheet.cbg-peek .cbg-content > :not(.cbg-knobs) {
+    opacity: 0;
+    pointer-events: none;
+}
+
+html.cl-mobile .cbg-sheet.cbg-peek .cbg-knobs {
+    background: var(--cl-sheet-bg);
+    backdrop-filter: var(--cl-blur-mobile);
+    border: 1px solid var(--cl-elev-border);
+    border-radius: var(--radius-xl);
+    margin: 0 var(--space-sm) var(--space-sm);
+    box-shadow: var(--cl-elev-shadow), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+/* full floor: the scopes are the primary navigation, the footer the primary verbs, and the range needs the drag height */
+html.cl-mobile .cbg-scope,
+html.cl-mobile .cbg-footer .cbg-btn {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+    font-size: var(--font-xs);
+}
+
+html.cl-mobile .cbg-range {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .cbg-row {
+    grid-template-columns: 76px 1fr 48px;
+}
+
+html.cl-mobile .cbg-body {
+    padding-bottom: max(var(--space-md), var(--safe-bottom));
+}

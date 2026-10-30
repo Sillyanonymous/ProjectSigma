@@ -1,0 +1,172 @@
+
+/* ========================================
+   PANEL
+   ======================================== */
+
+/* ========================================
+   HEADER AND BAR
+   ======================================== */
+
+/* the banner's slot (the shared .cl-cwin-inforce), empty while the list itself says there is nothing to answer */
+.ccm-inforce {
+    padding: var(--space-sm-md) var(--space-md) 0;
+    flex-shrink: 0;
+}
+.ccm-inforce:empty { display: none; }
+
+/* one verb above the list, New; everything else lives on a row or in its editor */
+.ccm-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm-md) var(--space-md);
+    flex-shrink: 0;
+}
+
+.ccm-bar-note {
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+/* ========================================
+   LIST
+   ======================================== */
+
+/* sized to its rows, never the leftover space: flex:1 left a tall empty band under two rows */
+.ccm-list {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 45%;
+    overflow-y: auto;
+    padding: 0 var(--space-md) var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+/* With nothing being edited the list is the only content, so it takes the room back. */
+.ccm-panel:not(.ccm-editing) .ccm-list {
+    flex: 1 1 auto;
+    max-height: none;
+}
+
+/* surface from .cl-cwin-row; local is the layout (the personas row's) and is-editing, which reads as held open */
+.ccm-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+}
+
+/* name and readiness on line one, the model underneath at full width, so a long model never eats the name */
+.ccm-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2xs) var(--space-sm);
+    min-width: 0;
+}
+
+.ccm-name {
+    font-size: var(--font-md);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* The kind and model give way, never the name. */
+.ccm-meta {
+    flex-basis: 100%;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* one glyph per row, derived as the editor's readiness line is: a missing piece is unfinished, not broken */
+.ccm-state { font-size: var(--font-3xs); flex-shrink: 0; }
+.ccm-state.is-ready { color: var(--cl-success-pale); }
+.ccm-state.is-partial { color: var(--cl-warning-pale); }
+
+.ccm-act {
+    background: none;
+    border: 0;
+    padding: var(--space-2xs) var(--space-2xs);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    opacity: 0.4;
+    flex-shrink: 0;
+    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease;
+}
+
+.ccm-act:hover { opacity: 0.8; color: var(--accent); }
+
+/* the speech bubble and the globe, then Edit; a pick in force wears the accent, as the old radio did */
+.ccm-acts {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    flex-shrink: 0;
+}
+.ccm-act.is-pick { font-size: var(--font-xs); }
+.ccm-act.is-on { opacity: 1; color: var(--accent); }
+
+/* ========================================
+   EDITOR
+   ======================================== */
+
+/* editing drills down and takes the whole window; the form is the shared connection editor, this is only its slot */
+.ccm-panel.ccm-editing .ccm-inforce,
+.ccm-panel.ccm-editing .ccm-list,
+.ccm-panel.ccm-editing .ccm-bar { display: none; }
+
+.ccm-editor {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-sm-md) var(--space-md) var(--space-md);
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ========================================
+   EMPTY AND ERROR
+   ======================================== */
+
+/* Empty, loading and error states are the shared .cl-cwin-empty (chats.css). */
+
+/* ========================================
+   GRIPS
+   ======================================== */
+
+/* Drill-down is the shared contract now; the phone only adds the safe-area floor. */
+html.cl-mobile .ccm-editor {
+    padding-bottom: max(var(--space-lg), var(--safe-bottom));
+}
+
+/* Dense chrome takes the slim tier; the two picks keep the full floor, since
+   choosing who answers is the panel's primary verb. */
+html.cl-mobile .ccm-act {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+    opacity: 0.8;
+}
+
+html.cl-mobile .ccm-act.is-pick {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+}
+
+html.cl-mobile .ccm-act.is-on { opacity: 1; }
+
+/* max-width only: the sizing tier comes from the header-cluster rule in chats.css. */
+html.cl-mobile .ccm-open-btn { max-width: 40%; }

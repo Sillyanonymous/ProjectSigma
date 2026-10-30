@@ -1,0 +1,617 @@
+/* Trackers: layout and the state components; every material, control and dialog is the app's own,
+   tokens only. */
+
+/* ---------------------------------------------------------------- the window */
+
+.tkr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    height: 100%;
+    min-height: 0;
+}
+
+/* a tab per tracker, and the + that opens the picker */
+.tkr-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+
+.tkr-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.tkr-tab:hover { background: var(--cl-ghost-mid); color: var(--text-primary); }
+
+.tkr-tab.is-on {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--text-primary);
+}
+
+.tkr-tab-add { padding-inline: var(--space-xs-sm); }
+.tkr-tab-warn { color: var(--cl-warning); }
+.tkr-tab-paused { color: var(--text-muted); font-size: var(--font-3xs); }
+
+.tkr-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.tkr-asof { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tkr-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.tkr-status.is-busy {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--accent);
+}
+
+.tkr-status.is-behind {
+    background: color-mix(in srgb, var(--cl-warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--cl-warning) 35%, transparent);
+    color: var(--text-primary);
+}
+
+.tkr-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs-sm) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--cl-error) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cl-error) 35%, transparent);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+}
+
+.tkr-note > i { color: var(--cl-error); }
+.tkr-note-text { flex: 1; min-width: 12em; }
+
+.tkr-state {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.tkr-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.tkr-auto {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.tkr-verbs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-xs-sm); }
+
+/* why the switch is off, on a line of its own under it */
+.tkr-auto-off { flex-basis: 100%; }
+
+/* ---------------------------------------------------------------- the picker */
+
+.tkr-picker { display: flex; flex-direction: column; gap: var(--space-md); overflow-y: auto; min-height: 0; }
+
+.tkr-pick-lead { display: flex; flex-direction: column; gap: var(--space-2xs); }
+.tkr-pick-title { margin: 0; font-size: var(--font-sm); font-weight: 600; color: var(--text-primary); }
+.tkr-pick-hint { margin: 0; font-size: var(--font-xs); line-height: var(--leading-prose); color: var(--text-muted); }
+
+.tkr-picks { display: flex; flex-direction: column; gap: var(--space-xs-sm); }
+
+.tkr-pick {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.tkr-pick-icon { width: 1.2em; text-align: center; color: var(--accent); }
+.tkr-pick-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tkr-pick-name { font-size: var(--font-xs); color: var(--text-primary); }
+.tkr-pick-desc { font-size: var(--font-3xs); color: var(--text-muted); line-height: 1.35; }
+.tkr-pick-add { color: var(--text-faint); }
+.tkr-pick-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs-sm); }
+
+/* ---------------------------------------------------------------- the state
+ *
+ * THE FIELD KIND IS THE COMPONENT. The recommender's scale: tiny type with the 2xs caption, uppercase
+ * 3xs section dividers at 0.08em and 0.6 opacity, the accent as a low tint and never a solid fill,
+ * no entrance motion.
+ */
+
+.tkr-blank {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-md) var(--space-sm);
+    color: var(--text-muted);
+    font-size: var(--font-2xs);
+}
+
+.tkr-none { margin: 0; color: var(--text-muted); font-size: var(--font-3xs); font-style: italic; }
+
+.tkr-section { display: flex; flex-direction: column; gap: var(--space-xs); }
+
+.tkr-section-title {
+    margin: 0;
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+    color: var(--text-secondary);
+}
+
+/* the line read first: no label of its own */
+.tkr-headline { margin: 0; font-size: var(--font-sm); line-height: 1.35; color: var(--text-primary); }
+
+/* a caption with its value flowing after it; never a label column, which is a spreadsheet */
+.tkr-details { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+.tkr-detail {
+    font-size: var(--font-2xs);
+    line-height: 1.45;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.tkr-dlabel {
+    margin-right: var(--space-xs);
+    font-size: var(--font-4xs);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.tkr-dvalue { color: var(--text-secondary); }
+
+.tkr-detail.is-manual { display: flex; align-items: center; gap: var(--space-xs); }
+.tkr-detail.is-manual .tkr-dlabel { color: var(--accent-warm); margin: 0; }
+.tkr-field-input { flex: 1; min-width: 0; }
+/* a manual choice: the converted select's container takes the class */
+.tkr-field-select { flex: 1; min-width: 0; }
+
+.tkr-pills { display: flex; flex-wrap: wrap; gap: var(--space-2xs); min-width: 0; }
+
+.tkr-pill {
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-3xs);
+}
+
+.tkr-pill.is-on {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--text-primary);
+}
+
+/* an alarm only where the field says its good end is low */
+.tkr-pill.is-alert {
+    background: rgba(var(--cl-warning-rgb), 0.14);
+    border-color: rgba(var(--cl-warning-rgb), 0.3);
+    color: var(--cl-warning-pale);
+}
+
+.tkr-chip {
+    display: inline-block;
+    margin-right: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    background: var(--cl-ghost-mid);
+    font-size: var(--font-3xs);
+    color: var(--text-secondary);
+}
+
+/* a bounded number: a track and a fill */
+.tkr-meters { display: flex; flex-direction: column; gap: var(--space-xs); }
+.tkr-meter { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; }
+
+.tkr-meter-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-xs);
+    font-size: var(--font-4xs);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+.tkr-meter-name { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tkr-meter-num {
+    flex: 0 0 auto;
+    font-size: var(--font-2xs);
+    letter-spacing: 0;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.tkr-meter-max { color: var(--text-muted); }
+
+.tkr-meter-track {
+    position: relative;
+    height: 6px;
+    border-radius: var(--radius-sm);
+    background: var(--cl-shade-25);
+    overflow: hidden;
+}
+
+/* the centre mark tells a signed bar from a linear one in the same stack */
+.tkr-meter-track.is-diverging::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -1px;
+    bottom: -1px;
+    width: 1px;
+    background: var(--text-faint);
+    z-index: 1;
+}
+
+.tkr-meter-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: var(--radius-sm);
+    transition: width var(--dur-base) ease, left var(--dur-base) ease;
+}
+
+/* thirds, not a gradient: a colour that changes at a threshold reads as a warning */
+.tkr-meter-fill.is-plain { background: rgba(var(--accent-rgb), 0.6); }
+.tkr-meter-fill.is-good { background: rgba(var(--cl-success-rgb), 0.65); }
+.tkr-meter-fill.is-fair { background: rgba(var(--cl-warning-rgb), 0.65); }
+.tkr-meter-fill.is-bad { background: rgba(var(--cl-error-rgb), 0.7); }
+
+/* an unbounded number: the figure is the thing */
+.tkr-stats { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+
+.tkr-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--space-2xs) var(--space-xs);
+    min-width: 4.5em;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+}
+
+.tkr-stat-num {
+    font-size: var(--font-md);
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.tkr-stat-label {
+    font-size: var(--font-4xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+/* a repeating group: a line per entry, its count a badge */
+.tkr-items { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+.tkr-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-2xs);
+    transition: background var(--dur-fast) ease;
+}
+
+.tkr-item:hover { background: var(--cl-ghost-mid); }
+.tkr-item-name { color: var(--text-primary); flex: 0 0 auto; }
+.tkr-item-note { color: var(--text-muted); font-size: var(--font-3xs); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tkr-item-qty {
+    flex: 0 0 auto;
+    margin-left: auto;
+    min-width: 1.9em;
+    text-align: center;
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    background: var(--cl-accent-tint);
+    border: 1px solid var(--cl-accent-tint-border);
+    color: var(--text-primary);
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* a card per character: ghost at rest, waking in colour on hover, never lifting */
+.tkr-cast { display: flex; flex-direction: column; gap: var(--space-xs); }
+
+.tkr-person {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    transition: background var(--dur-base) ease, border-color var(--dur-base) ease;
+}
+
+.tkr-person:hover { background: var(--cl-ghost-soft); border-color: var(--cl-ghost-strong); }
+
+.tkr-person-head { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
+
+.tkr-person-face,
+.tkr-person-mark {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+    object-fit: cover;
+    border: 1px solid var(--cl-accent-tint-border);
+}
+
+.tkr-person-mark {
+    display: grid;
+    place-items: center;
+    background: var(--cl-accent-tint);
+    color: var(--text-primary);
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.tkr-person-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+.tkr-person-name {
+    font-size: var(--font-sm);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* the headline, promoted into the card's head beside the face */
+.tkr-person-sub {
+    font-size: var(--font-2xs);
+    line-height: 1.3;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.tkr-person-badges { flex: 0 0 auto; display: flex; gap: var(--space-2xs); }
+.tkr-person-body { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+
+.tkr-extra { font-size: var(--font-2xs); }
+.tkr-extra > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-3xs); }
+
+/* ---------------------------------------------------------------- the settings */
+
+.tkr-count { width: 6.5em; }
+
+/* ---------------------------------------------------------------- Trackers at This Message */
+
+.tkr-at-content { max-width: calc(560px * var(--modal-scale, 1)); }
+.tkr-at-body { display: flex; flex-direction: column; gap: var(--space-md); }
+.tkr-at-one { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.tkr-at-name {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+    margin: 0;
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+}
+
+.tkr-at-when { margin-left: auto; font-size: var(--font-3xs); font-weight: 400; color: var(--text-muted); }
+
+/* ---------------------------------------------------------------- the editor: library.css canon only
+ *
+ * It opens from Settings > Extensions too, where the chat window's families may never have loaded, so
+ * its controls are cl-input, cl-btn and the converted select, and what is here is their arrangement.
+ */
+
+.tkr-ed { max-width: calc(960px * var(--modal-scale, 1)); }
+
+.tkr-ed-body {
+    display: grid;
+    grid-template-columns: 15em 1fr;
+    gap: var(--space-md);
+    align-items: start;
+    min-height: 0;
+}
+
+.tkr-ed-list { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; }
+
+.tkr-ed-list-title {
+    margin: var(--space-sm) 0 var(--space-2xs);
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+    color: var(--text-secondary);
+}
+
+.tkr-ed-list-title:first-child { margin-top: 0; }
+
+.tkr-ed-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.tkr-ed-item:hover { background: var(--cl-ghost-mid); color: var(--text-primary); }
+
+.tkr-ed-item.is-on {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--text-primary);
+}
+
+.tkr-ed-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tkr-ed-item-meta { flex-shrink: 0; font-size: var(--font-4xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.tkr-ed-none { margin: 0; font-size: var(--font-xs); color: var(--text-muted); }
+
+.tkr-ed-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    /* the form is drawn again after a kind or a row changes, which confuses scroll anchoring */
+    overflow-anchor: none;
+}
+
+.tkr-ed-empty { display: grid; place-items: center; min-height: 12em; color: var(--text-muted); font-size: var(--font-sm); }
+
+.tkr-ed-row { display: flex; gap: var(--space-sm); }
+.tkr-ed-field { display: flex; flex-direction: column; gap: var(--space-2xs); flex: 1; min-width: 0; }
+.tkr-ed-field > span { font-size: var(--font-3xs); color: var(--text-muted); }
+.tkr-ed-narrow { flex: 0 0 12em; }
+.tkr-ed-area { resize: vertical; font-family: inherit; line-height: var(--leading-prose); }
+
+.tkr-ed-sub { margin: var(--space-sm) 0 0; font-size: var(--font-sm); color: var(--text-primary); }
+.tkr-ed-hint { margin: 0; font-size: var(--font-xs); line-height: var(--leading-prose); color: var(--text-muted); }
+
+.tkr-ed-fields { display: flex; flex-direction: column; gap: var(--space-xs); }
+
+.tkr-ed-fieldrow {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-xs);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+}
+
+.tkr-ed-fieldhead,
+.tkr-ed-fieldopts { display: flex; flex-wrap: wrap; gap: var(--space-2xs); align-items: center; }
+
+.tkr-ed-key { flex: 0 0 8em; }
+.tkr-ed-label { flex: 1 1 8em; min-width: 0; }
+.tkr-ed-select { flex: 0 0 11em; }
+.tkr-ed-num { flex: 0 0 6em; }
+.tkr-ed-grow { flex: 1 1 10em; min-width: 0; }
+.tkr-ed-moves { display: flex; gap: var(--space-2xs); margin-left: auto; }
+.tkr-ed-icon { padding-inline: var(--space-xs-sm); }
+
+.tkr-ed-kids {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-left: var(--space-md);
+    padding-left: var(--space-sm);
+    border-left: 2px solid var(--cl-ghost-mid);
+}
+
+.tkr-ed-add { align-self: flex-start; }
+
+.tkr-ed-problems {
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--cl-error) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cl-error) 35%, transparent);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+}
+
+.tkr-ed-problems ul { margin: var(--space-2xs) 0 0; padding-left: var(--space-md); }
+
+.tkr-ed-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--cl-ghost-mid);
+}
+
+/* ---------------------------------------------------------------- phone */
+
+/* the zoom guard: the mobile input size, never a literal 16px */
+html.cl-mobile .tkr-field-input,
+html.cl-mobile .tkr-ed input,
+html.cl-mobile .tkr-ed textarea { font-size: var(--mobile-input-size); }
+
+/* the editor's two panes do not survive a phone: the list sits above the form, and every row wraps */
+html.cl-mobile .tkr-ed-body { grid-template-columns: 1fr; gap: var(--space-sm); }
+html.cl-mobile .tkr-ed-row { flex-wrap: wrap; }
+html.cl-mobile .tkr-ed-narrow,
+html.cl-mobile .tkr-ed-key,
+html.cl-mobile .tkr-ed-select { flex: 1 1 8em; }
+html.cl-mobile .tkr-ed-item { min-height: var(--touch-target-min); }
+html.cl-mobile .tkr-ed-item:hover { background: var(--cl-ghost-faint); color: var(--text-secondary); }
+html.cl-mobile .tkr-ed-item.is-on { background: var(--cl-accent-tint); color: var(--text-primary); }
+
+html.cl-mobile .tkr-tab { min-height: var(--touch-target-slim); }
+html.cl-mobile .tkr-pick,
+html.cl-mobile .tkr-auto { min-height: var(--touch-target-min); }
+
+/* no hover states on a touch surface */
+html.cl-mobile .tkr-tab:hover { background: var(--cl-ghost-faint); color: var(--text-secondary); }
+html.cl-mobile .tkr-tab.is-on { background: var(--cl-accent-tint); color: var(--text-primary); }
+html.cl-mobile .tkr-person:hover { background: var(--cl-ghost-faint); border-color: var(--cl-ghost-mid); }
+html.cl-mobile .tkr-item:hover { background: var(--cl-ghost-faint); }

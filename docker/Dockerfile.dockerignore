@@ -1,0 +1,12 @@
+# The build context is the repository root; only what the image copies goes in.
+*
+!app
+!server
+!extensions/bundled
+!docs
+!tools
+!package.json
+!package-lock.json
+!LICENSE
+!NOTICE
+!README.md

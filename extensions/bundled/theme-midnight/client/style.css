@@ -1,0 +1,1793 @@
+/* Midnight: an observatory at night. Tokens first; every surface rule at its base rule's own weight,
+   so the user's theme and custom CSS still win. */
+
+@font-face {
+    font-family: 'Marcellus';
+    src: url('fonts/Marcellus-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ========================================================================
+ * THE PALETTE: Midnight's own; the client writes the chosen one over it
+ * ======================================================================== */
+:root {
+    --mn-hue: 224;
+    --mn-glow: 0.6;
+    --mn-void: #060911;
+    --mn-void-rgb: 6, 9, 17;
+    --mn-deep: #0c111f;
+    --mn-deep-rgb: 12, 17, 31;
+    --mn-card: rgba(23, 29, 43, 0.55);
+    --mn-glass: rgba(17, 21, 34, 0.76);
+    --mn-glass-strong: rgba(14, 18, 29, 0.97);
+    --mn-glass-solid: #0f131f;
+    --mn-raise: rgba(182, 196, 237, 0.045);
+    --mn-raise-2: rgba(182, 196, 237, 0.08);
+    --mn-line: rgba(182, 196, 237, 0.1);
+    --mn-line-strong: rgba(182, 196, 237, 0.17);
+    --mn-text: #e6eaf5;
+    --mn-text-rgb: 230, 234, 245;
+    --mn-text-2: #b1b9cd;
+    --mn-text-3: #8f97ae;
+    --mn-text-4: #767f98;
+    --mn-shadow-rgb: 2, 4, 8;
+    --mn-nebula-a: rgba(87, 30, 184, 0.2);
+    --mn-nebula-b: rgba(140, 207, 255, 0.106);
+    --mn-plate-char: rgba(21, 26, 41, 0.66);
+    --mn-plate-user: rgba(33, 38, 54, 0.44);
+    --mn-body: #d6dae6;
+    --mn-narration: #a0a7bb;
+    --mn-accent: #8ccfff;
+    --mn-accent-rgb: 140, 207, 255;
+    --mn-accent-2: #9eaaff;
+    --mn-accent-2-rgb: 158, 170, 255;
+    --mn-accent-hover: #a3d9ff;
+    --mn-accent-text: #080a14;
+    --mn-speech: #a0d5fd;
+    --mn-emphasis: #b3bdfc;
+
+    --font-stack-mn-display: 'Marcellus', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+    --mn-display-weight: 400;
+    --mn-rail-w: 72px;
+    --mn-feather: var(--space-2xl);
+    --mn-opaque: #000;
+    /* the glow's colour: the accent, or the character's own inside a tinted conversation */
+    --mn-halo-rgb: var(--accent-rgb);
+    --mn-halo-2-rgb: var(--accent-secondary-rgb);
+    /* glass: a lit top edge over a faint inner gradient over the material */
+    --mn-edge: linear-gradient(90deg, transparent 4%, rgba(var(--mn-halo-rgb), calc(0.25 + 0.5 * var(--mn-glow))) 50%, transparent 96%) top / 100% 1px no-repeat;
+    --mn-sheen: linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.055), rgba(var(--mn-text-rgb), 0.012) 38%, transparent 70%);
+    --mn-lift: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.07);
+    --mn-hue-track: linear-gradient(90deg, hsl(0 60% 34%), hsl(60 60% 34%), hsl(120 60% 34%), hsl(180 60% 34%), hsl(240 60% 34%), hsl(300 60% 34%), hsl(359 60% 34%));
+    --mn-starfield: radial-gradient(1px 1px at 20% 18%, #fff, transparent), radial-gradient(1px 1px at 64% 12%, #fff, transparent), radial-gradient(1px 1px at 38% 40%, #fff, transparent), radial-gradient(1px 1px at 12% 62%, #fff, transparent);
+}
+
+/* ========================================================================
+ * THE APP'S TOKENS, MAPPED ONTO THE PALETTE (the user's theme writes them later and wins)
+ * ======================================================================== */
+:root {
+    --bg-primary: var(--mn-void);
+    --bg-secondary: var(--mn-deep);
+    --text-primary: var(--mn-text);
+    --text-secondary: var(--mn-text-2);
+    --text-faint: var(--mn-text-3);
+    --text-muted: var(--mn-text-4);
+    --card-bg: var(--mn-card);
+    --glass-border: var(--mn-line);
+    --cl-glass-bg: var(--mn-glass-strong);
+    --cl-topbar-bg: var(--mn-glass);
+    --cl-border: var(--mn-line-strong);
+    --cl-elev-border: var(--mn-line-strong);
+    --cl-elev-hairline: var(--mn-line);
+    --cl-elev-shadow: 0 34px 90px rgba(var(--mn-shadow-rgb), 0.72), 0 2px 10px rgba(var(--mn-shadow-rgb), 0.5);
+    --cl-sheet-bg: var(--mn-glass);
+    --cl-sheet-highlight: rgba(var(--mn-accent-rgb), 0.2);
+    --cl-sheet-head: linear-gradient(135deg, rgba(var(--mn-accent-rgb), 0.07) 0%, rgba(var(--mn-accent-2-rgb), 0.03) 55%, transparent 100%);
+    --cl-sheet-bg-mobile: var(--mn-glass-solid);
+    --cl-app-glow-a: radial-gradient(1300px 820px at 6% -4%, var(--mn-nebula-a), transparent 70%);
+    --cl-app-glow-b: radial-gradient(1100px 760px at 96% 104%, var(--mn-nebula-b), transparent 70%);
+    --cl-app-grain: 0.03;
+    --cl-app-vignette: rgba(var(--mn-shadow-rgb), 0.62);
+    --cl-chat-plate-char: var(--mn-plate-char);
+    --cl-chat-plate-user: var(--mn-plate-user);
+    --cl-chat-plate-bg: rgba(var(--mn-void-rgb), 0.85);
+    --cl-chat-head-bg: rgba(var(--mn-deep-rgb), 0.5);
+    --cl-chat-body: var(--mn-body);
+    --cl-chat-narration: var(--mn-narration);
+    --cl-text-halo: 0 0 3px rgba(var(--mn-shadow-rgb), 0.7);
+    --cl-accent-tint: rgba(var(--accent-rgb), 0.12);
+    --cl-accent-tint-border: rgba(var(--accent-rgb), 0.22);
+    --cl-focus-glow: 0 0 0 3px rgba(var(--accent-rgb), 0.28), 0 0 18px rgba(var(--accent-rgb), calc(0.5 * var(--mn-glow)));
+    --cl-shadow-sm: 0 2px 10px rgba(var(--mn-shadow-rgb), 0.35);
+    --cl-shadow-md: 0 8px 26px -6px rgba(var(--mn-shadow-rgb), 0.6);
+    --cl-shadow-lg: 0 16px 44px -10px rgba(var(--mn-shadow-rgb), 0.7);
+    --cl-shadow-xl: 0 26px 70px -12px rgba(var(--mn-shadow-rgb), 0.8);
+    --cl-shadow-ambient: 0 2px 18px rgba(var(--mn-shadow-rgb), 0.6);
+    --cl-modal-scrim-light: rgba(var(--mn-shadow-rgb), 0.5);
+    --cl-modal-scrim: rgba(var(--mn-shadow-rgb), 0.62);
+    --cl-modal-scrim-heavy: rgba(var(--mn-shadow-rgb), 0.74);
+    --radius-xl: 12px;
+    --radius-2xl: 16px;
+    --radius-2xl-alt: 18px;
+    --radius-3xl: 22px;
+    --radius-4xl: 24px;
+}
+
+/* the accent, while the user has picked none of their own */
+:root.mn-accent {
+    --accent: var(--mn-accent);
+    --accent-rgb: var(--mn-accent-rgb);
+    --accent-hover: var(--mn-accent-hover);
+    --accent-glow: rgba(var(--mn-accent-rgb), 0.35);
+    --accent-secondary: var(--mn-accent-2);
+    --accent-secondary-rgb: var(--mn-accent-2-rgb);
+    --accent-text: var(--mn-accent-text);
+    --accent-muted: var(--mn-speech);
+    --accent-warm: var(--mn-emphasis);
+}
+
+/* ========================================================================
+ * THE LOOK'S SWITCHES: the client writes one class a choice on the root; these redefine tokens at the
+ * root's own weight, so the user's theme still writes over them
+ * ======================================================================== */
+.mn-font-serif {
+    --font-stack-mn-display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+}
+
+.mn-font-app {
+    --font-stack-mn-display: var(--font-stack-ui);
+    --mn-display-weight: 600;
+}
+
+.mn-corners-crisp {
+    --radius-xs: 2px;
+    --radius-sm: 3px;
+    --radius-sm-alt: 3px;
+    --radius-md: 4px;
+    --radius-lg: 5px;
+    --radius-xl: 6px;
+    --radius-2xl: 8px;
+    --radius-2xl-alt: 8px;
+    --radius-3xl: 10px;
+    --radius-4xl: 12px;
+}
+
+.mn-motion-off {
+    --dur-quick: 0.01ms;
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+    --dur-chat: 0.01ms;
+    --dur-reveal: 0.01ms;
+    --dur-expand: 0.01ms;
+}
+
+/* bubbles and plates carry their own ground, so the reading column's veil eases back to a light one */
+.mn-chat-bubbles,
+.mn-chat-app {
+    --cl-chat-plate-bg: rgba(var(--mn-void-rgb), 0.32);
+}
+
+/* ========================================================================
+ * SPACE: the page, the sky and the type
+ * ======================================================================== */
+body {
+    background-color: var(--bg-primary);
+    background-image:
+        radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, var(--cl-app-vignette) 100%),
+        var(--cl-app-glow-a),
+        var(--cl-app-glow-b),
+        linear-gradient(180deg, transparent 0%, rgba(var(--mn-deep-rgb), 0.7) 100%);
+}
+
+/* one canvas behind everything; the client draws it */
+.mn-sky {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    display: block;
+}
+
+::selection {
+    background: rgba(var(--accent-rgb), 0.38);
+    color: var(--text-primary);
+}
+
+.scrollbar-active::-webkit-scrollbar-thumb {
+    background: rgba(var(--mn-text-rgb), 0.16);
+}
+
+/* ========================================================================
+ * NAVIGATION: on a desktop the brand and the views run down a slim rail at the left edge and the search
+ * and filters float in a bar beside it; set to the top bar, they all sit in it. Phones keep their dock
+ * ======================================================================== */
+.topbar {
+    border: 1px solid var(--mn-line);
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-topbar-bg);
+    box-shadow: 0 20px 44px -22px rgba(var(--mn-shadow-rgb), 0.95), inset 0 -1px 0 rgba(var(--mn-shadow-rgb), 0.4);
+}
+
+/* the capsule floats clear of the edges; docked, the bar runs flush along the top */
+:where(:root:not(.mn-bar-docked)) .topbar {
+    height: 62px;
+    margin: var(--space-md) var(--space-lg) 0;
+    padding: 0 var(--space-md) 0 var(--space-xl);
+    border-radius: var(--radius-pill);
+}
+
+:where(.mn-bar-docked) .topbar {
+    border-width: 0 0 1px;
+    border-radius: 0;
+    box-shadow: 0 16px 36px -28px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+.logo-area h1 {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    letter-spacing: 0.05em;
+    font-synthesis: none;
+}
+
+.logo-area span {
+    font-weight: var(--mn-display-weight);
+    color: var(--accent);
+    text-shadow: 0 0 14px rgba(var(--accent-rgb), calc(0.9 * var(--mn-glow)));
+}
+
+.logo-area .cl-sigma {
+    filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), calc(0.8 * var(--mn-glow))));
+}
+
+/* the view switch on the top bar: a luminous segmented control */
+.view-toggle {
+    background: rgba(var(--mn-void-rgb), 0.6);
+    border: 1px solid var(--mn-line);
+    box-shadow: inset 0 1px 4px rgba(var(--mn-shadow-rgb), 0.7);
+}
+
+/* the switch's colours ease, never its size: a size eased from the bar into the rail is measured mid-way and folds every view */
+.view-toggle-btn,
+.view-toggle-more {
+    transition-property: color, background-color, box-shadow, opacity;
+}
+
+.view-toggle-btn:hover,
+.view-toggle-more:hover {
+    color: var(--text-primary);
+    background: rgba(var(--mn-text-rgb), 0.06);
+}
+
+.view-toggle-btn.active,
+.view-toggle-more.is-current {
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.34), rgba(var(--accent-secondary-rgb), 0.18));
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.55), var(--mn-lift), 0 0 20px -3px rgba(var(--accent-rgb), calc(0.8 * var(--mn-glow)));
+}
+
+/* ---- the rail, on a desktop wide enough to spare it; a narrower one keeps the top bar */
+@media (min-width: 1000px) {
+    :where(html:not(.cl-mobile):not(.mn-nav-top)) .app-container {
+        padding-left: var(--mn-rail-w);
+    }
+
+    /* beside the rail the bar sheds its blur, so it is no containing block and the rail's fixed parts escape it */
+    :where(:root:not(.mn-nav-top)) .topbar {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: var(--mn-edge), var(--mn-sheen), rgba(var(--mn-deep-rgb), 0.88);
+    }
+
+    :where(:root:not(.mn-nav-top):not(.mn-bar-docked)) .topbar {
+        height: 54px;
+        margin: var(--space-md) var(--space-lg) 0 var(--space-md);
+        padding: 0 var(--space-sm) 0 var(--space-md);
+    }
+
+    /* with a conversation open the bar holds only its menu: it stands at the rail's foot and the conversation takes the full height */
+    :where(html.cl-chat-open:not(.mn-nav-top)) .topbar {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: var(--mn-rail-w);
+        height: var(--mn-rail-w);
+        margin: 0;
+        padding: 0;
+        gap: 0;
+        justify-content: center;
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        box-shadow: none;
+    }
+
+    :where(html.cl-chat-open:not(.mn-nav-top)) .view-toggle {
+        padding-bottom: var(--mn-rail-w);
+    }
+
+    /* the menu opens up and out from the rail's foot */
+    :where(html.cl-chat-open:not(.mn-nav-top) .more-options-container) > .dropdown-menu {
+        top: auto;
+        right: auto;
+        bottom: 0;
+        left: calc(100% + var(--space-sm));
+    }
+
+    /* the app only hides the search there, keeping its width; the shrunk bar lets it go */
+    :where(html.cl-chat-open:not(.mn-nav-top)) .search-area {
+        display: none;
+    }
+
+    :where(:root:not(.mn-nav-top)) .logo-area {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        width: var(--mn-rail-w);
+        height: var(--mn-rail-w);
+        justify-content: center;
+    }
+
+    /* the wordmark stays for assistive tech; the rail shows the mark alone */
+    :where(:root:not(.mn-nav-top)) .logo-area h1 {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    /* the views down the rail; a column out of height wraps sideways, which the app's fitting folds into its More */
+    :where(:root:not(.mn-nav-top)) .view-toggle {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: var(--mn-rail-w);
+        flex-direction: column;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        align-items: center;
+        gap: var(--space-xs);
+        padding: calc(var(--mn-rail-w) + var(--space-xs)) var(--space-sm-md) var(--space-lg);
+        overflow: hidden;
+        border: 0;
+        border-right: 1px solid var(--mn-line);
+        border-radius: 0;
+        background:
+            linear-gradient(180deg, transparent 8%, rgba(var(--mn-halo-rgb), calc(0.18 + 0.4 * var(--mn-glow))) 50%, transparent 92%) right / 1px 100% no-repeat,
+            var(--mn-sheen),
+            linear-gradient(180deg, rgba(var(--mn-deep-rgb), 0.94), rgba(var(--mn-void-rgb), 0.96));
+        box-shadow: 20px 0 48px -36px rgba(var(--mn-shadow-rgb), 0.95);
+    }
+
+    /* icons alone, as the app's own compact bar has them; the name stays the button's text for assistive tech */
+    :where(:root:not(.mn-nav-top)) .view-toggle-btn {
+        width: 100%;
+        min-width: 0;
+        aspect-ratio: 1;
+        padding: 0;
+        gap: 0;
+        font-size: 0;
+        border-radius: var(--radius-xl);
+    }
+
+    :where(:root:not(.mn-nav-top)) .view-toggle-btn i {
+        font-size: var(--font-xl);
+        padding: 0;
+    }
+
+    :where(:root:not(.mn-nav-top)) .view-toggle-more {
+        width: 100%;
+        aspect-ratio: 1;
+        padding: 0;
+        border-radius: var(--radius-xl);
+    }
+}
+
+.search-box {
+    background: rgba(var(--mn-void-rgb), 0.55);
+    border-color: var(--mn-line);
+    box-shadow: inset 0 1px 3px rgba(var(--mn-shadow-rgb), 0.55);
+}
+
+.search-box:focus-within {
+    background: rgba(var(--mn-void-rgb), 0.75);
+    border-color: rgba(var(--accent-rgb), 0.65);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.14), 0 0 24px -4px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+.search-box input {
+    color: var(--text-primary);
+}
+
+/* ========================================================================
+ * CONTROLS: glass buttons, the accent as light, fields
+ * ======================================================================== */
+.glass-btn,
+.glass-select {
+    background: linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.075), rgba(var(--mn-text-rgb), 0.025));
+    border-color: var(--mn-line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--mn-lift);
+}
+
+.glass-btn:hover {
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-rgb), 0.05));
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: var(--mn-lift), 0 0 16px -4px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+.cl-btn {
+    border-radius: var(--radius-xl);
+}
+
+.cl-btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+    color: var(--accent-text);
+    box-shadow: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.35), 0 0 0 1px rgba(var(--accent-rgb), 0.5), 0 8px 26px -8px rgba(var(--accent-rgb), calc(0.95 * var(--mn-glow)));
+}
+
+.cl-btn-primary:hover:not(:disabled) {
+    box-shadow: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.45), 0 0 0 1px rgba(var(--accent-rgb), 0.7), 0 10px 32px -6px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+:root[data-btn-style="glass"] .cl-btn {
+    border-color: var(--mn-line-strong);
+    background: linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.08) 0%, rgba(var(--mn-text-rgb), 0.025) 100%);
+    box-shadow: var(--mn-lift);
+}
+
+:root[data-btn-style="glass"] .cl-btn:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.18) 0%, rgba(var(--accent-rgb), 0.06) 100%);
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: var(--mn-lift), 0 0 18px -4px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+/* the one solid in the glass family: the primary verb is lit, opaque so its ink reads on the fill it was judged on */
+:root[data-btn-style="glass"] .cl-btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+    color: var(--accent-text);
+    border-color: rgba(var(--accent-rgb), 0.85);
+    box-shadow: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.4), 0 8px 26px -8px rgba(var(--accent-rgb), calc(0.95 * var(--mn-glow)));
+}
+
+:root[data-btn-style="glass"] .cl-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+    border-color: var(--accent);
+    box-shadow: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.5), 0 10px 32px -6px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+:root[data-btn-style="glass"] .cl-btn-secondary,
+:root[data-btn-style="glass"] .cl-btn-danger-hover {
+    background: linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.08) 0%, rgba(var(--mn-text-rgb), 0.025) 100%);
+    border-color: var(--mn-line-strong);
+}
+
+/* the warning and danger variants keep their tint over the glass rules above, resting and hovered */
+:root[data-btn-style="glass"] .cl-btn-warning {
+    background: linear-gradient(180deg, rgba(var(--cl-warning-rgb), 0.2) 0%, rgba(var(--cl-warning-rgb), 0.08) 100%);
+    border-color: rgba(var(--cl-warning-rgb), 0.3);
+}
+
+:root[data-btn-style="glass"] .cl-btn-warning:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(var(--cl-warning-rgb), 0.3) 0%, rgba(var(--cl-warning-rgb), 0.12) 100%);
+    border-color: rgba(var(--cl-warning-rgb), 0.5);
+}
+
+:root[data-btn-style="glass"] .cl-btn-danger {
+    border-color: rgba(var(--cl-error-bright-rgb), 0.2);
+}
+
+:root[data-btn-style="glass"] .cl-btn-danger:hover:not(:disabled),
+:root[data-btn-style="glass"] .cl-btn-danger-hover:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(var(--cl-error-bright-rgb), 0.16) 0%, rgba(var(--cl-error-bright-rgb), 0.05) 100%);
+    border-color: rgba(var(--cl-error-bright-rgb), 0.45);
+}
+
+.glass-input,
+.cl-input {
+    background: rgba(var(--mn-void-rgb), 0.55);
+    border-color: var(--mn-line);
+    box-shadow: inset 0 1px 3px rgba(var(--mn-shadow-rgb), 0.5);
+}
+
+.glass-input:focus,
+.cl-input:focus {
+    border-color: rgba(var(--accent-rgb), 0.65);
+    box-shadow: inset 0 1px 3px rgba(var(--mn-shadow-rgb), 0.5), 0 0 0 3px rgba(var(--accent-rgb), 0.14), 0 0 20px -6px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+.cl-switch-input:checked + .cl-switch {
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    box-shadow: inset 0 1px 2px rgba(var(--mn-shadow-rgb), 0.2), 0 0 14px -2px rgba(var(--accent-rgb), calc(0.8 * var(--mn-glow)));
+}
+
+/* ========================================================================
+ * FLOATING SURFACES: menus, popovers, toasts
+ * ======================================================================== */
+.dropdown-menu {
+    background: var(--mn-edge), var(--mn-sheen), var(--mn-glass-strong);
+    border-color: var(--mn-line-strong);
+    border-radius: var(--radius-2xl);
+    box-shadow: 0 24px 60px -14px rgba(var(--mn-shadow-rgb), 0.9), 0 0 0 1px rgba(var(--mn-shadow-rgb), 0.35);
+}
+
+.dropdown-item {
+    border-radius: var(--radius-lg);
+}
+
+.dropdown-item:hover {
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-rgb), 0.04));
+    color: var(--accent-hover);
+}
+
+.dropdown-section-title {
+    color: var(--text-faint);
+    letter-spacing: 0.12em;
+}
+
+.custom-select-item.selected {
+    color: var(--accent-hover);
+    background: rgba(var(--accent-rgb), 0.14);
+}
+
+.cl-context-menu {
+    background: var(--mn-edge), var(--mn-sheen), var(--mn-glass-strong);
+    border: 1px solid var(--mn-line-strong);
+    box-shadow: 0 26px 64px -14px rgba(var(--mn-shadow-rgb), 0.92), var(--mn-lift);
+}
+
+.cl-context-menu-item:hover {
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-rgb), 0.05));
+    color: var(--accent-hover);
+}
+
+/* a danger item stays red under that hover, the current one the accent */
+.cl-context-menu-item.danger:hover {
+    color: var(--cl-danger-text);
+}
+
+.cl-context-menu-item.is-current:hover {
+    color: var(--accent);
+}
+
+.toast {
+    background: var(--mn-edge), var(--mn-sheen), var(--mn-glass-strong);
+    border-color: var(--mn-line-strong);
+    border-radius: var(--radius-2xl);
+    box-shadow: 0 22px 56px -14px rgba(var(--mn-shadow-rgb), 0.92);
+}
+
+.toast.info {
+    border-color: rgba(var(--accent-rgb), 0.55);
+}
+
+/* an empty view: a lit glyph over a line in the display face */
+.cl-empty-state-icon {
+    text-shadow: 0 0 24px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+.cl-empty-state-title,
+.chats-empty h3 {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-xl);
+    letter-spacing: 0.02em;
+    font-synthesis: none;
+}
+
+/* ========================================================================
+ * THE GRID: observatory windows (the portrait an arched pane, its name on a plate below) inside the tile's
+ * own 2/3 box, which the scroller measures; or full-bleed portraits with the name over them
+ * ======================================================================== */
+.char-card {
+    --mn-pane-inset: var(--space-sm);
+    --mn-plate-h: 58px;
+    --mn-pane-radius: 999px 999px var(--radius-xs) var(--radius-xs);
+    background: var(--mn-sheen), linear-gradient(180deg, var(--mn-deep), var(--mn-void));
+    border: 1px solid rgba(var(--mn-text-rgb), 0.1);
+    border-radius: var(--radius-2xl-alt);
+    box-shadow: 0 14px 32px -16px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+html.cl-mobile .char-card {
+    --mn-pane-inset: var(--space-xs);
+    --mn-plate-h: 26px;
+}
+
+:where(.mn-frame-round) .char-card {
+    --mn-pane-radius: var(--radius-xl) var(--radius-xl) var(--radius-xs) var(--radius-xs);
+}
+
+:where(.mn-frame-square) .char-card {
+    --mn-pane-radius: var(--radius-xs);
+}
+
+:where(:root:not(.cl-mobile)) .char-card:hover {
+    border-color: rgba(var(--accent-rgb), 0.6);
+    box-shadow: 0 22px 44px -16px rgba(var(--mn-shadow-rgb), 0.95), 0 0 0 1px rgba(var(--accent-rgb), 0.28), 0 0 30px -6px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+:where(:root:not(.cl-mobile)) .char-card:hover .card-image {
+    transform: none;
+}
+
+/* a lit rim over the tile: light catching its top edge */
+.char-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 rgba(var(--mn-text-rgb), 0.18), inset 0 0 0 1px rgba(var(--mn-text-rgb), 0.04);
+    pointer-events: none;
+}
+
+.card-name {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-lg);
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    color: var(--mn-text);
+    font-synthesis: none;
+}
+
+/* ---- the window: the portrait an arch the browser scales to a half circle, set in the frame above the plate */
+:where(:root:not(.mn-tiles-bleed)) .card-image {
+    position: absolute;
+    top: var(--mn-pane-inset);
+    left: var(--mn-pane-inset);
+    width: calc(100% - 2 * var(--mn-pane-inset));
+    height: calc(100% - 1.5 * var(--mn-pane-inset) - var(--mn-plate-h));
+    border-radius: var(--mn-pane-radius);
+    box-shadow: 0 0 0 1px rgba(var(--mn-halo-rgb), 0.28), 0 10px 24px -14px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+html.cl-mobile:where(:not(.mn-tiles-bleed)) .card-image {
+    inset: auto;
+    top: var(--mn-pane-inset);
+    left: var(--mn-pane-inset);
+    width: calc(100% - 2 * var(--mn-pane-inset));
+    height: calc(100% - 1.5 * var(--mn-pane-inset) - var(--mn-plate-h));
+}
+
+:where(:root:not(.mn-tiles-bleed):not(.cl-mobile)) .char-card:hover .card-image {
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.55), 0 0 26px -6px rgba(var(--accent-rgb), calc(0.8 * var(--mn-glow)));
+}
+
+/* the plate under the pane, lit along its top edge */
+:where(:root:not(.mn-tiles-bleed)) .card-overlay {
+    min-height: calc(var(--mn-plate-h) + 2px);
+    padding: var(--space-xs) var(--space-md) calc(var(--space-xs) + 2px);
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background:
+        linear-gradient(90deg, transparent 12%, rgba(var(--mn-halo-rgb), calc(0.18 + 0.4 * var(--mn-glow))) 50%, transparent 88%) top / 100% 1px no-repeat,
+        linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.07), rgba(var(--mn-text-rgb), 0.015));
+}
+
+html.cl-mobile:where(:not(.mn-tiles-bleed)) .card-overlay {
+    min-height: var(--mn-plate-h);
+    padding: var(--space-2xs) var(--space-xs);
+}
+
+/* one line on a phone: centred by the plate while it fits, cut at its end when it does not */
+html.cl-mobile:where(:not(.mn-tiles-bleed)) .card-name {
+    max-width: 100%;
+    text-align: start;
+}
+
+:where(:root:not(.mn-tiles-bleed)) .card-name {
+    font-size: var(--font-md);
+    margin-bottom: 0;
+    text-shadow: 0 1px 2px rgba(var(--mn-shadow-rgb), 0.8);
+}
+
+/* the tags float above the plate, over the foot of the pane, keeping the app's reveal */
+:where(:root:not(.mn-tiles-bleed)) .card-tags {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    justify-content: center;
+    padding: 0 var(--space-sm) var(--space-sm);
+}
+
+/* ---- full-bleed: the portrait fills the tile, starlight rising under the name */
+:where(.mn-tiles-bleed) .card-overlay {
+    background:
+        radial-gradient(120% 70% at 50% 120%, rgba(var(--accent-rgb), calc(0.26 * var(--mn-glow))), transparent 70%),
+        linear-gradient(to top, rgba(var(--mn-void-rgb), 0.96) 0%, rgba(var(--mn-void-rgb), 0.72) 34%, rgba(var(--mn-void-rgb), 0.18) 72%, transparent 100%);
+    padding-top: var(--space-2xl);
+}
+
+:where(.mn-tiles-bleed) .card-name {
+    text-shadow: 0 1px 2px rgba(var(--mn-shadow-rgb), 0.9), 0 0 18px rgba(var(--mn-shadow-rgb), 0.8);
+}
+
+:where(.mn-tiles-bleed:not(.cl-mobile)) .char-card:hover .card-image {
+    transform: scale(1.06);
+}
+
+/* a name on its own plate never covers the portrait, so it stays shown unless the app's reveal is asked for */
+.animate-tag-pills:where(:not(.mn-names-app)) .card-name {
+    opacity: 1;
+    transform: none;
+    transition: none;
+}
+
+/* ---- the lift under the pointer, or none */
+:where(:root:not(.mn-lift-off):not(.cl-mobile)) .char-card:hover {
+    transform: translateY(-5px);
+}
+
+:where(.mn-lift-off) .char-card:hover,
+:where(.mn-lift-off) .char-card:hover .card-image,
+:where(.mn-lift-off) .chat-card:hover,
+:where(.mn-lift-off) .browse-card:hover,
+:where(.mn-lift-off) .browse-card:hover .browse-card-image img,
+:where(.mn-lift-off) .mn-swatch:hover {
+    transform: none;
+}
+
+.card-tag {
+    background: rgba(var(--mn-void-rgb), 0.72);
+    border: 1px solid rgba(var(--mn-text-rgb), 0.14);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    padding: var(--space-2xs) var(--space-sm);
+}
+
+.char-card .favorite-indicator {
+    background: rgba(var(--mn-void-rgb), 0.72);
+    border-color: rgba(var(--cl-favorite-gold-rgb), 0.45);
+}
+
+.card-badge {
+    background: rgba(var(--mn-void-rgb), 0.72);
+    border-color: rgba(var(--mn-text-rgb), 0.16);
+}
+
+/* ========================================================================
+ * SLABS: the details, the dialogs and the chat windows, glass over space
+ * ======================================================================== */
+.modal-overlay {
+    background: radial-gradient(1200px 800px at 50% 30%, rgba(var(--mn-deep-rgb), 0.3), transparent 70%), var(--cl-modal-scrim-heavy);
+}
+
+.modal-glass,
+.cl-modal-content {
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-sheet-bg);
+    border-color: var(--mn-line-strong);
+}
+
+.confirm-modal-content,
+.cl-confirm-overlay .confirm-modal-content {
+    background: var(--mn-edge), var(--mn-sheen), var(--mn-glass-strong);
+}
+
+.cl-confirm-overlay .confirm-modal-content {
+    box-shadow: 0 26px 70px -12px rgba(var(--mn-shadow-rgb), 0.9), 0 0 0 1px var(--mn-line-strong);
+}
+
+.modal-header {
+    border-bottom-color: var(--mn-line);
+}
+
+.modal-header h2 {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-2xl);
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+    text-shadow: 0 0 24px rgba(var(--accent-rgb), calc(0.35 * var(--mn-glow)));
+    font-synthesis: none;
+}
+
+.cl-modal-header h3 {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-xl);
+    letter-spacing: 0.02em;
+    font-synthesis: none;
+}
+
+.char-modal-nav {
+    --cmn-bg: rgba(var(--mn-deep-rgb), 0.7);
+    --cmn-bg-hover: rgba(var(--accent-rgb), 0.18);
+    --cmn-border: 1px solid var(--mn-line-strong);
+    --cmn-color: var(--text-primary);
+    --cmn-width: 46px;
+    --cmn-height: 46px;
+    --cmn-icon-size: var(--font-lg);
+}
+
+.char-modal-nav-prev {
+    left: var(--space-lg);
+    border-radius: var(--radius-circle);
+}
+
+.char-modal-nav-next {
+    right: var(--space-lg);
+    border-radius: var(--radius-circle);
+}
+
+.modal-sidebar {
+    background: linear-gradient(180deg, rgba(var(--mn-void-rgb), 0.35), rgba(var(--mn-void-rgb), 0.15));
+    border-right-color: var(--mn-line);
+}
+
+.char-portrait-container {
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    box-shadow: 0 18px 40px -16px rgba(var(--mn-shadow-rgb), 0.95), 0 0 32px -8px rgba(var(--accent-rgb), calc(0.6 * var(--mn-glow)));
+}
+
+.sidebar-label {
+    color: var(--text-faint);
+    letter-spacing: 0.14em;
+    font-size: var(--font-xs);
+}
+
+.tab-nav {
+    background: rgba(var(--mn-void-rgb), 0.28);
+    border-bottom-color: var(--mn-line);
+}
+
+.tab-btn,
+.tab-more {
+    color: var(--text-faint);
+}
+
+.tab-btn.active,
+.tab-more.is-current {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    background: linear-gradient(180deg, transparent 40%, rgba(var(--accent-rgb), 0.12));
+    box-shadow: 0 1px 0 rgba(var(--accent-rgb), 0.9), 0 8px 18px -10px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+.meta-info {
+    background: rgba(var(--mn-void-rgb), 0.35);
+    border: 1px solid var(--mn-line);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-xl);
+}
+
+.detail-collapsible > summary {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-pre-base);
+    letter-spacing: 0.03em;
+    color: var(--accent-hover);
+    font-synthesis: none;
+}
+
+.section-h3 {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-lg);
+    letter-spacing: 0.03em;
+    color: var(--accent-hover);
+    border-bottom: 1px solid transparent;
+    border-image: linear-gradient(90deg, rgba(var(--accent-rgb), 0.55), rgba(var(--accent-rgb), 0.08) 60%, transparent) 1;
+    font-synthesis: none;
+}
+
+.scrolling-text {
+    color: var(--text-primary);
+    background: rgba(var(--mn-void-rgb), 0.38);
+    border-color: var(--mn-line);
+    border-radius: var(--radius-xl);
+}
+
+.scrolling-text .quoted-text {
+    color: var(--accent-muted);
+}
+
+.modal-tag {
+    background: rgba(var(--accent-rgb), 0.1);
+    border-color: rgba(var(--accent-rgb), 0.28);
+    border-radius: var(--radius-pill);
+    padding: var(--space-xs) var(--space-md);
+}
+
+/* Settings: the section list as a column of lit stops */
+.settings-sidebar {
+    background: rgba(var(--mn-void-rgb), 0.3);
+    border-right-color: var(--mn-line);
+}
+
+.settings-nav-item {
+    margin: var(--space-2xs) var(--space-sm);
+    border-left: 0;
+    border-radius: var(--radius-lg);
+}
+
+.settings-nav-item.active {
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.2), rgba(var(--accent-rgb), 0.04));
+    color: var(--text-primary);
+    box-shadow: inset 2px 0 0 var(--accent), 0 0 18px -8px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+/* ========================================================================
+ * THE DETAILS' HERO: on a desktop the sidebar runs the full height, the sharp portrait at its top standing
+ * on its own light (the portrait small and blurred, banded across the top) beside the name set large; on a
+ * phone the header carries the band
+ * ======================================================================== */
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal) .modal-glass {
+    --mn-hero-h: 176px;
+}
+
+/* one band a modal, blurred once; no repeated item carries a filter */
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal) .modal-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 280px;
+    z-index: -1;
+    background: var(--mn-hero, none) center 22% / cover no-repeat;
+    filter: blur(28px) saturate(1.3);
+    opacity: 0.6;
+    transform: scale(1.15);
+    -webkit-mask-image: linear-gradient(180deg, var(--mn-opaque) 40%, transparent 100%);
+    mask-image: linear-gradient(180deg, var(--mn-opaque) 40%, transparent 100%);
+    pointer-events: none;
+}
+
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal) .modal-header {
+    min-height: var(--mn-hero-h);
+    align-items: flex-end;
+    gap: var(--space-lg);
+    padding: var(--space-xl) var(--space-xl) var(--space-lg);
+    border-bottom: 0;
+    background: linear-gradient(180deg, rgba(var(--mn-void-rgb), 0.08) 0%, rgba(var(--mn-void-rgb), 0.72) 100%);
+}
+
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal) .modal-header h2 {
+    font-size: var(--font-3xl);
+    line-height: 1.15;
+    text-shadow: 0 2px 22px rgba(var(--mn-shadow-rgb), 0.95), 0 0 30px rgba(var(--accent-rgb), calc(0.3 * var(--mn-glow)));
+}
+
+:where(html:not(.mn-hero-off) .char-modal) .modal-controls {
+    align-self: flex-start;
+}
+
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal) .modal-sidebar {
+    background: linear-gradient(180deg, transparent 0, transparent 150px, rgba(var(--mn-void-rgb), 0.35) 280px, rgba(var(--mn-void-rgb), 0.2));
+}
+
+/* the header at the sidebar's measured edge, or across the top until measured; the body keeps the box the seam measures */
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal .modal-glass.mn-side) .modal-header {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: var(--mn-side-w);
+    height: var(--mn-hero-h);
+}
+
+:where(html:not(.cl-mobile):not(.mn-hero-off) .char-modal .modal-glass.mn-side) .modal-content-tabs {
+    margin-top: var(--mn-hero-h);
+}
+
+html.cl-mobile:where(:not(.mn-hero-off)) .char-modal .modal-header {
+    max-height: 176px;
+    min-height: 136px;
+    align-items: flex-end;
+    padding-top: var(--space-xl);
+    padding-bottom: var(--space-md);
+}
+
+/* the band and its scrim blurred as one, behind the header's content */
+html.cl-mobile:where(:not(.mn-hero-off)) .char-modal .modal-header::before {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--space-2xl));
+    z-index: -1;
+    background: linear-gradient(180deg, rgba(var(--mn-void-rgb), 0.3), rgba(var(--mn-void-rgb), 0.86)), var(--mn-hero, none) center 22% / cover no-repeat;
+    filter: blur(20px) saturate(1.3);
+    pointer-events: none;
+}
+
+html.cl-mobile:where(:not(.mn-hero-off)) .modal-header .mobile-header-avatar {
+    width: var(--avatar-xl);
+    height: var(--avatar-xl);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 0 0 1px rgba(var(--mn-halo-rgb), 0.45), 0 8px 22px -8px rgba(var(--mn-shadow-rgb), 0.9);
+}
+
+/* the name takes the row beside the portrait, two lines before any ellipsis */
+html.cl-mobile:where(:not(.mn-hero-off)) .modal-header h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--font-xl);
+    line-height: 1.2;
+}
+
+/* the controls keep no box of their own in the name's row */
+html.cl-mobile:where(:not(.mn-hero-off)) :where(.char-modal) .modal-controls {
+    display: contents;
+}
+
+/* the Chat pill stands at the band's top right, out of the name's row (the back arrow keeps its place) */
+html.cl-mobile:where(:not(.mn-hero-off)) :where(.char-modal) .modal-controls .cl-btn {
+    position: absolute;
+    top: var(--space-sm);
+    right: var(--space-md);
+    z-index: 1;
+}
+
+/* ========================================================================
+ * THE CHATS VIEW: glass tiles, and the newest story on a lit poster
+ * ======================================================================== */
+.chat-card {
+    background: var(--mn-sheen), var(--mn-card);
+    border-color: var(--mn-line);
+}
+
+.chat-card:hover {
+    background: var(--mn-sheen), rgba(var(--mn-deep-rgb), 0.85);
+    border-color: rgba(var(--accent-rgb), 0.45);
+    box-shadow: 0 16px 34px -18px rgba(var(--mn-shadow-rgb), 0.95), 0 0 24px -8px rgba(var(--accent-rgb), calc(0.6 * var(--mn-glow)));
+}
+
+.chat-hero {
+    background: var(--mn-edge), rgba(var(--mn-deep-rgb), 0.6);
+    border-color: var(--mn-line-strong);
+}
+
+.chat-hero:hover {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: var(--cl-shadow-lg), 0 0 32px -10px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+.chat-hero-title {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-2xl);
+    letter-spacing: 0.015em;
+    font-synthesis: none;
+}
+
+.chat-card-title,
+.chat-group-name {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-pre-base);
+    letter-spacing: 0.02em;
+    font-synthesis: none;
+}
+
+.chats-seg {
+    background: rgba(var(--mn-void-rgb), 0.6);
+    border-color: var(--mn-line);
+    border-radius: var(--radius-pill);
+}
+
+.chats-seg-btn {
+    border-radius: var(--radius-pill);
+}
+
+.chats-seg-btn.active {
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.34), rgba(var(--accent-secondary-rgb), 0.18));
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.55), 0 0 16px -3px rgba(var(--accent-rgb), calc(0.8 * var(--mn-glow)));
+}
+
+.chat-band-label {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    letter-spacing: 0.18em;
+    color: var(--text-secondary);
+}
+
+/* ========================================================================
+ * THE CONVERSATION: glass plates over the night, the character's lit by starlight
+ * ======================================================================== */
+.chat-conv-backdrop {
+    background: rgba(var(--mn-void-rgb), 0.38);
+}
+
+/* the character's colour, glowing at the top and foot of the conversation while it is tinted */
+.chat-conv-backdrop::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(1100px 520px at 50% -8%, rgba(var(--mn-halo-rgb), calc(0.1 + 0.18 * var(--mn-glow))), transparent 70%),
+        radial-gradient(900px 480px at 50% 112%, rgba(var(--mn-halo-2-rgb), calc(0.06 + 0.12 * var(--mn-glow))), transparent 70%);
+    opacity: 0;
+    transition: opacity var(--dur-reveal) var(--ease-standard);
+    pointer-events: none;
+}
+
+:where(.chat-conv.mn-tinted) .chat-conv-backdrop::before {
+    opacity: 1;
+}
+
+/* a custom property resolves where it is declared, so the lit edge is declared again under the tint */
+.chat-conv.mn-tinted {
+    --mn-halo-rgb: var(--mn-tint-accent-rgb);
+    --mn-halo-2-rgb: var(--mn-tint-accent-2-rgb);
+    --mn-edge: linear-gradient(90deg, transparent 4%, rgba(var(--mn-tint-accent-rgb), calc(0.25 + 0.5 * var(--mn-glow))) 50%, transparent 96%) top / 100% 1px no-repeat;
+}
+
+/* the accent follows the character inside its conversation, while the accent is the palette's */
+:root.mn-accent .chat-conv.mn-tinted {
+    --accent: var(--mn-tint-accent);
+    --accent-rgb: var(--mn-tint-accent-rgb);
+    --accent-hover: var(--mn-tint-accent-hover);
+    --accent-glow: rgba(var(--mn-tint-accent-rgb), 0.35);
+    --accent-secondary: var(--mn-tint-accent-2);
+    --accent-secondary-rgb: var(--mn-tint-accent-2-rgb);
+    --accent-text: var(--mn-tint-accent-text);
+    --accent-muted: var(--mn-tint-speech);
+    --accent-warm: var(--mn-tint-emphasis);
+    --cl-chat-speech: var(--mn-tint-speech);
+    --cl-chat-emphasis: var(--mn-tint-emphasis);
+    --cl-accent-tint: rgba(var(--mn-tint-accent-rgb), 0.12);
+    --cl-accent-tint-border: rgba(var(--mn-tint-accent-rgb), 0.22);
+    --cl-focus-glow: 0 0 0 3px rgba(var(--mn-tint-accent-rgb), 0.28), 0 0 18px rgba(var(--mn-tint-accent-rgb), calc(0.5 * var(--mn-glow)));
+    --cl-sheet-highlight: rgba(var(--mn-tint-accent-rgb), 0.2);
+}
+
+.chat-conv-header {
+    border-bottom-color: var(--mn-line);
+}
+
+.chat-conv-title {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-lg);
+    letter-spacing: 0.02em;
+    font-synthesis: none;
+}
+
+html.cl-mobile .chat-conv-title {
+    font-size: var(--font-pre-base);
+    font-weight: var(--mn-display-weight);
+}
+
+html.cl-mobile .modal-header h2 {
+    font-weight: var(--mn-display-weight);
+}
+
+.chat-conv-avatar {
+    box-shadow: 0 0 0 1px rgba(var(--mn-halo-rgb), 0.55), 0 0 14px -2px rgba(var(--mn-halo-rgb), var(--mn-glow));
+}
+
+/* ---- the messages: editorial (replies on the night, the reader's turns in capsules), glass bubbles, or the app's plates */
+.chat-conv-msg {
+    --mn-frame-rgb: var(--mn-halo-rgb);
+    --mn-frame-glow: calc(0.8 * var(--mn-glow));
+}
+
+.chat-conv-msg.user {
+    --mn-frame-rgb: var(--mn-text-rgb);
+    --mn-frame-glow: 0;
+}
+
+.chat-conv-msg-name {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-base);
+    letter-spacing: 0.03em;
+    font-synthesis: none;
+}
+
+:where(.mn-chat-bubbles) .chat-conv-msg {
+    border-color: rgba(var(--mn-halo-rgb), 0.16);
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-chat-plate-char);
+    box-shadow: 0 14px 34px -22px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+:where(.mn-chat-bubbles) .chat-conv-msg.user {
+    border-color: rgba(var(--mn-text-rgb), 0.07);
+    background: linear-gradient(180deg, rgba(var(--mn-text-rgb), 0.04), transparent 60%), var(--cl-chat-plate-user);
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-msg {
+    --mn-rule-a: calc(0.22 + 0.3 * var(--mn-glow));
+    --mn-name-size: var(--font-lg);
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-msg.user {
+    --mn-rule-a: 0;
+    --mn-name-size: var(--font-sm);
+    width: fit-content;
+    max-width: min(84%, 680px);
+    margin-left: auto;
+    overflow: visible;
+    border-color: rgba(var(--accent-rgb), 0.26);
+    border-radius: var(--radius-4xl);
+    background: var(--mn-sheen), linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-secondary-rgb), 0.06)), rgba(var(--mn-deep-rgb), 0.86);
+    box-shadow: var(--mn-lift), 0 16px 36px -24px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+/* a capsule fits its words, so the editor opened in one keeps a working width */
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-edit {
+    min-width: min(32rem, 70vw);
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-msg-head {
+    background: linear-gradient(90deg, rgba(var(--mn-halo-rgb), var(--mn-rule-a)), rgba(var(--mn-halo-rgb), 0) 80%) left bottom / 100% 1px no-repeat;
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-msg-name {
+    font-size: var(--mn-name-size);
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv[data-mode="column"] .chat-conv-msg-body {
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+}
+
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv[data-mode="column"] .chat-conv-msg.user .chat-conv-msg-body {
+    border-color: rgba(var(--accent-rgb), 0.26);
+    border-radius: var(--radius-4xl);
+    background: var(--mn-sheen), linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-secondary-rgb), 0.06)), rgba(var(--mn-deep-rgb), 0.86);
+    box-shadow: var(--mn-lift), 0 16px 36px -24px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+/* the reading veil feathers out at the column's sides, so the night shows at its edges and not under the text */
+:where(:root:not(.mn-chat-bubbles):not(.mn-chat-app)) .chat-conv-column::before {
+    -webkit-mask-image: linear-gradient(90deg, transparent, var(--mn-opaque) var(--mn-feather), var(--mn-opaque) calc(100% - var(--mn-feather)), transparent);
+    mask-image: linear-gradient(90deg, transparent, var(--mn-opaque) var(--mn-feather), var(--mn-opaque) calc(100% - var(--mn-feather)), transparent);
+}
+
+html.cl-mobile .chat-conv-column {
+    --mn-feather: 0px;
+}
+
+.chat-conv-msg-avatar-frame {
+    border-color: rgba(var(--mn-frame-rgb), 0.45);
+    box-shadow: 0 0 16px -4px rgba(var(--mn-frame-rgb), var(--mn-frame-glow));
+}
+
+.chat-conv-msg-chip {
+    background: rgba(var(--mn-text-rgb), 0.07);
+}
+
+.chat-conv-swipes {
+    background: rgba(var(--mn-void-rgb), 0.7);
+    border-color: rgba(var(--mn-halo-rgb), 0.22);
+}
+
+.chat-conv-composer {
+    background: var(--mn-sheen), rgba(var(--mn-deep-rgb), 0.82);
+    border-color: var(--mn-line-strong);
+    box-shadow: 0 18px 40px -22px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+.chat-conv-composer:focus-within {
+    border-color: rgba(var(--accent-rgb), 0.6);
+    box-shadow: 0 18px 40px -22px rgba(var(--mn-shadow-rgb), 0.95), 0 0 0 3px rgba(var(--accent-rgb), 0.1), 0 0 28px -8px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+/* the composer lights when the field is addressed, so the field itself carries no second outline */
+.chat-conv-input,
+.chat-conv-input:focus {
+    border-color: transparent;
+    background: transparent;
+}
+
+/* the send verb: an orb of the accent */
+.chat-conv-send {
+    color: var(--accent-text);
+    opacity: 1;
+    border-radius: var(--radius-circle);
+    background: radial-gradient(circle at 35% 30%, var(--accent-hover), var(--accent) 55%, var(--accent-secondary));
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.6), 0 0 18px -2px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+.chat-conv-composer:focus-within .chat-conv-send {
+    color: var(--accent-text);
+    text-shadow: none;
+}
+
+.chat-conv-jump {
+    background: rgba(var(--mn-deep-rgb), 0.9);
+    border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+/* the chat windows: the details modal's slab, its top light, halo and serif title; rows as glass plates */
+.cl-cwin-sheet {
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-sheet-bg);
+    border-color: var(--mn-line-strong);
+    box-shadow: 0 28px 70px -18px rgba(var(--mn-shadow-rgb), 0.9), 0 0 36px -14px rgba(var(--accent-rgb), calc(0.5 * var(--mn-glow))), var(--mn-lift);
+}
+
+.cl-cwin-header {
+    border-bottom-color: var(--mn-line);
+}
+
+.cl-cwin-name,
+.clp-book-name {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    letter-spacing: 0.03em;
+    font-synthesis: none;
+}
+
+.cl-cwin-name {
+    font-size: var(--font-lg);
+    text-shadow: 0 0 20px rgba(var(--accent-rgb), calc(0.35 * var(--mn-glow)));
+}
+
+.cl-cwin-row,
+.clp-book {
+    background: var(--mn-sheen), rgba(var(--mn-deep-rgb), 0.5);
+    border-color: var(--mn-line);
+    box-shadow: var(--mn-lift);
+}
+
+.cl-cwin-row:hover {
+    background: var(--mn-sheen), rgba(var(--accent-rgb), 0.07);
+    border-color: var(--mn-line-strong);
+}
+
+/* the row in use and the row held for editing keep their state under the hover above */
+.cl-cwin-row.is-active {
+    border-color: var(--cl-accent-tint-border);
+    background: var(--cl-accent-tint);
+}
+
+.cl-cwin-row.is-editing {
+    border-color: var(--mn-line-strong);
+    background: var(--mn-sheen), rgba(var(--mn-text-rgb), 0.06);
+}
+
+/* ========================================================================
+ * ONLINE: the browse grid on the same tiles
+ * ======================================================================== */
+.browse-search-bar {
+    background: var(--mn-edge), var(--mn-sheen), rgba(var(--mn-deep-rgb), 0.55);
+    border-color: var(--mn-line);
+}
+
+.browse-search-input-wrapper {
+    background: rgba(var(--mn-void-rgb), 0.55);
+    border-color: var(--mn-line);
+}
+
+.browse-card {
+    background: var(--mn-deep);
+    border-color: rgba(var(--mn-text-rgb), 0.09);
+    border-radius: var(--radius-2xl-alt);
+    box-shadow: 0 14px 32px -16px rgba(var(--mn-shadow-rgb), 0.95);
+}
+
+.browse-card:hover {
+    border-color: rgba(var(--accent-rgb), 0.6);
+    box-shadow: 0 22px 44px -16px rgba(var(--mn-shadow-rgb), 0.95), 0 0 30px -6px rgba(var(--accent-rgb), calc(0.7 * var(--mn-glow)));
+}
+
+.browse-card-name {
+    font-family: var(--font-stack-mn-display);
+    font-weight: var(--mn-display-weight);
+    font-size: var(--font-pre-base);
+    letter-spacing: 0.02em;
+    font-synthesis: none;
+}
+
+.browse-card-footer {
+    background: rgba(var(--mn-void-rgb), 0.4);
+    border-top-color: var(--mn-line);
+}
+
+.browse-card-tag {
+    background: rgba(var(--mn-text-rgb), 0.06);
+    border-radius: var(--radius-pill);
+}
+
+/* ========================================================================
+ * THE PHONE: the dock, the sheets and the action orb
+ * ======================================================================== */
+html.cl-mobile .mobile-bottom-nav {
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-sheet-bg-mobile);
+    border-top-color: var(--mn-line);
+}
+
+html.cl-mobile .mobile-bottom-nav-tab.active {
+    color: var(--accent-hover);
+}
+
+html.cl-mobile .mobile-bottom-nav-tab.active::before {
+    width: 30px;
+    height: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 12px 1px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+html.cl-mobile .mobile-sheet {
+    background: var(--mn-edge), var(--mn-sheen), var(--cl-sheet-bg-mobile);
+    border-color: var(--mn-line-strong);
+    border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+}
+
+html.cl-mobile .mobile-fab {
+    background: radial-gradient(circle at 35% 30%, var(--accent-hover), var(--accent) 55%, var(--accent-secondary));
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.6), 0 10px 28px rgba(var(--accent-rgb), calc(0.65 * var(--mn-glow))), 0 2px 6px rgba(var(--mn-shadow-rgb), 0.5);
+}
+
+/* ========================================================================
+ * MIDNIGHT'S OWN SECTION: swatches, the density switch, the palette editor
+ * ======================================================================== */
+.mn-set {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.mn-set-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+.mn-set-head,
+.mn-editor-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-sm-md);
+}
+
+.mn-set-title {
+    font-family: var(--font-stack-mn-display);
+    font-size: var(--font-lg);
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.mn-set-sub {
+    font-size: var(--font-sm);
+    color: var(--text-faint);
+}
+
+.mn-swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: var(--space-sm-md);
+}
+
+.mn-swatch {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+    padding: var(--space-xs-sm) var(--space-xs-sm) var(--space-sm);
+    border: 1px solid var(--mn-line);
+    border-radius: var(--radius-xl);
+    background: rgba(var(--mn-void-rgb), 0.45);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--dur-base) var(--ease-standard), box-shadow var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-standard);
+}
+
+.mn-swatch:hover {
+    border-color: rgba(var(--accent-rgb), 0.45);
+    transform: translateY(-2px);
+}
+
+.mn-swatch.is-on {
+    border-color: var(--sw-accent);
+    box-shadow: 0 0 0 1px var(--sw-accent), 0 0 22px -6px var(--sw-accent);
+}
+
+.mn-swatch:focus-visible {
+    outline: none;
+    box-shadow: var(--cl-focus-glow);
+}
+
+/* a small sky in the palette's own colours: its night, its glow, its accent as a star */
+.mn-swatch-sky {
+    position: relative;
+    height: 54px;
+    margin-bottom: var(--space-xs);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background:
+        radial-gradient(60% 80% at 80% 110%, color-mix(in srgb, var(--sw-accent-2) 45%, transparent), transparent 70%),
+        radial-gradient(70% 90% at 15% -10%, color-mix(in srgb, var(--sw-accent) 30%, transparent), transparent 70%),
+        linear-gradient(160deg, var(--sw-void), var(--sw-deep));
+}
+
+.mn-swatch-orb {
+    position: absolute;
+    top: 14px;
+    right: var(--space-lg);
+    width: 9px;
+    height: 9px;
+    border-radius: var(--radius-circle);
+    background: var(--sw-accent);
+    box-shadow: 0 0 10px 2px var(--sw-accent);
+}
+
+.mn-swatch-bands {
+    position: absolute;
+    inset: 0;
+    display: flex;
+}
+
+.mn-swatch-band {
+    flex: 1;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--sw-accent) 55%, var(--sw-void)), var(--sw-void));
+}
+
+.mn-swatch-name {
+    font-family: var(--font-stack-mn-display);
+    font-size: var(--font-pre-base);
+    letter-spacing: 0.03em;
+    padding: 0 var(--space-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mn-swatch-note {
+    font-size: var(--font-2xs);
+    color: var(--text-faint);
+    padding: 0 var(--space-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mn-auto-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-sm);
+    font-size: var(--font-xs);
+    color: var(--text-faint);
+}
+
+.mn-auto-step {
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--mn-line);
+    border-radius: var(--radius-pill);
+}
+
+.mn-auto-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.mn-auto-step.is-now {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    color: var(--text-primary);
+}
+
+.mn-set-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.mn-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    border: 1px solid var(--mn-line-strong);
+    border-radius: var(--radius-2xl);
+    background: var(--mn-edge), var(--mn-sheen), rgba(var(--mn-void-rgb), 0.4);
+}
+
+.mn-editor-body {
+    display: grid;
+    grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+    gap: var(--space-lg);
+    align-items: start;
+}
+
+.mn-editor-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+:where(.mn-editor-fields) .settings-row {
+    margin: 0;
+}
+
+.mn-preview {
+    position: relative;
+    height: 170px;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    border: 1px solid var(--mn-line);
+    background:
+        radial-gradient(70% 60% at 85% 110%, color-mix(in srgb, var(--sw-accent-2) 40%, transparent), transparent 70%),
+        radial-gradient(80% 70% at 10% -10%, color-mix(in srgb, var(--sw-accent) 26%, transparent), transparent 70%),
+        linear-gradient(165deg, var(--sw-void), var(--sw-deep));
+}
+
+.mn-preview-sky {
+    position: absolute;
+    inset: 0;
+    background-image: var(--mn-starfield);
+    opacity: 0.8;
+}
+
+.mn-preview-card {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm-md) var(--space-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in srgb, var(--sw-text) 14%, transparent);
+    background:
+        linear-gradient(90deg, transparent 5%, var(--sw-accent) 50%, transparent 95%) top / 100% 1px no-repeat,
+        color-mix(in srgb, var(--sw-deep) 82%, transparent);
+}
+
+.mn-preview-name {
+    font-family: var(--font-stack-mn-display);
+    font-size: var(--font-base);
+    color: var(--sw-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mn-preview-line {
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--sw-text) 22%, transparent);
+}
+
+.mn-preview-line.is-short {
+    width: 60%;
+}
+
+.mn-preview-btn {
+    align-self: flex-end;
+    padding: var(--space-2xs) var(--space-md);
+    border-radius: var(--radius-pill);
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    color: var(--sw-void);
+    background: linear-gradient(135deg, var(--sw-accent), var(--sw-accent-2));
+    box-shadow: 0 0 14px -2px var(--sw-accent);
+}
+
+.mn-color-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.mn-color {
+    width: 44px;
+    height: 32px;
+    padding: var(--space-2xs);
+    border: 1px solid var(--mn-line-strong);
+    border-radius: var(--radius-lg);
+    background: rgba(var(--mn-void-rgb), 0.55);
+    cursor: pointer;
+}
+
+.mn-color-hex {
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.mn-value {
+    margin-left: var(--space-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.mn-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.mn-range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--accent) 0 var(--mn-fill, 50%), rgba(var(--mn-text-rgb), 0.1) var(--mn-fill, 50%) 100%);
+}
+
+.mn-range-hue::-webkit-slider-runnable-track {
+    background: var(--mn-hue-track);
+}
+
+.mn-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    border-radius: var(--radius-circle);
+    background: var(--text-primary);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.6), 0 0 12px rgba(var(--accent-rgb), var(--mn-glow));
+}
+
+.mn-range::-moz-range-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--mn-text-rgb), 0.1);
+}
+
+.mn-range-hue::-moz-range-track {
+    background: var(--mn-hue-track);
+}
+
+.mn-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: var(--radius-circle);
+    background: var(--text-primary);
+}
+
+.mn-range:focus-visible {
+    outline: none;
+}
+
+.mn-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: var(--cl-focus-glow);
+}
+
+.mn-editor-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.mn-editor-gap {
+    flex: 1;
+}
+
+.mn-editor-error {
+    color: var(--cl-error-pale);
+}
+
+html.cl-mobile .mn-editor-body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+html.cl-mobile .mn-swatches {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+
+html.cl-mobile .mn-swatch,
+html.cl-mobile .mn-color {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .mn-range {
+    min-height: var(--touch-target-min);
+}

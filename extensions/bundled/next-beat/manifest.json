@@ -1,0 +1,31 @@
+{
+    "id": "next-beat",
+    "name": "Next Beat",
+    "version": "1.1.0",
+    "author": "Project Σ",
+    "description": "Ideas for where the story goes next, written by your own model from the open chat: buttons above the composer, or a window of its own, each a kind of move (a spread of different turns, higher stakes, a quiet beat, a reveal, a knock at the door, a jump ahead) or a genre, a Director for scenes and steps you sketch, and Surprise Me, a hidden event the narrator brings in a few messages later. Insert a suggestion into the composer or send it. Ships off; switch it on to use it. Inspired by Pathweaver for SillyTavern by mattjaybe (MIT), with thanks to its author.",
+    "requires": { "api": "2.4" },
+    "defaultOff": true,
+    "contributes": ["composer.action", "chat.window"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": {
+        "placement": "strip",
+        "profileId": "",
+        "count": 5,
+        "length": "paragraph",
+        "depth": 8,
+        "scenario": true,
+        "description": true,
+        "insert": "replace",
+        "wrap": "none",
+        "explicit": false,
+        "stream": true,
+        "reasoning": false,
+        "reasoningTokens": 20000,
+        "surpriseMin": 3,
+        "surpriseMax": 7,
+        "endless": false
+    }
+}

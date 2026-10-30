@@ -1,0 +1,74 @@
+/* Ratings and Notes: the Rating tab. Extension sheets load in the module layer, below the
+   user's custom CSS. */
+.rn-pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) 0;
+}
+.rn-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+}
+.rn-stars {
+    display: flex;
+    gap: var(--space-2xs);
+}
+.rn-star {
+    background: none;
+    border: none;
+    padding: var(--space-2xs);
+    font-size: var(--font-xl);
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.rn-star.is-on {
+    color: var(--accent);
+}
+/* the pointer over the stars previews the rating a click gives: the star under it and those before */
+.rn-stars:hover .rn-star {
+    color: var(--text-muted);
+}
+.rn-stars:hover .rn-star:hover,
+.rn-stars:hover .rn-star:has(~ .rn-star:hover) {
+    color: var(--accent);
+}
+/* phone: the stars are the tab's one control, so full touch targets, and a tap leaves no preview */
+html.cl-mobile .rn-star {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+}
+html.cl-mobile .rn-stars:hover .rn-star:not(.is-on) {
+    color: var(--text-muted);
+}
+html.cl-mobile .rn-stars:hover .rn-star.is-on {
+    color: var(--accent);
+}
+.rn-hint,
+.rn-status {
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+.rn-status.is-error {
+    color: var(--cl-error-pale);
+}
+.rn-label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+.rn-note {
+    width: 100%;
+    resize: vertical;
+}
+.rn-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}

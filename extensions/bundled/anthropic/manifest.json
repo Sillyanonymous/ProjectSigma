@@ -1,0 +1,10 @@
+{
+    "id": "anthropic",
+    "name": "Anthropic",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "A kind of connection for Anthropic's Messages API (Claude), beside the app's OpenAI-compatible one: pick \"Anthropic Messages API\" as a connection's kind and give it your Anthropic API key. A reasoning effort shows the model's thinking as the reply's reasoning, and the samplers a current Claude model refuses are never sent to it. Ships off; switch it on to use it.",
+    "requires": { "api": "2.6" },
+    "defaultOff": true,
+    "server": "server/index.js"
+}

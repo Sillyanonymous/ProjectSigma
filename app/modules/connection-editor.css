@@ -1,0 +1,206 @@
+/* ========================================
+   CONNECTION EDITOR (one form, two hosts: the in-chat panel and Settings > AI)
+   ======================================== */
+
+/* positioned ancestor of its actions menu; head, status strip and footer stay put, the body scrolls */
+.ce-editor {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* the changed-elsewhere notice keeps its height while the body scrolls */
+.ce-band {
+    flex-shrink: 0;
+    margin-bottom: 0;
+}
+
+.ce-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.ce-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    background: none;
+    border: 0;
+    padding: var(--space-2xs) 0;
+    cursor: pointer;
+    color: var(--accent);
+    font-size: var(--font-xs);
+    flex-shrink: 0;
+}
+
+.ce-title {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-sm);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.ce-more { flex-shrink: 0; }
+
+.ce-menu {
+    position: absolute;
+    z-index: var(--z-raised);
+}
+
+/* The status strip: three readiness words derived from the draft. */
+.ce-status {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-sm-md);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-xs);
+}
+
+.ce-ready {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-md);
+}
+
+.ce-ready-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--text-secondary);
+}
+
+.ce-ready-item[data-state="set"],
+.ce-ready-item[data-state="typed"] { color: var(--cl-success-pale); }
+.ce-ready-item[data-state="missing"] { color: var(--cl-warning-pale); }
+.ce-ready-item[data-state="optional"] { color: var(--text-muted); }
+
+/* What Test is doing or answered, beside its button; blank at rest and once the draft moves. */
+.ce-test-note {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ce-test-note:empty { display: none; }
+.ce-test-note[data-tone="ok"] { color: var(--cl-success-pale); }
+.ce-test-note[data-tone="error"] { color: var(--cl-error-pale); }
+
+/* What Check found, under the sight field; it wraps, since a refusal quotes the endpoint. */
+.ce-vision-note:empty { display: none; }
+.ce-vision-note[data-tone="ok"] { color: var(--cl-success-pale); }
+.ce-vision-note[data-tone="error"] { color: var(--cl-error-pale); }
+.ce-vision-note[data-tone="warn"] { color: var(--cl-warning-pale); }
+
+.ce-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: var(--space-2xs);
+}
+
+/* key and model rows: the verbs wrap rather than ellipsize the state ("Key stored, ends in 1234" is the point) */
+.ce-key-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+    min-width: 0;
+}
+
+.ce-key-row .cl-cwin-input,
+.ce-model-slot {
+    flex: 1;
+    min-width: 0;
+}
+
+.ce-model-slot { display: flex; }
+.ce-model-slot > * { flex: 1; min-width: 0; }
+.ce-model-slot .custom-select-container { flex: 1; min-width: 0; }
+
+.ce-key-state {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ce-key-state code {
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-2xs);
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+    padding: 0 var(--space-2xs);
+    border-radius: var(--radius-xs);
+    background: var(--cl-ghost-mid);
+    color: var(--text-primary);
+}
+
+.ce-key-state.is-stored i { color: var(--cl-success-pale); }
+.ce-key-state.is-missing i { color: var(--cl-warning-pale); }
+.ce-key-state.is-removing { color: var(--cl-error-pale); }
+
+.ce-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.ce-actions-gap { flex: 0 0 auto; margin-left: auto; }
+
+/* ---- In-chat host: the ~390px dock stacks the form like a phone (55% clips an endpoint); toggles keep their shape ---- */
+.cl-cwin .ce-editor .cl-cwin-field:not(.cl-cwin-toggle) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--space-2xs);
+}
+
+.cl-cwin .ce-editor .cl-cwin-field:not(.cl-cwin-toggle) > * {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* ---- Settings > AI host: in the panel's flow, so the sheet's scroll carries the body ---- */
+.llm-profile-editor-host .ce-editor { flex: none; }
+.llm-profile-editor-host .ce-body { overflow: visible; flex: none; }
+.llm-profile-editor-host:empty { display: none; }
+
+/* ---- Phone ---- */
+html.cl-mobile .ce-back,
+html.cl-mobile .ce-more { min-height: var(--touch-target-slim); }
+
+html.cl-mobile .ce-actions { flex-wrap: wrap; row-gap: var(--space-xs); }

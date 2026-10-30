@@ -1,0 +1,51 @@
+/* Chat settings: only the form's scroller and the elsewhere list; the form family is the canon in chats.css */
+
+.cl-cwin-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+/* ========================================
+   POINTER LIST
+   ======================================== */
+
+/* Deliberately quiet: it answers "where is X" without competing with the controls that
+   actually live here. */
+.cl-cwin-elsewhere-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.cl-cwin-elsewhere-list li {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: baseline;
+}
+
+.cl-cwin-elsewhere-list strong {
+    flex: 0 0 8.5em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.cl-cwin-elsewhere-list span { flex: 1; min-width: 0; }
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+/* phone rules, scoped by the mode class, never a bare width query */
+html.cl-mobile .cl-cwin-content {
+    padding-bottom: max(var(--space-lg), var(--safe-bottom));
+}

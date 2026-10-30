@@ -1,0 +1,14 @@
+{
+    "id": "trackers",
+    "name": "Trackers",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Keeps track of what a chat should: a scene, a cast, an inventory, relationships, or anything you define. Your own model updates each tracker after every reply, and the chat's prompt carries it, as of the turn the reply follows. Switch one on for a chat from the Trackers window in the conversation. Ships off; switch it on to use it. Inspired by kaldigo's Tracker for SillyTavern, with thanks to its author.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["chat.window", "message.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": { "profileId": "", "auto": true, "turns": 6, "placement": "at_depth", "depth": 1, "role": "system" }
+}

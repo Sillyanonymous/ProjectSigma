@@ -1,0 +1,14 @@
+{
+    "id": "hello-world",
+    "name": "Hello World",
+    "version": "1.3.0",
+    "author": "Project Σ",
+    "description": "The tour of every door, each shown once and small. The page: a command of its own and a wrapper on one of the app's, a verb in every menu, a button above the composer that writes into it, a chip on grid cards, a details tab, a view, a window in the conversation, a dialog, the conversation's hooks behind a setting that starts off, events, per-user storage and settings. The server: a table of waves (its report and its query doors), a store guard, a lore book and a prompt block behind settings that start off, a {{hello}} macro with arguments, a model call and a stream, a job, a schedule and a staged import. Ships off; enable it to try the api.",
+    "requires": { "api": "2.5" },
+    "defaultOff": true,
+    "settings": { "greeting": "Hello", "hooks": false, "loreBook": false, "promptNote": "" },
+    "contributes": ["chat.window", "chat.action", "message.action", "character.action", "app.action", "character.bulk.action", "character.card.badge", "character.details.tab", "shell.view", "lore.entry.action", "chat.card.action", "composer.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

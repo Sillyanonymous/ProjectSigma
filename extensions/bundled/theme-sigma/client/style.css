@@ -1,0 +1,1540 @@
+/* Σ: the app's own design, finished on its chat windows' material. Every rule keeps its base rule's weight. */
+
+/* ========================================================================
+ * THE PALETTE: Σ's own; the client writes the chosen one over it
+ * ======================================================================== */
+:root {
+    --sx-hue: 222;
+    --sx-glow: 0.4;
+    --sx-ink: #1b1c1d;
+    --sx-ink-rgb: 27, 28, 29;
+    --sx-deep: #252627;
+    --sx-deep-rgb: 37, 38, 39;
+    --sx-card: rgba(41, 42, 43, 0.92);
+    --sx-slab: rgba(38, 39, 41, 0.95);
+    --sx-slab-strong: rgba(38, 39, 41, 0.985);
+    --sx-slab-solid: #262729;
+    --sx-field-bg: #2b2c2e;
+    --sx-control: #38393b;
+    --sx-control-hover: #424346;
+    --sx-thumb: #4a4c4f;
+    --sx-raise: rgba(234, 234, 235, 0.055);
+    --sx-raise-2: rgba(234, 234, 235, 0.095);
+    --sx-line: rgba(234, 234, 235, 0.1);
+    --sx-line-strong: rgba(234, 234, 235, 0.16);
+    --sx-text: #efeff0;
+    --sx-text-rgb: 239, 239, 240;
+    --sx-text-2: #b5b7ba;
+    --sx-text-3: #9b9da1;
+    --sx-text-4: #8b8d92;
+    --sx-shadow-rgb: 5, 5, 6;
+    --sx-g1: #4a9eff;
+    --sx-g1-rgb: 74, 158, 255;
+    --sx-g2: #5550f0;
+    --sx-g2-rgb: 85, 80, 240;
+    --sx-g3: #ac76f3;
+    --sx-g3-rgb: 172, 118, 243;
+    --sx-fill-1: #0070f2;
+    --sx-fill-2: #5550f0;
+    --sx-fill-text: #ffffff;
+    --sx-pool-a: rgba(74, 158, 255, 0.049);
+    --sx-pool-b: rgba(85, 80, 240, 0.049);
+    --sx-pool-c: rgba(172, 118, 243, 0.022);
+    --sx-plate-char: rgba(37, 38, 39, 0.94);
+    --sx-plate-user: rgba(43, 44, 46, 0.92);
+    --sx-body: #dfe0e1;
+    --sx-narration: #b5b7ba;
+    --sx-accent: #4a9eff;
+    --sx-accent-rgb: 74, 158, 255;
+    --sx-accent-2: #9592f6;
+    --sx-accent-2-rgb: 149, 146, 246;
+    --sx-accent-hover: #6eb1ff;
+    --sx-accent-text: #ffffff;
+    --sx-speech: #6eb0fc;
+    --sx-emphasis: #b0aef4;
+
+    --sx-rail-w: 68px;
+    /* the material: three depths of shadow, which the app's shadow tokens carry */
+    --sx-depth-1: 0 1px 2px rgba(var(--sx-shadow-rgb), 0.45);
+    --sx-depth-2: 0 10px 28px -10px rgba(var(--sx-shadow-rgb), 0.7), 0 1px 3px rgba(var(--sx-shadow-rgb), 0.4);
+    --sx-depth-3: 0 28px 72px -20px rgba(var(--sx-shadow-rgb), 0.8), 0 2px 8px rgba(var(--sx-shadow-rgb), 0.4);
+    --sx-ring: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
+    /* the primary verb: its colour, lit from above */
+    --sx-sheen: linear-gradient(180deg, rgba(var(--sx-text-rgb), 0.12), rgba(var(--sx-text-rgb), 0) 70%);
+    /* a control's hairline; its body is the app's top light over its small shadow, as a macOS bezel */
+    --sx-bezel-line: rgba(var(--sx-text-rgb), 0.07);
+}
+
+/* ========================================================================
+ * THE APP'S TOKENS, MAPPED ONTO THE PALETTE (the user's theme writes them later and wins)
+ * ======================================================================== */
+:root {
+    --font-stack-ui: 'InterVariable', 'Noto Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    --bg-primary: var(--sx-ink);
+    --bg-secondary: var(--sx-deep);
+    --text-primary: var(--sx-text);
+    --text-secondary: var(--sx-text-2);
+    --text-faint: var(--sx-text-3);
+    --text-muted: var(--sx-text-4);
+    --card-bg: var(--sx-card);
+    --glass-border: var(--sx-line);
+    --cl-glass-bg: var(--sx-slab-strong);
+    --cl-topbar-bg: rgba(var(--sx-ink-rgb), 0.72);
+    --btn-pad-v-md: var(--space-xs-sm);
+    --btn-pad-h-md: var(--space-md);
+    --cl-border: var(--sx-line-strong);
+    --cl-elev-border: var(--sx-line-strong);
+    --cl-elev-hairline: var(--sx-line);
+    --cl-elev-shadow: var(--sx-depth-3);
+    --cl-sheet-bg: var(--sx-slab);
+    --cl-sheet-highlight: rgba(var(--sx-text-rgb), 0.06);
+    --cl-sheet-head: linear-gradient(180deg, rgba(var(--sx-text-rgb), 0.025), transparent);
+    --cl-sheet-bg-mobile: var(--sx-slab-solid);
+    --cl-app-glow-a: radial-gradient(1200px 760px at 6% -10%, var(--sx-pool-a), transparent 65%);
+    --cl-app-glow-b: radial-gradient(1000px 760px at 100% 110%, var(--sx-pool-b), transparent 62%);
+    --cl-app-grain: 0.02;
+    --cl-app-vignette: rgba(var(--sx-shadow-rgb), 0.45);
+    --cl-chat-plate-char: var(--sx-plate-char);
+    --cl-chat-plate-user: var(--sx-plate-user);
+    --cl-chat-plate-bg: rgba(var(--sx-ink-rgb), 0.3);
+    --cl-chat-head-bg: rgba(var(--sx-deep-rgb), 0.72);
+    --cl-chat-body: var(--sx-body);
+    --cl-chat-narration: var(--sx-narration);
+    --cl-text-halo: 0 0 3px rgba(var(--sx-shadow-rgb), 0.6);
+    --cl-accent-tint: rgba(var(--accent-rgb), 0.12);
+    --cl-accent-tint-border: rgba(var(--accent-rgb), 0.24);
+    --cl-focus-glow: var(--sx-ring);
+    --cl-shadow-sm: var(--sx-depth-1);
+    --cl-shadow-md: var(--sx-depth-2);
+    --cl-shadow-lg: var(--sx-depth-2);
+    --cl-shadow-xl: var(--sx-depth-3);
+    --cl-shadow-ambient: 0 2px 16px rgba(var(--sx-shadow-rgb), 0.5);
+    --cl-modal-scrim-light: rgba(var(--sx-shadow-rgb), 0.45);
+    --cl-modal-scrim: rgba(var(--sx-shadow-rgb), 0.6);
+    --cl-modal-scrim-heavy: rgba(var(--sx-shadow-rgb), 0.72);
+}
+
+/* a phone keeps the app's control height: the desktop's tighter step takes a select under the touch tier */
+:root:where(.cl-mobile) {
+    --btn-pad-v-md: var(--space-sm);
+}
+
+/* the accent, while the user has picked none of their own */
+:root.sx-accent {
+    --accent: var(--sx-accent);
+    --accent-rgb: var(--sx-accent-rgb);
+    --accent-hover: var(--sx-accent-hover);
+    --accent-glow: rgba(var(--sx-accent-rgb), 0.3);
+    --accent-secondary: var(--sx-accent-2);
+    --accent-secondary-rgb: var(--sx-accent-2-rgb);
+    --accent-text: var(--sx-accent-text);
+    --accent-muted: var(--sx-speech);
+    --accent-warm: var(--sx-emphasis);
+}
+
+/* ========================================================================
+ * THE LOOK'S SWITCHES: the client writes one class a choice on the root; these redefine tokens at the
+ * root's own weight, so the user's theme still writes over them
+ * ======================================================================== */
+.sx-font-app {
+    --font-stack-ui: 'Noto Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.sx-corners-tight {
+    --radius-xs: 2px;
+    --radius-sm: 3px;
+    --radius-sm-alt: 3px;
+    --radius-md: 4px;
+    --radius-lg: 5px;
+    --radius-xl: 6px;
+    --radius-2xl: 7px;
+    --radius-2xl-alt: 8px;
+    --radius-3xl: 9px;
+    --radius-4xl: 11px;
+}
+
+.sx-motion-off {
+    --dur-quick: 0.01ms;
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+    --dur-chat: 0.01ms;
+    --dur-reveal: 0.01ms;
+    --dur-expand: 0.01ms;
+}
+
+/* replies set open carry no ground of their own, so the reading column takes the full veil */
+.sx-chat-open {
+    --cl-chat-plate-bg: rgba(var(--sx-ink-rgb), 0.86);
+}
+
+/* ========================================================================
+ * THE PAGE: the ground, the field and the type
+ * ======================================================================== */
+body {
+    background-color: var(--bg-primary);
+    background-image:
+        radial-gradient(ellipse 120% 90% at 50% 50%, transparent 60%, var(--cl-app-vignette) 100%),
+        var(--cl-app-glow-a),
+        var(--cl-app-glow-b);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* one canvas behind everything; the client draws it */
+.sx-field {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    display: block;
+}
+
+::selection {
+    background: rgba(var(--accent-rgb), 0.32);
+    color: var(--text-primary);
+}
+
+.scrollbar-active::-webkit-scrollbar-thumb {
+    background: rgba(var(--sx-text-rgb), 0.14);
+}
+
+/* ========================================================================
+ * THE BAR: the views a segmented control whose live segment is raised, every control the same rounding;
+ * set to the rail, the views run down the left edge
+ * ======================================================================== */
+.logo-area h1 {
+    font-weight: 650;
+    letter-spacing: -0.02em;
+}
+
+:where(html:not(.cl-mobile)) .topbar {
+    height: 56px;
+}
+
+.view-toggle {
+    padding: var(--space-2xs);
+    gap: var(--space-2xs);
+    border-color: var(--sx-bezel-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-field-bg);
+    box-shadow: inset 0 1px 2px rgba(var(--sx-shadow-rgb), 0.3);
+}
+
+/* the switch's colours ease, never its size: a size eased into the rail is measured mid-way and folds every view */
+.view-toggle-btn,
+.view-toggle-more {
+    min-width: 0;
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--radius-md);
+    font-size: var(--font-md);
+    font-weight: 500;
+    transition-property: color, background-color, box-shadow, opacity;
+}
+
+.view-toggle-btn:hover,
+.view-toggle-more:hover {
+    color: var(--text-primary);
+    background: var(--sx-raise);
+}
+
+.view-toggle-btn.active,
+.view-toggle-more.is-current {
+    color: var(--text-primary);
+    background: var(--sx-thumb);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
+}
+
+/* ---- the rail, on a desktop wide enough to spare it; a narrower one keeps the bar */
+@media (min-width: 1000px) {
+    :where(html:not(.cl-mobile).sx-nav-rail) .app-container {
+        padding-left: var(--sx-rail-w);
+    }
+
+    /* beside the rail the bar sheds its blur, so it is no containing block and the rail's fixed parts escape it */
+    :where(:root.sx-nav-rail) .topbar {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: rgba(var(--sx-ink-rgb), 0.92);
+    }
+
+    /* with a conversation open the bar holds only its menu: it stands at the rail's foot and the conversation takes the full height */
+    :where(html.cl-chat-open.sx-nav-rail) .topbar {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: var(--sx-rail-w);
+        height: var(--sx-rail-w);
+        margin: 0;
+        padding: 0;
+        gap: 0;
+        justify-content: center;
+        overflow: visible;
+        border: 0;
+        background: none;
+        box-shadow: none;
+    }
+
+    :where(html.cl-chat-open.sx-nav-rail) .view-toggle {
+        padding-bottom: var(--sx-rail-w);
+    }
+
+    /* the menu opens up and out from the rail's foot */
+    :where(html.cl-chat-open.sx-nav-rail .more-options-container) > .dropdown-menu {
+        top: auto;
+        right: auto;
+        bottom: 0;
+        left: calc(100% + var(--space-sm));
+    }
+
+    /* the app only hides the search there, keeping its width; the shrunk bar lets it go */
+    :where(html.cl-chat-open.sx-nav-rail) .search-area {
+        display: none;
+    }
+
+    :where(:root.sx-nav-rail) .logo-area {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        width: var(--sx-rail-w);
+        height: var(--sx-rail-w);
+        justify-content: center;
+    }
+
+    /* the wordmark stays for assistive tech; the rail shows the mark alone */
+    :where(:root.sx-nav-rail) .logo-area h1 {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    /* the views down the rail; a column out of height wraps sideways, which the app's fitting folds into its More */
+    :where(:root.sx-nav-rail) .view-toggle {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: var(--sx-rail-w);
+        flex-direction: column;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        align-items: center;
+        gap: var(--space-xs);
+        padding: calc(var(--sx-rail-w) + var(--space-xs)) var(--space-sm-md) var(--space-lg);
+        overflow: hidden;
+        border: 0;
+        border-right: 1px solid var(--sx-line);
+        border-radius: 0;
+        background: rgba(var(--sx-deep-rgb), 0.96);
+        box-shadow: none;
+    }
+
+    /* icons alone, as the app's own compact bar has them; the name stays the button's text for assistive tech */
+    :where(:root.sx-nav-rail) .view-toggle-btn {
+        width: 100%;
+        min-width: 0;
+        aspect-ratio: 1;
+        padding: 0;
+        gap: 0;
+        font-size: 0;
+        border-radius: var(--radius-xl);
+    }
+
+    :where(:root.sx-nav-rail) .view-toggle-btn i {
+        font-size: var(--font-lg);
+        padding: 0;
+    }
+
+    :where(:root.sx-nav-rail) .view-toggle-more {
+        width: 100%;
+        aspect-ratio: 1;
+        padding: 0;
+        border-radius: var(--radius-xl);
+    }
+}
+
+.search-box {
+    border-color: var(--sx-bezel-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-field-bg);
+}
+
+.search-box:focus-within {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: var(--cl-focus-glow);
+}
+
+/* ========================================================================
+ * CONTROLS: quiet buttons with the material's top light, the primary verb in the accent, fields
+ * ======================================================================== */
+.glass-btn,
+.glass-select {
+    border-color: var(--sx-bezel-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-control);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
+}
+
+.glass-btn:hover {
+    border-color: var(--sx-line);
+    background: var(--sx-control-hover);
+}
+
+.cl-btn {
+    border-radius: var(--radius-lg);
+    font-weight: 550;
+}
+
+.cl-btn-primary {
+    color: var(--sx-fill-text);
+    border-color: transparent;
+    background-color: var(--sx-fill-1);
+    background-image: var(--sx-sheen);
+    box-shadow: inset 0 1px 0 rgba(var(--sx-text-rgb), 0.18), var(--cl-shadow-sm);
+}
+
+.cl-btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--sx-fill-1) 88%, var(--sx-text));
+    box-shadow: inset 0 1px 0 rgba(var(--sx-text-rgb), 0.22), var(--cl-shadow-md);
+}
+
+:root[data-btn-style="glass"] .cl-btn {
+    border-color: var(--sx-bezel-line);
+    background: var(--sx-control);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
+}
+
+:root[data-btn-style="glass"] .cl-btn:hover:not(:disabled) {
+    background: var(--sx-control-hover);
+}
+
+/* the variants keep their colour under that hover: the primary its fill, the others their tint */
+:root[data-btn-style="glass"] .cl-btn-primary:hover:not(:disabled) {
+    color: var(--sx-fill-text);
+    border-color: transparent;
+    background-color: color-mix(in srgb, var(--sx-fill-1) 88%, var(--sx-text));
+    background-image: var(--sx-sheen);
+}
+
+:root[data-btn-style="glass"] .cl-btn-warning:hover:not(:disabled) {
+    border-color: rgba(var(--cl-warning-rgb), 0.45);
+    background: rgba(var(--cl-warning-rgb), 0.22);
+}
+
+:root[data-btn-style="glass"] .cl-btn-danger:hover:not(:disabled),
+:root[data-btn-style="glass"] .cl-btn-danger-hover:hover:not(:disabled) {
+    border-color: rgba(var(--cl-error-bright-rgb), 0.4);
+    background: rgba(var(--cl-error-bright-rgb), 0.16);
+}
+
+:root[data-btn-style="glass"] .cl-btn.favorite-btn:hover:not(:disabled) {
+    border-color: rgba(var(--cl-favorite-gold-rgb), 0.4);
+    background: rgba(var(--cl-favorite-gold-rgb), 0.16);
+}
+
+/* the one solid in the glass family: the primary verb */
+:root[data-btn-style="glass"] .cl-btn-primary {
+    color: var(--sx-fill-text);
+    border-color: transparent;
+    background-color: var(--sx-fill-1);
+    background-image: var(--sx-sheen);
+}
+
+:root[data-btn-style="glass"] .cl-btn-secondary,
+:root[data-btn-style="glass"] .cl-btn-danger-hover {
+    border-color: var(--sx-bezel-line);
+    background: var(--sx-control);
+}
+
+/* at rest the warning and danger variants keep a tint of their own over the control rule above */
+:root[data-btn-style="glass"] .cl-btn-warning {
+    border-color: rgba(var(--cl-warning-rgb), 0.3);
+    background: rgba(var(--cl-warning-rgb), 0.12);
+}
+
+:root[data-btn-style="glass"] .cl-btn-danger {
+    border-color: rgba(var(--cl-error-bright-rgb), 0.25);
+}
+
+/* the chat windows' primary verb is the same fill, so a window never shows two primaries */
+.cl-cwin-btn-text.is-primary {
+    color: var(--sx-fill-text);
+    background-color: var(--sx-fill-1);
+    background-image: var(--sx-sheen);
+}
+
+.cl-cwin-btn-text.is-primary:hover:not(:disabled) {
+    color: var(--sx-fill-text);
+    background-color: color-mix(in srgb, var(--sx-fill-1) 88%, var(--sx-text));
+}
+
+.glass-input,
+.cl-input {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-field-bg);
+}
+
+.glass-input:focus,
+.cl-input:focus {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: var(--cl-focus-glow);
+}
+
+.cl-switch-input:checked + .cl-switch {
+    background: var(--sx-fill-1);
+}
+
+.cl-switch-input:checked + .cl-switch::after {
+    background: var(--sx-fill-text);
+}
+
+/* ========================================================================
+ * FLOATING SURFACES: menus, popovers, toasts, on the chat windows' material
+ * ======================================================================== */
+.dropdown-menu {
+    border-color: var(--sx-line-strong);
+    border-radius: var(--radius-2xl);
+    background: var(--sx-slab-strong);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.dropdown-item {
+    border-radius: var(--radius-md);
+}
+
+.dropdown-item:hover {
+    color: var(--text-primary);
+    background: var(--sx-raise-2);
+}
+
+.dropdown-section-title {
+    color: var(--text-muted);
+}
+
+.custom-select-item.selected {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.14);
+}
+
+.cl-context-menu {
+    border: 1px solid var(--sx-line-strong);
+    border-radius: var(--radius-2xl);
+    background: var(--sx-slab-strong);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+/* the hover lifts the row and leaves its colour: a danger item stays red, the current one the accent */
+.cl-context-menu-item:hover {
+    background: var(--sx-raise-2);
+}
+
+.toast {
+    border-color: var(--sx-line-strong);
+    border-radius: var(--radius-2xl);
+    background: var(--sx-slab-strong);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.cl-empty-state-icon {
+    color: var(--text-muted);
+}
+
+.cl-empty-state-title,
+.chats-empty h3 {
+    font-weight: 600;
+    letter-spacing: -0.015em;
+}
+
+/* ========================================================================
+ * THE GRID: each portrait to its edges, its name and tags set on its lower edge; or the app's own tiles
+ * ======================================================================== */
+:where(:root:not(.sx-tiles-app)) .char-card {
+    border-color: var(--sx-line);
+    background: var(--sx-deep);
+    box-shadow: var(--cl-shadow-sm);
+}
+
+:where(:root:not(.sx-tiles-app):not(.cl-mobile)) .char-card:hover {
+    border-color: var(--sx-line-strong);
+    box-shadow: var(--cl-shadow-md);
+}
+
+:where(:root:not(.sx-tiles-app)) .card-overlay {
+    padding: var(--space-2xl) var(--space-md) var(--space-md);
+    background: linear-gradient(180deg, transparent 0%, rgba(var(--sx-ink-rgb), 0.5) 42%, rgba(var(--sx-ink-rgb), 0.9) 100%);
+}
+
+.card-name {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+:where(:root:not(.sx-tiles-app)) .card-name {
+    font-size: var(--font-base);
+    color: var(--sx-text);
+    text-shadow: 0 1px 2px rgba(var(--sx-shadow-rgb), 0.6);
+}
+
+:where(:root:not(.sx-tiles-app)) .card-tags {
+    gap: var(--space-xs);
+    margin-top: var(--space-2xs);
+}
+
+:where(:root:not(.sx-tiles-app)) .card-tag {
+    padding: 1px var(--space-sm);
+    border: 1px solid rgba(var(--sx-text-rgb), 0.08);
+    border-radius: var(--radius-pill);
+    background: rgba(var(--sx-text-rgb), 0.12);
+    color: var(--sx-text-2);
+    font-size: var(--font-2xs);
+    font-weight: 500;
+}
+
+/* a name on the portrait's lower edge covers nothing, so it and its tags stay shown unless the app's reveal is asked for */
+.animate-tag-pills:where(:not(.sx-names-app)) .card-name,
+.animate-tag-pills:where(:not(.sx-names-app)) .card-tag {
+    opacity: 1;
+    transform: none;
+    transition: none;
+}
+
+/* ---- the lift under the pointer, or none */
+:where(:root:not(.sx-lift-off):not(.cl-mobile)) .char-card:hover {
+    transform: translateY(-3px);
+}
+
+:where(:root:not(.sx-lift-off):not(.cl-mobile)) .char-card:hover .card-image {
+    transform: scale(1.03);
+}
+
+:where(.sx-lift-off) .char-card:hover,
+:where(.sx-lift-off) .char-card:hover .card-image,
+:where(.sx-lift-off) .chat-card:hover,
+:where(.sx-lift-off) .browse-card:hover,
+:where(.sx-lift-off) .browse-card:hover .browse-card-image img,
+:where(.sx-lift-off) .sx-swatch:hover {
+    transform: none;
+}
+
+.char-card .favorite-indicator {
+    border-color: rgba(var(--cl-favorite-gold-rgb), 0.45);
+    background: rgba(var(--sx-ink-rgb), 0.72);
+}
+
+.card-badge {
+    border-color: var(--sx-line-strong);
+    background: rgba(var(--sx-ink-rgb), 0.72);
+}
+
+/* ========================================================================
+ * DIALOGS: the details and every dialog on the chat windows' material
+ * ======================================================================== */
+.modal-glass,
+.cl-modal-content {
+    border-color: var(--sx-line-strong);
+    background: var(--cl-sheet-bg);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.confirm-modal-content,
+.cl-confirm-overlay .confirm-modal-content {
+    background: var(--sx-slab-strong);
+}
+
+.modal-header {
+    border-bottom-color: var(--sx-line);
+}
+
+.modal-header h2 {
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+    text-shadow: none;
+}
+
+.cl-modal-header h3 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.char-modal-nav {
+    --cmn-bg: rgba(var(--sx-deep-rgb), 0.85);
+    --cmn-bg-hover: rgba(var(--sx-text-rgb), 0.1);
+    --cmn-border: 1px solid var(--sx-line-strong);
+    --cmn-color: var(--text-primary);
+}
+
+.modal-sidebar {
+    border-right-color: var(--sx-line);
+    background: rgba(var(--sx-text-rgb), 0.015);
+}
+
+.char-portrait-container {
+    border: 1px solid var(--sx-line-strong);
+    box-shadow: var(--cl-shadow-md);
+}
+
+.sidebar-label {
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.tab-btn,
+.tab-more {
+    color: var(--text-faint);
+    font-weight: 500;
+}
+
+.tab-btn.active,
+.tab-more.is-current {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    background: none;
+}
+
+.meta-info {
+    border: 1px solid var(--sx-line);
+    border-radius: var(--radius-xl);
+    background: rgba(var(--sx-text-rgb), 0.025);
+}
+
+.detail-collapsible > summary {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.section-h3 {
+    color: var(--text-primary);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    border-bottom-color: var(--sx-line);
+}
+
+.scrolling-text {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-xl);
+    background: rgba(var(--sx-text-rgb), 0.02);
+    color: var(--text-primary);
+}
+
+.scrolling-text .quoted-text {
+    color: var(--accent-muted);
+}
+
+.modal-tag {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-pill);
+    background: rgba(var(--sx-text-rgb), 0.05);
+    color: var(--text-secondary);
+}
+
+.settings-sidebar {
+    border-right-color: var(--sx-line);
+    background: rgba(var(--sx-text-rgb), 0.015);
+}
+
+.settings-nav-item {
+    border-radius: var(--radius-lg);
+}
+
+.settings-nav-item.active {
+    color: var(--text-primary);
+    background: var(--sx-thumb);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+/* ========================================================================
+ * THE DETAILS' HERO: the header lit by the opened character's portrait, the name set large
+ * ======================================================================== */
+:where(html:not(.cl-mobile):not(.sx-hero-off) .char-modal) .modal-header {
+    position: relative;
+    min-height: 148px;
+    align-items: flex-end;
+    padding: var(--space-xl) var(--space-2xl) var(--space-lg);
+    overflow: hidden;
+    isolation: isolate;
+    background: none;
+}
+
+/* the portrait as light, blurred once: one element a page, never a repeated one */
+:where(html:not(.cl-mobile):not(.sx-hero-off) .char-modal) .modal-header::before {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--space-2xl));
+    z-index: -1;
+    background: var(--sx-hero, none) center 25% / cover no-repeat;
+    filter: blur(36px) saturate(1.15);
+    opacity: 0.8;
+    pointer-events: none;
+}
+
+/* settles the light into the dialog: darker toward the name, the dialog's own ground at the foot */
+:where(html:not(.cl-mobile):not(.sx-hero-off) .char-modal) .modal-header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+        linear-gradient(90deg, rgba(var(--sx-ink-rgb), 0.55) 0%, rgba(var(--sx-ink-rgb), 0) 70%),
+        linear-gradient(180deg, rgba(var(--sx-ink-rgb), 0.1) 0%, rgba(var(--sx-ink-rgb), 0.82) 100%);
+    pointer-events: none;
+}
+
+:where(html:not(.cl-mobile):not(.sx-hero-off) .char-modal) .modal-header h2 {
+    font-size: var(--font-3xl);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    text-shadow: 0 1px 16px rgba(var(--sx-shadow-rgb), 0.55);
+}
+
+:where(html:not(.sx-hero-off) .char-modal) .modal-controls {
+    align-self: flex-start;
+}
+
+/* on a phone the header carries the band, the portrait beside the name */
+html.cl-mobile:where(:not(.sx-hero-off)) .char-modal .modal-header {
+    max-height: 176px;
+    min-height: 136px;
+    align-items: flex-end;
+    padding-top: var(--space-xl);
+    padding-bottom: var(--space-md);
+    overflow: hidden;
+    isolation: isolate;
+}
+
+html.cl-mobile:where(:not(.sx-hero-off)) .char-modal .modal-header::before {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--space-2xl));
+    z-index: -1;
+    background: linear-gradient(180deg, rgba(var(--sx-ink-rgb), 0.25), rgba(var(--sx-ink-rgb), 0.85)), var(--sx-hero, none) center 25% / cover no-repeat;
+    filter: blur(28px) saturate(1.15);
+    pointer-events: none;
+}
+
+html.cl-mobile:where(:not(.sx-hero-off)) .modal-header .mobile-header-avatar {
+    width: var(--avatar-xl);
+    height: var(--avatar-xl);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 0 0 1px var(--sx-line-strong), var(--cl-shadow-md);
+}
+
+/* the name takes the row beside the portrait, two lines before any ellipsis */
+html.cl-mobile:where(:not(.sx-hero-off)) .modal-header h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--font-xl);
+    line-height: 1.15;
+}
+
+/* the controls keep no box of their own in the name's row */
+html.cl-mobile:where(:not(.sx-hero-off)) :where(.char-modal) .modal-controls {
+    display: contents;
+}
+
+/* the Chat verb stands at the band's top right, out of the name's row (the back arrow keeps its place) */
+html.cl-mobile:where(:not(.sx-hero-off)) :where(.char-modal) .modal-controls .cl-btn {
+    position: absolute;
+    top: var(--space-sm);
+    right: var(--space-md);
+    z-index: 1;
+}
+
+/* ========================================================================
+ * THE CHATS VIEW
+ * ======================================================================== */
+.chat-card {
+    border-color: var(--sx-line);
+    background: var(--sx-card);
+    box-shadow: var(--cl-shadow-sm);
+}
+
+.chat-card:hover {
+    border-color: var(--sx-line-strong);
+    background: rgba(var(--sx-deep-rgb), 0.92);
+}
+
+.chat-hero {
+    border-color: var(--sx-line-strong);
+    background: rgba(var(--sx-deep-rgb), 0.72);
+    box-shadow: var(--cl-shadow-md), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.chat-hero:hover {
+    border-color: rgba(var(--sx-text-rgb), 0.22);
+}
+
+.chat-hero-title {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.chat-card-title,
+.chat-group-name {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.chats-seg {
+    border-color: var(--sx-bezel-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-field-bg);
+}
+
+.chats-seg-btn {
+    border-radius: var(--radius-lg);
+}
+
+.chats-seg-btn.active {
+    color: var(--text-primary);
+    background: var(--sx-thumb);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
+}
+
+.chat-band-label {
+    color: var(--text-faint);
+    font-weight: 600;
+}
+
+/* ========================================================================
+ * THE CONVERSATION: every message on a card, yours in the accent's tint; or replies set open
+ * ======================================================================== */
+.chat-conv-backdrop {
+    background: rgba(var(--sx-ink-rgb), 0.42);
+}
+
+/* the character's colour, a soft light at the top of the conversation while it is tinted */
+.chat-conv-backdrop::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(1200px 480px at 50% -10%, rgba(var(--sx-tint-g1-rgb, var(--sx-g1-rgb)), calc(0.05 + 0.1 * var(--sx-glow))), transparent 70%);
+    opacity: 0;
+    transition: opacity var(--dur-reveal) var(--ease-standard);
+    pointer-events: none;
+}
+
+:where(.chat-conv.sx-tinted) .chat-conv-backdrop::before {
+    opacity: 1;
+}
+
+/* the accent follows the character inside its conversation, while the accent is the palette's */
+:root.sx-accent .chat-conv.sx-tinted {
+    --accent: var(--sx-tint-accent);
+    --accent-rgb: var(--sx-tint-accent-rgb);
+    --accent-hover: var(--sx-tint-accent-hover);
+    --accent-glow: rgba(var(--sx-tint-accent-rgb), 0.3);
+    --accent-secondary: var(--sx-tint-accent-2);
+    --accent-secondary-rgb: var(--sx-tint-accent-2-rgb);
+    --accent-text: var(--sx-tint-accent-text);
+    --accent-muted: var(--sx-tint-speech);
+    --accent-warm: var(--sx-tint-emphasis);
+    --cl-chat-speech: var(--sx-tint-speech);
+    --cl-chat-emphasis: var(--sx-tint-emphasis);
+    --cl-accent-tint: rgba(var(--sx-tint-accent-rgb), 0.12);
+    --cl-accent-tint-border: rgba(var(--sx-tint-accent-rgb), 0.24);
+    --cl-focus-glow: 0 0 0 3px rgba(var(--sx-tint-accent-rgb), 0.2);
+}
+
+.chat-conv-header {
+    border-bottom-color: var(--sx-line);
+}
+
+.chat-conv-title {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+html.cl-mobile .chat-conv-title {
+    font-size: var(--font-pre-base);
+}
+
+.chat-conv-avatar {
+    box-shadow: 0 0 0 1px var(--sx-line-strong);
+}
+
+.chat-conv-msg-name {
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+
+/* ---- cards: each message on a card of its own, yours in the accent's tint */
+:where(:root:not(.sx-chat-open):not(.sx-chat-app)) .chat-conv-msg {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-3xl);
+    background: var(--cl-chat-plate-char);
+    box-shadow: var(--cl-shadow-sm), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+:where(:root:not(.sx-chat-open):not(.sx-chat-app)) .chat-conv-msg.user {
+    border-color: rgba(var(--accent-rgb), 0.18);
+    background: linear-gradient(rgba(var(--accent-rgb), 0.07), rgba(var(--accent-rgb), 0.07)), var(--cl-chat-plate-user);
+}
+
+/* in the column the bubble is the card */
+:where(:root:not(.sx-chat-open):not(.sx-chat-app)) .chat-conv[data-mode="column"] .chat-conv-msg-body {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-3xl);
+    background: var(--cl-chat-plate-char);
+    box-shadow: var(--cl-shadow-sm), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+:where(:root:not(.sx-chat-open):not(.sx-chat-app)) .chat-conv[data-mode="column"] .chat-conv-msg.user .chat-conv-msg-body {
+    border-color: rgba(var(--accent-rgb), 0.18);
+    background: linear-gradient(rgba(var(--accent-rgb), 0.07), rgba(var(--accent-rgb), 0.07)), var(--cl-chat-plate-user);
+}
+
+/* ---- open: replies set on the page, your turns in bubbles at the right */
+:where(.sx-chat-open) .chat-conv-msg {
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+}
+
+:where(.sx-chat-open) .chat-conv-msg.user {
+    width: fit-content;
+    max-width: min(84%, 680px);
+    margin-left: auto;
+    overflow: visible;
+    border-color: rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-4xl);
+    background: linear-gradient(rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.08)), var(--cl-chat-plate-user);
+}
+
+/* a bubble that fits its words keeps a working width for the editor opened in it */
+:where(.sx-chat-open) .chat-conv-edit {
+    min-width: min(32rem, 70vw);
+}
+
+:where(.sx-chat-open) .chat-conv[data-mode="column"] .chat-conv-msg-body {
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+}
+
+:where(.sx-chat-open) .chat-conv[data-mode="column"] .chat-conv-msg.user .chat-conv-msg-body {
+    border-color: rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-4xl);
+    background: linear-gradient(rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.08)), var(--cl-chat-plate-user);
+}
+
+.chat-conv-swipes {
+    border-color: var(--sx-line-strong);
+    background: rgba(var(--sx-ink-rgb), 0.7);
+}
+
+/* the composer: the chat windows' material, the field inside it borderless */
+.chat-conv-composer {
+    border: 1px solid var(--sx-line-strong);
+    border-radius: var(--radius-3xl);
+    background: var(--sx-slab-solid);
+    box-shadow: var(--cl-shadow-md), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.chat-conv-composer:focus-within {
+    border-color: rgba(var(--accent-rgb), 0.45);
+    box-shadow: var(--cl-shadow-md), var(--cl-focus-glow);
+}
+
+/* the composer lights when the field is addressed, so the field itself carries no second outline */
+.chat-conv-input,
+.chat-conv-input:focus {
+    border-color: transparent;
+    background: transparent;
+}
+
+.chat-conv-send {
+    opacity: 1;
+    color: var(--sx-fill-text);
+    border-radius: var(--radius-lg);
+    background-color: var(--sx-fill-1);
+    background-image: var(--sx-sheen);
+}
+
+.chat-conv-composer:focus-within .chat-conv-send {
+    color: var(--sx-fill-text);
+    text-shadow: none;
+}
+
+.chat-conv-jump {
+    border-color: var(--sx-line-strong);
+    background: var(--sx-slab-strong);
+    box-shadow: var(--cl-shadow-md);
+}
+
+.cl-cwin-row,
+.clp-book {
+    border-color: var(--sx-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-raise);
+}
+
+.cl-cwin-row:hover {
+    border-color: var(--sx-line-strong);
+    background: var(--sx-raise-2);
+}
+
+/* the row in use and the row held for editing keep their state under the hover above */
+.cl-cwin-row.is-active {
+    border-color: var(--cl-accent-tint-border);
+    background: var(--cl-accent-tint);
+}
+
+.cl-cwin-row.is-editing {
+    border-color: var(--sx-line-strong);
+    background: var(--sx-raise-2);
+}
+
+/* ========================================================================
+ * ONLINE: the browse grid on the same tiles
+ * ======================================================================== */
+.browse-search-bar {
+    border-color: var(--sx-line);
+    background: var(--sx-deep);
+}
+
+.browse-search-input-wrapper {
+    border-color: var(--sx-bezel-line);
+    background: var(--sx-field-bg);
+}
+
+.browse-card {
+    border-color: var(--sx-line);
+    background: var(--sx-deep);
+    box-shadow: var(--cl-shadow-sm);
+}
+
+.browse-card:hover {
+    border-color: var(--sx-line-strong);
+    box-shadow: var(--cl-shadow-md);
+}
+
+.browse-card-name {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.browse-card-footer {
+    border-top-color: var(--sx-line);
+    background: rgba(var(--sx-ink-rgb), 0.4);
+}
+
+.browse-card-tag {
+    border-radius: var(--radius-pill);
+    background: rgba(var(--sx-text-rgb), 0.06);
+}
+
+/* ========================================================================
+ * THE PHONE: the dock, the sheets and the action button
+ * ======================================================================== */
+html.cl-mobile .mobile-bottom-nav {
+    border-top-color: var(--sx-line);
+    background: var(--cl-sheet-bg-mobile);
+}
+
+html.cl-mobile .mobile-bottom-nav-tab.active {
+    color: var(--text-primary);
+}
+
+html.cl-mobile .mobile-bottom-nav-tab.active::before {
+    width: 20px;
+    height: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+}
+
+html.cl-mobile .mobile-sheet {
+    border-color: var(--sx-line-strong);
+    background: var(--cl-sheet-bg-mobile);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+html.cl-mobile .mobile-fab {
+    color: var(--sx-fill-text);
+    background-color: var(--sx-fill-1);
+    background-image: var(--sx-sheen);
+    box-shadow: inset 0 1px 0 rgba(var(--sx-text-rgb), 0.2), var(--cl-shadow-md);
+}
+
+html.cl-mobile:where(:not(.sx-tiles-app)) .card-overlay {
+    padding: var(--space-xl) var(--space-sm) var(--space-sm);
+}
+
+html.cl-mobile:where(:not(.sx-tiles-app)) .card-name {
+    font-size: var(--font-sm);
+}
+
+/* ========================================================================
+ * THE COMMAND PALETTE: the dialogs' material, the rows on the ladder
+ * ======================================================================== */
+.cl-palette-box {
+    border-color: var(--sx-line-strong);
+    background: var(--sx-slab-strong);
+    box-shadow: var(--cl-shadow-xl), inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.cl-palette-head {
+    border-bottom-color: var(--sx-line);
+}
+
+.cl-palette-mark {
+    color: var(--accent);
+}
+
+.cl-palette-item.is-on {
+    background: var(--sx-raise-2);
+}
+
+.cl-palette-icon,
+.cl-palette-pic {
+    background: var(--sx-raise);
+}
+
+.cl-kbd {
+    border-color: var(--sx-line-strong);
+    background: var(--sx-raise);
+}
+
+.cl-palette-foot,
+.has-preview .cl-palette-preview {
+    border-color: var(--sx-line);
+}
+
+/* ========================================================================
+ * Σ'S OWN SECTION: swatches, the palette editor
+ * ======================================================================== */
+.sx-set {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.sx-set-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+.sx-editor-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-sm-md);
+}
+
+.sx-set-title {
+    color: var(--text-primary);
+    font-size: var(--font-lg);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.sx-set-sub {
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+}
+
+.sx-swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: var(--space-sm-md);
+}
+
+.sx-swatch {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+    padding: var(--space-xs-sm) var(--space-xs-sm) var(--space-sm);
+    border: 1px solid var(--sx-line);
+    border-radius: var(--radius-xl);
+    background: rgba(var(--sx-text-rgb), 0.025);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-standard);
+}
+
+.sx-swatch:hover {
+    border-color: var(--sx-line-strong);
+    transform: translateY(-1px);
+}
+
+.sx-swatch.is-on {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.sx-swatch:focus-visible {
+    outline: none;
+    box-shadow: var(--cl-focus-glow);
+}
+
+/* the palette's own ground, lit by its two colours, and the two as dots */
+.sx-swatch-field {
+    position: relative;
+    height: 52px;
+    margin-bottom: var(--space-xs);
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(80% 110% at 0% 0%, color-mix(in srgb, var(--sw-g1) 34%, transparent), transparent 70%),
+        radial-gradient(70% 100% at 100% 100%, color-mix(in srgb, var(--sw-g2) 34%, transparent), transparent 70%),
+        var(--sw-ink);
+}
+
+.sx-swatch-dots {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    width: 26px;
+    height: 10px;
+    background:
+        radial-gradient(circle at 5px 5px, var(--sw-g1) 0 4px, transparent 4.5px),
+        radial-gradient(circle at 19px 5px, var(--sw-g2) 0 4px, transparent 4.5px);
+}
+
+.sx-swatch-name {
+    padding: 0 var(--space-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-pre-base);
+    font-weight: 600;
+}
+
+.sx-swatch-note {
+    padding: 0 var(--space-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-faint);
+    font-size: var(--font-2xs);
+}
+
+.sx-set-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.sx-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    border: 1px solid var(--sx-line-strong);
+    border-radius: var(--radius-2xl);
+    background: rgba(var(--sx-text-rgb), 0.02);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight);
+}
+
+.sx-editor-body {
+    display: grid;
+    grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+    gap: var(--space-lg);
+    align-items: start;
+}
+
+.sx-editor-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+:where(.sx-editor-fields) .settings-row {
+    margin: 0;
+}
+
+.sx-preview {
+    position: relative;
+    height: 170px;
+    overflow: hidden;
+    border: 1px solid var(--sx-line);
+    border-radius: var(--radius-xl);
+    background:
+        radial-gradient(90% 80% at 0% 0%, color-mix(in srgb, var(--sw-g1) 26%, transparent), transparent 70%),
+        radial-gradient(80% 70% at 100% 100%, color-mix(in srgb, var(--sw-g2) 30%, transparent), transparent 70%),
+        var(--sw-ink);
+}
+
+.sx-preview-card {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm-md) var(--space-md);
+    border: 1px solid color-mix(in srgb, var(--sw-text) 12%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--sw-deep) 92%, transparent);
+}
+
+.sx-preview-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--sw-text);
+    font-size: var(--font-base);
+    font-weight: 600;
+}
+
+.sx-preview-line {
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--sw-text) 18%, transparent);
+}
+
+.sx-preview-line.is-short {
+    width: 60%;
+}
+
+.sx-preview-btn {
+    align-self: flex-end;
+    padding: var(--space-2xs) var(--space-md);
+    border-radius: var(--radius-md);
+    background: var(--sw-fill-1);
+    color: var(--sw-fill-text);
+    font-size: var(--font-2xs);
+    font-weight: 600;
+}
+
+.sx-color-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.sx-color {
+    width: 44px;
+    height: 32px;
+    padding: var(--space-2xs);
+    border: 1px solid var(--sx-line-strong);
+    border-radius: var(--radius-md);
+    background: rgba(var(--sx-shadow-rgb), 0.3);
+    cursor: pointer;
+}
+
+.sx-color-hex {
+    color: var(--text-secondary);
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-sm);
+}
+
+.sx-value {
+    margin-left: var(--space-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.sx-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.sx-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--accent) 0 var(--sx-range-at, 50%), rgba(var(--sx-text-rgb), 0.12) var(--sx-range-at, 50%) 100%);
+}
+
+.sx-range-hue::-webkit-slider-runnable-track {
+    background: var(--sx-hue-track);
+}
+
+.sx-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border-radius: var(--radius-circle);
+    background: var(--text-primary);
+    box-shadow: 0 0 0 1px rgba(var(--sx-shadow-rgb), 0.4), var(--cl-shadow-sm);
+}
+
+.sx-range::-moz-range-track {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--sx-text-rgb), 0.12);
+}
+
+.sx-range-hue::-moz-range-track {
+    background: var(--sx-hue-track);
+}
+
+.sx-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: var(--radius-circle);
+    background: var(--text-primary);
+}
+
+.sx-range:focus-visible {
+    outline: none;
+}
+
+.sx-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: var(--cl-focus-glow);
+}
+
+.sx-editor-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.sx-editor-gap {
+    flex: 1;
+}
+
+.sx-editor-error {
+    color: var(--cl-error-pale);
+}
+
+/* the hue slider's own track: the wheel, darkened to sit in the dialog */
+.sx-set {
+    --sx-hue-track: linear-gradient(90deg, hsl(0 45% 40%), hsl(60 45% 40%), hsl(120 45% 40%), hsl(180 45% 40%), hsl(240 45% 40%), hsl(300 45% 40%), hsl(359 45% 40%));
+}
+
+html.cl-mobile .sx-editor-body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+html.cl-mobile .sx-swatches {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+
+html.cl-mobile .sx-swatch,
+html.cl-mobile .sx-color {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .sx-range {
+    min-height: var(--touch-target-min);
+}

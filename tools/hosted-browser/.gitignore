@@ -1,0 +1,5 @@
+# run-browser.mjs keeps its browser profile here by default. It holds the site sessions
+# and the Cloudflare clearance cookies, and runs to tens of megabytes.
+.hosted-browser-profile/
+# compose.yaml bind-mounts the same profile from here
+profile/

@@ -1,0 +1,13 @@
+/* ============================================
+   Wyvern Browse CSS
+   ============================================ */
+
+
+[data-select-id="wyvernCreatorSortSelect"] .custom-select-trigger {
+    min-width: 150px;
+    font-size: var(--font-md);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+}
+
+
+/* Mobile overrides inherited from browse-shared.css (.browse-author-banner-actions) */

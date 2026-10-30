@@ -1,0 +1,233 @@
+/* Library Stats: the tiles take the backup panel's count, the panels and bars the same plate with the accent. */
+.lst {
+    max-width: 1120px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    padding-bottom: var(--space-xl);
+}
+
+.lst-title {
+    margin: 0;
+    font-size: var(--font-xl);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lst-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: var(--space-sm);
+}
+
+.lst-tile,
+.lst-fact {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-md) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--glass-border);
+    min-width: 0;
+}
+
+.lst-tile-value,
+.lst-fact-value {
+    font-size: var(--font-xl);
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+}
+
+.lst-tile-label,
+.lst-fact-label,
+.lst-heading,
+.lst-subheading {
+    font-size: var(--font-4xs);
+    letter-spacing: var(--tracking-ui);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.lst-tile-sub,
+.lst-fact-sub {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.lst-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--space-lg);
+}
+
+.lst-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    padding: var(--space-md);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--glass-border);
+    min-width: 0;
+}
+
+.lst-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.lst-heading {
+    margin: 0;
+    font-weight: 600;
+}
+
+.lst-subheading {
+    margin: var(--space-md) 0 var(--space-xs);
+    font-weight: 600;
+}
+
+.lst-when {
+    margin-left: auto;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+/* a ranked row: the name, what it counts, and a bar for its share of the first */
+.lst-rank {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+
+.lst-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs-sm) var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.lst-row:hover { background: var(--cl-veil-1); }
+
+.lst-row-name {
+    font-size: var(--font-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lst-row-meta {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.lst-row-bar {
+    grid-column: 1 / -1;
+    height: 3px;
+    width: var(--lst-share, 0%);
+    border-radius: var(--radius-2xs);
+    background: rgba(var(--accent-rgb), 0.55);
+}
+
+.lst-none,
+.lst-note {
+    margin: 0;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.lst-note.is-error { color: var(--cl-error); }
+
+/* the tiles' one line before the counts, across the whole grid */
+.lst-tiles-note { grid-column: 1 / -1; }
+
+/* a read made at one offset says so under the facts */
+.lst-zone-note { margin-top: var(--space-sm); }
+
+.lst-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-sm);
+}
+
+/* bars grow from the baseline; an empty one keeps a hairline so the axis reads */
+.lst-chart {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.lst-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2xs);
+    height: 120px;
+}
+
+.lst-bars.is-months { height: 160px; }
+
+.lst-bar {
+    flex: 1 1 0;
+    min-width: 0;
+    height: var(--lst-h, 0%);
+    min-height: 2px;
+    border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+    background: var(--accent);
+    opacity: 0.85;
+}
+
+.lst-bar.is-empty {
+    background: var(--cl-veil-2);
+    opacity: 1;
+}
+
+.lst-bar:hover,
+.lst-bar.is-picked { opacity: 1; }
+.lst-bar.is-picked { filter: brightness(1.25); }
+
+/* the bar a finger picked, said in words under the chart */
+.lst-caption {
+    min-height: 1.4em;
+    margin-top: var(--space-2xs);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.lst-axis {
+    display: flex;
+    gap: var(--space-2xs);
+}
+
+.lst-axis > span {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: var(--font-4xs);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: visible;
+}
+
+/* a phone: the months keep their bars, the rows their touch target */
+html.cl-mobile .lst-row { min-height: var(--touch-target-min); align-items: center; }
+html.cl-mobile .lst-bars.is-months { height: 120px; }
+html.cl-mobile .lst-pair { grid-template-columns: minmax(0, 1fr); }

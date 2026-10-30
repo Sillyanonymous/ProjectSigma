@@ -1,0 +1,205 @@
+/* SPDX-License-Identifier: 0BSD */
+/* Hello World: the tour's view, tab, window, footer and dialog. Extension sheets load in the module
+   layer, below the user's custom CSS. */
+
+.hw-tour {
+    max-width: 1120px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    padding-bottom: var(--space-xl);
+}
+
+.hw-title {
+    margin: 0;
+    font-size: var(--font-xl);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.hw-line {
+    margin: 0;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.hw-note {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.hw-line.is-error { color: var(--cl-error); }
+
+.hw-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    padding: var(--space-md);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--glass-border);
+    min-width: 0;
+}
+
+.hw-heading {
+    margin: 0;
+    font-weight: 600;
+    font-size: var(--font-4xs);
+    letter-spacing: var(--tracking-ui);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.hw-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.hw-status {
+    min-height: 1.2em;
+    margin: 0;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+/* a status on a line of its own takes no room until a verb answers */
+.hw-panel > .hw-status:empty { display: none; }
+
+.hw-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-lg);
+}
+
+.hw-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: var(--space-sm);
+}
+
+.hw-tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-md) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--glass-border);
+    min-width: 0;
+}
+
+.hw-tile-value {
+    font-size: var(--font-xl);
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.hw-tile-label {
+    font-size: var(--font-4xs);
+    letter-spacing: var(--tracking-ui);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.hw-foot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.hw-doors summary {
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.hw-door-list {
+    margin: var(--space-xs) 0 var(--space-sm);
+    padding-left: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    font-size: var(--font-xs);
+}
+
+.hw-type {
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* the details tab and the conversation's window */
+.hw-pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) 0;
+}
+
+.hw-win {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.hw-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+/* a message's footer, while the tour's hooks are joined */
+.hw-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    margin-top: var(--space-xs);
+    font-size: var(--font-xs);
+    color: var(--cl-chat-narration);
+    letter-spacing: var(--tracking-ui);
+}
+
+.hw-wave {
+    padding: var(--space-2xs) var(--space-xs);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--cl-chat-narration);
+    font: inherit;
+    cursor: pointer;
+}
+
+.hw-wave:hover { background: var(--cl-veil-2); }
+
+/* the dialog */
+.cl-modal-content.hw-content {
+    width: 100%;
+    max-width: calc(560px * var(--modal-scale, 1));
+}
+
+.hw-ask {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.hw-answer {
+    margin: 0;
+    padding: var(--space-sm) var(--space-md);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--cl-ghost-faint);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+html.cl-mobile .hw-pair { grid-template-columns: minmax(0, 1fr); }
+html.cl-mobile .hw-wave { min-height: var(--touch-target-slim); touch-action: manipulation; }
+html.cl-mobile .hw-doors summary { line-height: var(--touch-target-slim); touch-action: manipulation; }

@@ -1,0 +1,14 @@
+{
+    "id": "risu-realm",
+    "name": "RisuAI Realm",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "RisuAI's character hub as a source: paste a Realm character's link into the import to bring it in with its picture and its assets, tagged with the Realm's tags and linked to its page. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "provider": true,
+    "extNamespace": "risu-realm",
+    "settings": { "nsfw": false },
+    "client": "client/index.js",
+    "server": "server/index.js"
+}

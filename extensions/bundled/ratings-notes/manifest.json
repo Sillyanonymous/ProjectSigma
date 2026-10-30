@@ -1,0 +1,13 @@
+{
+    "id": "ratings-notes",
+    "name": "Ratings and Notes",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Rate characters from one to five stars and keep a private note on each: a star on every rated card, a Rating tab in the details, rate a whole selection at once, and sort and filter the library by rating. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["character.card.badge", "character.details.tab", "character.bulk.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

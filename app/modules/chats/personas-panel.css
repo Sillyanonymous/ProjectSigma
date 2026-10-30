@@ -1,0 +1,262 @@
+/* Personas: the list and its inline editor (furniture from .cl-cwin). The in-force banner (.cl-cwin-inforce) answers who am I here, and why. */
+
+.cpp-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+/* ========================================
+   LIST
+   ======================================== */
+
+.cpp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+/* Surface comes from .cl-cwin-row (chats.css); what is local is the layout. */
+.cpp-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+}
+
+/* two lines: face beside name, the description underneath at full width so it never crowds the name */
+.cpp-row-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2xs) var(--space-sm);
+    min-width: 0;
+    cursor: pointer;
+}
+
+.cpp-row-name {
+    font-size: var(--font-md);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+/* The description is what gives way, never the name: a truncated name is the one piece of
+   this row that cannot be guessed from context. */
+.cpp-row-desc {
+    flex-basis: 100%;
+    padding-left: calc(40px + var(--space-sm));
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.cpp-row-acts {
+    display: flex;
+    gap: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+.cpp-mini {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-faint);
+    font-size: var(--font-xs);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.cpp-mini:hover { background: var(--cl-veil-3); color: var(--text-primary); }
+.cpp-mini.is-danger:hover { color: var(--cl-error-bright, #e74c3c); }
+
+/* ========================================
+   EDITOR
+   ======================================== */
+
+.cpp-editor {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding-top: var(--space-xs);
+    margin-top: var(--space-xs);
+    border-top: 1px solid var(--cl-veil-2);
+}
+
+/* Labels, hints and the textarea speak the window family's form language (defined in
+   chats.css); only the width stays local. */
+.cpp-input { width: 100%; }
+
+.cpp-editor-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
+/* ========================================
+   EMPTY + FOOTER
+   ======================================== */
+
+/* Empty and error states are the shared .cl-cwin-empty (chats.css). */
+
+.cpp-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--cl-ghost-mid);
+    margin-top: auto;
+}
+
+.cpp-foot-note {
+    font-size: var(--font-2xs);
+    line-height: var(--leading-prose);
+    color: var(--text-muted);
+    flex: 1;
+    min-width: 0;
+}
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+/* phone rules, scoped by the mode class, never a bare width query */
+html.cl-mobile .cpp-mini {
+    width: var(--touch-target-slim);
+    height: var(--touch-target-slim);
+    touch-action: manipulation;
+    font-size: var(--font-sm);
+}
+
+html.cl-mobile .cpp-row-main { min-height: var(--touch-target-min); }
+
+html.cl-mobile .cpp-content {
+    padding-bottom: max(var(--space-lg), var(--safe-bottom));
+}
+
+/* ========================================
+   FACES
+   ======================================== */
+
+/* no picture is normal: a framed glyph of the same size, so the list doesnt jitter as faces load */
+.cpp-face {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: var(--radius-pill);
+    object-fit: cover;
+    background: var(--cl-veil-2);
+    box-shadow: 0 0 0 1px var(--cl-ghost-strong);
+}
+
+.cpp-face.is-blank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+}
+
+.cpp-face.is-big {
+    width: 44px;
+    height: 44px;
+    font-size: var(--font-md);
+}
+
+.cpp-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) 0;
+}
+
+.cpp-avatar-acts {
+    display: flex;
+    gap: var(--space-2xs);
+    flex-wrap: wrap;
+}
+
+html.cl-mobile .cpp-face.is-big { width: 52px; height: 52px; }
+
+/* ========================================
+   BOUND LOREBOOKS
+   ======================================== */
+
+.cpp-books {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding-top: var(--space-2xs);
+}
+
+.cpp-book-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs);
+}
+
+.cpp-book-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    max-width: 100%;
+    padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-soft);
+    font-size: var(--font-3xs);
+    color: var(--text-secondary);
+}
+
+.cpp-book-pill > i { font-size: var(--font-4xs); color: var(--text-faint); }
+
+.cpp-book-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The x goes red on its own hover, the unlink dialect the lore panel's chips speak. */
+.cpp-book-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-faint);
+    font-size: var(--font-4xs);
+    cursor: pointer;
+    transition: color var(--dur-chat) ease, background var(--dur-chat) ease;
+}
+
+.cpp-book-x:hover {
+    color: var(--cl-error);
+    background: color-mix(in srgb, var(--cl-error) 18%, transparent);
+}
+
+.cpp-book-none { font-size: var(--font-3xs); color: var(--text-muted); }
+
+html.cl-mobile .cpp-book-pill { min-height: var(--touch-target-slim); }
+
+html.cl-mobile .cpp-book-x { width: var(--touch-target-slim); height: var(--touch-target-slim); }

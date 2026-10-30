@@ -1,0 +1,122 @@
+/* Memory's window: what it covers, a note when needed, the memory's text, then the switch and the verbs */
+.mem {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    height: 100%;
+    min-height: 0;
+}
+
+.mem-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.mem-covers {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mem-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.mem-chip.is-busy {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--accent);
+}
+
+.mem-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs-sm) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--cl-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cl-warning) 35%, transparent);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+}
+
+.mem-note > i { color: var(--cl-warning); }
+
+.mem-note.is-error {
+    background: color-mix(in srgb, var(--cl-error) 12%, transparent);
+    border-color: color-mix(in srgb, var(--cl-error) 35%, transparent);
+}
+
+.mem-note.is-error > i { color: var(--cl-error); }
+
+.mem-note-text {
+    flex: 1;
+    min-width: 12em;
+}
+
+.mem-text {
+    flex: 1;
+    min-height: 8em;
+    resize: none;
+    line-height: var(--leading-prose);
+}
+
+.mem-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.mem-auto {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.mem-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-xs-sm);
+}
+
+/* why the switch is off, on a line of its own under it */
+.mem-auto-off {
+    flex-basis: 100%;
+}
+
+/* the settings' numbers: room for three digits beside the field's own padding */
+.mem-count {
+    width: 6.5em;
+}
+
+.mem-template {
+    width: 100%;
+    resize: vertical;
+}
+
+/* the switch row is a list row on a phone: the full tier */
+html.cl-mobile .mem-auto {
+    min-height: var(--touch-target-min);
+}

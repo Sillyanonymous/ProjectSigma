@@ -1,0 +1,146 @@
+/* The creator studio. Its insides speak the assistant panel's vocabulary (assistant.css, chats.css's form family);
+   this sheet holds only its placement and its own chips. */
+
+/* The modal grows to seat the panel, so the form keeps its measure. */
+.modal-glass.creator-modal-glass.creator-studio-open {
+    width: 96vw;
+    max-width: calc(1720px * var(--modal-scale, 1));
+}
+
+/* A third column beside the form; a seam (mountSeam) lets the author pull its width. */
+.ccs-panel {
+    position: relative;
+    width: 30%;
+    min-width: 360px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--cl-elev-hairline);
+    background: var(--cl-sheet-bg);
+    font-family: 'InterVariable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Counter-rule: the flex above outranks the global hide class. */
+.ccs-panel.hidden { display: none; }
+
+/* The header is the family's, minus the drag affordance a docked column has no use for. */
+.ccs-header { cursor: default; }
+.ccs-header .cl-cwin-title > i { color: var(--accent); }
+
+.ccs-body { flex: 1; }
+
+/* The scope row: which fields the author is working on, plus a selected passage. */
+.ccs-scope-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2xs) var(--space-xs);
+}
+
+.ccs-scope-row:empty { display: none; }
+
+.ccs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-faint);
+    color: var(--text-faint);
+    font-size: var(--font-4xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-ui);
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
+}
+
+.ccs-chip:hover { color: var(--text-primary); border-color: var(--cl-ghost-strong); background: var(--cl-ghost-mid); }
+.ccs-chip.is-on { color: var(--accent); border-color: var(--cl-accent-tint-border); background: var(--cl-accent-tint); }
+
+/* The selected passage, riding the next ask: an accent chip with its own dismiss. */
+.ccs-sel-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border: 1px dashed var(--cl-accent-tint-border);
+    border-radius: var(--radius-pill);
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+    font-size: var(--font-4xs);
+}
+
+.ccs-sel-chip button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    font-size: var(--font-4xs);
+    opacity: 0.7;
+}
+.ccs-sel-chip button:hover { opacity: 1; }
+
+/* the context view's draft rows are the scope picker; three classes deep so assistant.css's is-open tint never outranks scoped */
+.ccs-panel .cas-book-entries .cas-entry { font-size: var(--font-xs); }
+.ccs-draft-row {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    line-height: inherit;
+    cursor: pointer;
+}
+.ccs-draft-row:hover { color: var(--text-primary); background: var(--cl-ghost-mid); }
+.ccs-draft-row.cas-entry.is-scoped { color: var(--accent); background: var(--cl-accent-tint); opacity: 1; }
+.ccs-draft-row .ccs-draft-wand { display: none; font-size: 1em; opacity: 1; color: var(--accent); }
+.ccs-draft-row.is-scoped .ccs-draft-wand { display: inline; }
+
+/* The reference-card fields are switch rows; the heavy ones carry a small note. */
+.ccs-pool-row .cl-cwin-field-label small { color: var(--text-faint); font-size: var(--font-xs); margin-left: var(--space-xs); }
+
+/* The header toggle lights while the panel is open, the family's is-on treatment. */
+#creatorStudioToggle.active { color: var(--accent); background: var(--cl-accent-tint); }
+
+/* ---- Mobile ---- */
+
+/* the panel IS the screen on a phone, closed by its button, the back gesture or Escape (registerOverlay) */
+html.cl-mobile .ccs-panel {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal-above);
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    border-left: none;
+    background: var(--cl-sheet-bg-mobile);
+    backdrop-filter: var(--cl-blur-mobile);
+}
+
+html.cl-mobile .ccs-panel.hidden { display: none; }
+
+html.cl-mobile .ccs-chip,
+html.cl-mobile .ccs-sel-chip,
+html.cl-mobile .ccs-draft-row {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}
+
+/* The reference-cards chip sits at the end of the scope row; it opens the context view. */
+.ccs-pool-chip { margin-left: auto; }
+
+/* phone: the chip row is one strip that scrolls sideways, never a wall over the composer */
+html.cl-mobile .ccs-scope-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--space-2xs);
+    scrollbar-width: none;
+}
+html.cl-mobile .ccs-scope-row::-webkit-scrollbar { display: none; }
+html.cl-mobile .ccs-chip,
+html.cl-mobile .ccs-sel-chip,
+html.cl-mobile .ccs-pool-chip { flex-shrink: 0; white-space: nowrap; }

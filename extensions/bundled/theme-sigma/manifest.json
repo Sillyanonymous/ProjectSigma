@@ -1,0 +1,18 @@
+{
+    "id": "theme-sigma",
+    "name": "Σ theme",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "The app's own design, finished: the material of its chat windows carried through every surface (Inter throughout, hairline edges lit along the top, quiet depth), a calm ground of slowly drifting light, character details opening under a banner lit by their portrait, and conversations that lean toward their character's colour. Five palettes and palettes of your own; every part of the layout, the type and the motion can be switched back to a plainer form in its section. Your own theme settings and custom CSS still apply on top. Ships off; switch it on to use it.",
+    "requires": { "api": "2.3" },
+    "defaultOff": true,
+    "settings": {
+        "palette": "sigma", "field": true, "tint": true,
+        "nav": "bar", "tiles": "sigma", "names": "always", "chat": "cards", "hero": "on",
+        "font": "inter", "corners": "round", "motion": "full", "lift": "on"
+    },
+    "contributes": ["app.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

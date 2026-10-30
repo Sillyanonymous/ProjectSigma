@@ -1,0 +1,14 @@
+{
+    "id": "auto-tagger",
+    "name": "Auto-tagger",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Tags characters with your own model: the ones that arrive without tags, and any selection you ask it to. The tags pass your import rules and take your library's spellings. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["character.bulk.action"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": { "profileId": "", "maxTags": 8, "onImport": true, "untaggedOnly": true }
+}

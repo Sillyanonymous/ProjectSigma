@@ -1,0 +1,14 @@
+{
+    "id": "library-stats",
+    "name": "Library Stats",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Your library by the numbers, in a view of its own: what it holds, the characters you talk to most, the tags you use most, and when you chat, month by month, day by day and hour by hour. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["shell.view"],
+    "lazy": { "views": [{ "id": "stats", "label": "Stats", "icon": "fa-chart-simple" }] },
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js"
+}

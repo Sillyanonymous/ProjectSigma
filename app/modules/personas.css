@@ -1,0 +1,24 @@
+/* ========================================
+   PRONOUNS (one block, two hosts: the chat's Personas window and Settings > Chat)
+   ======================================== */
+
+/* the family's tab buttons as one segmented control: the field's veil plate holds them, each an equal share */
+.cpp-pronoun-presets {
+    display: flex;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    background: var(--cl-veil-1);
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+}
+
+.cpp-pronoun-presets .cl-cwin-tab {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+}
+
+.cpp-pronoun-macro {
+    font-size: var(--font-xs);
+    color: var(--text-faint);
+}

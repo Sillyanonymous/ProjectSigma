@@ -1,0 +1,108 @@
+Project Sigma
+Copyright (c) 2026 Sillyanonymous
+
+This product includes third-party components under the licenses below. Each
+component remains subject to its own license; the terms in LICENSE do not
+restrict rights granted to you by these.
+
+
+BUNDLED IN THIS REPOSITORY
+--------------------------
+
+DOMPurify 3.4.17
+  app/vendor/dompurify/purify.min.js
+  Copyright (c) Cure53 and other contributors
+  Licensed under Apache License 2.0 OR Mozilla Public License 2.0
+  Full license texts: app/vendor/dompurify/LICENSE (Apache License 2.0)
+  and app/vendor/dompurify/LICENSE-MPL (Mozilla Public License 2.0)
+  https://github.com/cure53/DOMPurify
+  Its build includes regenerator-runtime and Babel's helpers:
+  Copyright (c) 2014-present, Facebook, Inc.
+  Licensed under the MIT License
+  Full license text: app/vendor/dompurify/LICENSE-regenerator-runtime
+  https://github.com/babel/babel
+
+Font Awesome Free 6.5.2
+  app/css/fontawesome.min.css, app/css/solid.min.css, app/css/brands.min.css
+  app/webfonts/fa-solid-900.ttf, app/webfonts/fa-solid-900.woff2,
+  app/webfonts/fa-brands-400.ttf, app/webfonts/fa-brands-400.woff2,
+  app/vendor/fontawesome/webfonts/fa-regular-400.woff2
+  Copyright (c) 2024 Fonticons, Inc.
+  Icons: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Fonts: SIL OFL 1.1, with Reserved Font Name "Font Awesome"
+  Code:  MIT
+  Full license text: app/vendor/fontawesome/LICENSE.txt
+  https://fontawesome.com
+  Brand icons are trademarks of their respective owners.
+
+Font Awesome Free icons in the docs (modified)
+  docs/assets/icons/*.svg and the icon sprite inside docs/guide.html
+  Icons by Fonticons, Inc. (https://fontawesome.com), Copyright (c) 2024
+  Fonticons, Inc., licensed under CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/). Modified: converted from
+  the glyph outlines in app/webfonts/fa-solid-900.ttf to SVG paths and
+  recoloured. No warranties are given.
+
+Inter
+  app/webfonts/InterVariable.woff2
+  Copyright (c) 2016 The Inter Project Authors
+  Licensed under SIL Open Font License 1.1
+  Full license text: app/webfonts/Inter-LICENSE.txt
+  https://github.com/rsms/inter
+
+Noto Sans 2.007
+  app/webfonts/NotoSans/
+  Copyright 2018 The Noto Project Authors (github.com/googlei18n/noto-fonts)
+  Licensed under SIL Open Font License 1.1
+  Full license text: app/webfonts/NotoSans/OFL.txt
+  https://github.com/notofonts/noto-fonts
+
+Marcellus
+  extensions/bundled/theme-midnight/client/fonts/Marcellus-Regular.ttf
+  Copyright (c) 2012, Brian J. Bonislawsky DBA Astigmatic (AOETI), with Reserved Font Name "Marcellus"
+  Licensed under SIL Open Font License 1.1
+  Full license text: extensions/bundled/theme-midnight/client/fonts/OFL.txt
+  https://fonts.google.com/specimen/Marcellus
+
+
+INSTALLED AT RUNTIME (npm)
+--------------------------
+
+These are not distributed with this repository. They are fetched by
+"npm install" and remain under their own licenses.
+
+better-sqlite3    MIT          https://github.com/WiseLibs/better-sqlite3
+express           MIT          https://github.com/expressjs/express
+moment            MIT          https://github.com/moment/moment
+seedrandom        MIT          https://github.com/davidbau/seedrandom
+sharp             Apache-2.0   https://github.com/lovell/sharp
+ws                MIT          https://github.com/websockets/ws
+yaml              ISC          https://github.com/eemeli/yaml
+
+sharp installs prebuilt libvips binaries under @img/sharp-*, licensed
+Apache-2.0 AND LGPL-3.0-or-later. libvips is dynamically linked and may be
+replaced; see https://github.com/libvips/libvips for the corresponding
+source.
+
+
+ACKNOWLEDGEMENTS
+----------------
+
+Project Sigma thanks these projects and their authors.
+
+SillyTavern
+  https://github.com/SillyTavern/SillyTavern
+  Project Sigma reads and writes SillyTavern's character card, lorebook,
+  chat and preset formats, so a library moves between the two.
+
+Pathweaver, by mattjaybe (MIT License)
+  https://github.com/mattjaybe/SillyTavern-Pathweaver
+  The bundled Next Beat extension was inspired by it.
+
+SillyTavern Tracker, by kaldigo
+  https://github.com/kaldigo/SillyTavern-Tracker
+  The bundled Trackers extension was inspired by it.
+
+ST-Copilot, by Quaren (MIT License)
+  https://github.com/Supker/ST-Copilot
+  The Assistant's lorebook editing was inspired by it.

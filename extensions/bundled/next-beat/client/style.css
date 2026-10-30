@@ -1,0 +1,598 @@
+/* Next Beat: its dialogs on the app's .cl-modal, its window on the .cl-cwin parts, a suggestion a quiet card, its menus the dropdown canon. */
+
+/* ---------------------------------------------------------------- the dialogs */
+
+.cl-modal-content.nb-content {
+    width: 100%;
+    max-width: calc(720px * var(--modal-scale, 1));
+    height: calc(620px * var(--modal-scale, 1));
+}
+
+.cl-modal-content.nb-director { height: auto; }
+
+/* a renderer draws into a root of its own, which the body lets fill it */
+.cl-modal-content.nb-content > .cl-modal-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.nb-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.nb-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.nb-style {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+    max-width: 60%;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    background: var(--cl-accent-tint);
+    border: 1px solid var(--cl-accent-tint-border);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+    font-weight: 600;
+}
+
+.nb-style > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nb-style > i { color: var(--accent); }
+
+.nb-status {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.nb-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+/* a suggestion: its emoji and title, what happens, then its three verbs */
+.nb-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-faint);
+}
+
+.nb-card.is-pending {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    border-style: dashed;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+}
+
+.nb-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.nb-emoji {
+    flex-shrink: 0;
+    font-size: var(--font-lg);
+    line-height: 1;
+}
+
+.nb-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--font-md);
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.nb-desc {
+    margin: 0;
+    font-size: var(--font-sm);
+    line-height: var(--leading-prose);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.nb-card-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-xs-sm);
+}
+
+.nb-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xl) var(--space-md);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+}
+
+.nb-empty > i {
+    font-size: var(--font-lg);
+    color: var(--accent);
+}
+
+.nb-empty.is-error > i { color: var(--cl-error); }
+.nb-empty > p { margin: 0; overflow-wrap: anywhere; }
+
+/* what the model wrote, as the chat's thinking block reads: quiet, as written, scrolling past its height */
+.nb-said {
+    align-self: stretch;
+    max-height: 14em;
+    overflow-y: auto;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    text-align: left;
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    color: var(--cl-veil-5);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.nb-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--cl-ghost-mid);
+}
+
+.nb-foot-gap { flex: 1; }
+
+.nb-hint {
+    margin: 0;
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- Director */
+
+.nb-directions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    margin: 0;
+    padding-left: var(--space-lg);
+}
+
+.nb-direction {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+}
+
+.nb-direction > input {
+    flex: 1;
+    min-width: 0;
+}
+
+.nb-icon-btn { padding-inline: var(--space-sm); }
+
+/* ---------------------------------------------------------------- the styles manager */
+
+.nb-lib-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 14em minmax(0, 1fr);
+    gap: var(--space-md);
+    align-items: stretch;
+    min-height: 0;
+}
+
+.nb-lib-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.nb-lib-title {
+    margin: var(--space-sm) 0 var(--space-2xs);
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.nb-lib-title:first-child { margin-top: 0; }
+
+.nb-lib-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.nb-lib-item:hover { background: var(--cl-ghost-mid); color: var(--text-primary); }
+
+.nb-lib-item.is-on {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--text-primary);
+}
+
+.nb-lib-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nb-lib-meta {
+    flex-shrink: 0;
+    font-size: var(--font-3xs);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.nb-lib-new { align-self: flex-start; margin-top: var(--space-sm); }
+
+.nb-lib-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.nb-lib-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    margin: 0;
+    font-size: var(--font-md);
+    color: var(--text-primary);
+}
+
+.nb-lib-head > i { color: var(--accent); }
+
+.nb-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+}
+
+.nb-field > span {
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+/* the prompt's field never shrinks under its own height: a short form scrolls instead, its hint kept clear */
+.nb-grow { flex: 1 0 auto; }
+
+.nb-prompt {
+    flex: 1;
+    min-height: 8em;
+    resize: vertical;
+    font-family: inherit;
+    line-height: var(--leading-prose);
+}
+
+/* the icons a style may wear, a wrapping grid of toggles */
+.nb-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs);
+}
+
+.nb-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2em;
+    height: 2.2em;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.nb-icon:hover { background: var(--cl-ghost-mid); color: var(--text-primary); }
+
+.nb-icon.is-on {
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+    color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- the window */
+
+/* Story Beats' window language: the canon view strip, a quiet segmented track, the family's text buttons */
+.nb-win {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    height: 100%;
+    min-height: 0;
+}
+
+/* the controls above the panes: the views, then the Suggest view's track and menus, one block a phone can float back */
+.nb-controls {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: var(--space-sm-md);
+}
+
+/* the host's body already pads the window; three views across it */
+.nb-views.cl-cwin-tabs { padding: 0 0 var(--space-sm); }
+.nb-views .cl-cwin-tab { flex: 1; justify-content: center; }
+
+.nb-pane,
+.nb-win-host {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+/* the story styles: one track, the style on show raised in neutral so it reads under the accent views */
+.nb-seg {
+    display: flex;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+}
+
+.nb-seg-btn {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-width: 0;
+    padding: var(--space-xs) var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--font-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.nb-seg-btn > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nb-seg-btn:hover { color: var(--text-primary); background: var(--cl-ghost-mid); }
+.nb-seg-btn.is-on { color: var(--text-primary); background: var(--cl-ghost-strong); }
+
+/* the menus' verbs under the track, Surprise Me apart at the end */
+.nb-win-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.nb-start { flex: 1; }
+.nb-start > p { max-width: 28em; }
+
+/* the suggestions in the window: the cards scroll between the track and the foot */
+.nb-win .nb-body { gap: var(--space-sm-md); }
+.nb-win .nb-foot { border-top-color: var(--glass-border); }
+
+/* a direction's remove button is square: its row (a .cl-cwin-fieldrow) gives it the field's height, this its width */
+.nb-win .nb-icon-btn { min-width: var(--cl-cwin-btn); }
+
+/* the manager's list a little narrower beside the window's form than in its dialog */
+.nb-win .nb-lib-body { grid-template-columns: 12em minmax(0, 1fr); }
+
+/* ---------------------------------------------------------------- the menus */
+
+/* the dropdown canon, placed by the button that opened it and scrolling past what fits */
+.dropdown-menu.nb-menu {
+    position: fixed;
+    top: auto;
+    right: auto;
+    margin-top: 0;
+    gap: var(--space-2xs);
+    max-width: min(320px, calc(100vw - 16px));
+    overflow-y: auto;
+}
+
+.nb-menu .dropdown-section-title { margin: var(--space-xs) 0 0; }
+.nb-menu .dropdown-section-title:first-child { margin-top: 0; }
+
+.nb-menu-note,
+.nb-sheet-note {
+    margin: 0;
+    padding: 0 var(--space-md) var(--space-xs);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- the settings */
+
+.nb-set-title { margin-top: var(--space-lg); }
+
+.nb-count { width: 6.5em; }
+.nb-count-wide { width: 8em; }
+
+.nb-armed {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin: 0 0 var(--space-sm);
+    padding: 0;
+    list-style: none;
+}
+
+.nb-armed-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.nb-armed-row > i { color: var(--accent); }
+
+.nb-armed-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+.nb-armed-when {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+}
+
+/* ---------------------------------------------------------------- phone */
+
+/* the zoom guard: the mobile input size, never a literal */
+html.cl-mobile .nb-content input,
+html.cl-mobile .nb-content textarea { font-size: var(--mobile-input-size); }
+
+/* a card's verbs, the dialogs' controls and the window's style track on the slim tier, a list row on the full one */
+html.cl-mobile .nb-card-verbs .cl-btn,
+html.cl-mobile .nb-head .cl-btn,
+html.cl-mobile .nb-direction .cl-btn,
+html.cl-mobile .nb-icon,
+html.cl-mobile .nb-seg-btn,
+html.cl-mobile .nb-armed-row .cl-btn { min-height: var(--touch-target-slim); }
+
+html.cl-mobile .nb-icon { min-width: var(--touch-target-slim); }
+html.cl-mobile .nb-win .nb-icon-btn { min-width: var(--touch-target-min); }
+html.cl-mobile .nb-lib-item { min-height: var(--touch-target-min); }
+html.cl-mobile .nb-card-verbs > button { flex: 1; }
+
+/* the window's labelled verbs on the full tier, as Story Beats' are (its fields stand there as every window's do) */
+html.cl-mobile .nb-win-verbs .cl-cwin-btn-text,
+html.cl-mobile .nb-win .nb-foot .cl-cwin-btn-text { min-height: var(--touch-target-min); }
+
+html.cl-mobile .nb-seg-btn,
+html.cl-mobile .nb-win-verbs .cl-cwin-btn-text { touch-action: manipulation; }
+
+/* a phone scrolls the window as one, the cards in no box of their own; the pane still fills, so an empty state centers */
+html.cl-mobile .nb-win { height: auto; min-height: 100%; }
+html.cl-mobile .nb-win .nb-pane,
+html.cl-mobile .nb-win .nb-win-host { flex: 1 0 auto; }
+html.cl-mobile .nb-win .nb-body,
+html.cl-mobile .nb-win .nb-list { flex: none; overflow: visible; }
+/* quick return: one box at rest and pinned (a size change would shift the scroll and re-pin it), reaching the body's edges */
+html.cl-mobile .nb-controls {
+    margin: calc(-1 * var(--space-md)) calc(-1 * var(--space-md)) calc(-1 * var(--space-sm));
+    padding: var(--space-md) var(--space-md) var(--space-sm);
+}
+html.cl-mobile .nb-controls.nb-pinned {
+    position: sticky;
+    top: calc(-1 * var(--space-md));
+    z-index: 3;
+    background: var(--cl-sheet-bg-mobile);
+    backdrop-filter: var(--cl-blur-mobile);
+    animation: nbControlsIn var(--dur-base) ease;
+    transition: transform var(--dur-base) ease;
+}
+html.cl-mobile .nb-controls.nb-controls-away { transform: translateY(-100%); }
+@keyframes nbControlsIn {
+    from { transform: translateY(-100%); }
+    to { transform: none; }
+}
+
+/* a phone: New suggestions beside the set's head, which drops the style its title already names; Close goes, the back closes */
+html.cl-mobile .nb-body:has(> .nb-list) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-items: center;
+    align-content: start;
+}
+html.cl-mobile .nb-body:has(> .nb-list) > .nb-list { align-self: stretch; }
+html.cl-mobile .nb-body:has(> .nb-list) > .nb-head { grid-column: 1; grid-row: 1; }
+html.cl-mobile .nb-body:has(> .nb-list) > .nb-foot { grid-column: 2; grid-row: 1; padding: 0; border: 0; }
+html.cl-mobile .nb-body:has(> .nb-list) > .nb-list { grid-column: 1 / -1; }
+html.cl-mobile .nb-head .nb-style { display: none; }
+html.cl-mobile .nb-foot [data-nb="run"][data-run-state="done"] { display: none; }
+
+/* the manager's two panes stack: the list above the form */
+html.cl-mobile .nb-lib-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+    gap: var(--space-sm);
+}
+
+/* no hover states on a touch surface */
+html.cl-mobile .nb-lib-item:hover { background: var(--cl-ghost-faint); color: var(--text-secondary); }
+html.cl-mobile .nb-lib-item.is-on { background: var(--cl-accent-tint); color: var(--text-primary); }
+html.cl-mobile .nb-icon:hover { background: var(--cl-ghost-faint); color: var(--text-secondary); }
+html.cl-mobile .nb-icon.is-on { background: var(--cl-accent-tint); color: var(--accent); }
+html.cl-mobile .nb-seg-btn:hover { background: transparent; color: var(--text-faint); }
+html.cl-mobile .nb-seg-btn.is-on { background: var(--cl-ghost-strong); color: var(--text-primary); }

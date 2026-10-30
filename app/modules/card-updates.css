@@ -1,0 +1,1036 @@
+/* ========================================
+   CHECK FOR UPDATES (single and batch)
+   ======================================== */
+
+/* the single checker opens over the batch one */
+#cardUpdateBatchModal {
+    z-index: var(--z-modal);
+}
+
+#cardUpdateSingleModal {
+    z-index: calc(var(--z-modal) + 1);
+}
+
+/* When character details is opened above the update checker */
+body.char-modal-above .modal-overlay {
+    z-index: var(--z-modal-above) !important;
+}
+
+.card-update-modal {
+    --cu-check: 16px;
+}
+
+.card-update-modal .cl-modal-content {
+    width: 95%;
+    max-width: calc(750px * var(--modal-scale, 1));
+}
+
+/* a column: the band and the bars hold still, the one list under them scrolls */
+.card-update-modal .cl-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* the body's parts ride the class idiom, and their own display outranks the bare rule */
+.card-update-fields.hidden,
+.card-update-band.hidden,
+.card-update-batch-bar.hidden,
+.card-update-batch-list.hidden,
+.card-update-batch-summary.hidden {
+    display: none;
+}
+
+.card-update-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.card-update-modal input[type="checkbox"] {
+    width: var(--cu-check);
+    height: var(--cu-check);
+    margin: 0;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.card-update-modal input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+}
+
+.card-update-band {
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+/* ---- header: one title, what is being checked under it ---- */
+.card-update-head {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+
+.card-update-head h3 {
+    flex: none;
+}
+
+.card-update-sub {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-update-sub .card-update-char-link {
+    font-weight: 500;
+}
+
+.card-update-char-link {
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.card-update-char-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+/* ---- a list's head: its select-all and count, or a title and its verbs ---- */
+.card-update-list-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+    padding: 0 var(--space-sm-md);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+label.card-update-list-head {
+    cursor: pointer;
+    align-self: flex-start;
+}
+
+.card-update-list-count {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- the single check's rows ---- */
+.card-update-diff-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+.card-update-diff-list > .card-update-list-head {
+    margin-bottom: var(--space-2xs);
+}
+
+.card-update-diff-item {
+    overflow: hidden;
+}
+
+.card-update-diff-item label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    cursor: pointer;
+}
+
+.card-update-diff-label {
+    font-size: var(--font-md);
+    color: var(--text-primary);
+}
+
+.card-update-diff-clears {
+    cursor: help;
+    padding: 0 var(--space-sm);
+    font-size: var(--font-2xs);
+    line-height: 1.6;
+    white-space: nowrap;
+}
+
+.card-update-diff-item.short {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-sm-md);
+}
+
+.card-update-diff-item.short > label {
+    flex-shrink: 0;
+}
+
+.card-update-diff-values {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    font-size: var(--font-sm);
+}
+
+.card-update-diff-values .local-value,
+.card-update-diff-values .remote-value {
+    padding: var(--space-2xs) var(--space-xs-sm);
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.card-update-diff-values .local-value {
+    background: rgba(var(--cl-error-rgb), 0.15);
+    color: var(--cl-error-pale);
+    text-decoration: line-through;
+}
+
+.card-update-diff-values .remote-value {
+    background: rgba(var(--cl-success-rgb), 0.15);
+    color: var(--cl-success-pale);
+}
+
+.card-update-diff-values i {
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+/* a list field: its two sides under the label */
+.card-update-diff-item.short.array {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+}
+
+.card-update-diff-item.short.array > label {
+    align-self: flex-start;
+}
+
+.card-update-array-diff {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-sm);
+}
+
+.card-update-array-column {
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    min-width: 0;
+}
+
+.card-update-array-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs-sm);
+}
+
+.card-update-array-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.card-update-array-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.card-update-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-mid);
+    border: 1px solid var(--cl-ghost-strong);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+}
+
+/* what one side has and the other has not */
+.card-update-array-column.local .card-update-pill-unique {
+    color: var(--cl-error-pale);
+    background: rgba(var(--cl-error-rgb), 0.12);
+    border-color: rgba(var(--cl-error-rgb), 0.4);
+    text-decoration: line-through;
+}
+
+.card-update-array-column.remote .card-update-pill-unique {
+    color: var(--cl-success-pale);
+    background: rgba(var(--cl-success-rgb), 0.12);
+    border-color: rgba(var(--cl-success-rgb), 0.4);
+}
+
+.card-update-empty {
+    color: var(--text-faint);
+    font-size: var(--font-xs);
+}
+
+/* a long field: the header row opens it */
+.card-update-diff-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-xs-sm) var(--space-xs-sm) var(--space-xs-sm) var(--space-sm-md);
+    cursor: pointer;
+}
+
+.card-update-diff-stats {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-update-diff-item.is-open .card-update-diff-expand {
+    color: var(--text-primary);
+}
+
+.card-update-diff-content {
+    border-top: 1px solid var(--cl-ghost-mid);
+}
+
+.card-update-diff-content.collapsed {
+    display: none;
+}
+
+/* Side-by-side diff view */
+.card-update-diff-sidebyside {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.card-update-diff-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.card-update-diff-panel.local {
+    border-right: 1px solid var(--cl-ghost-mid);
+}
+
+.card-update-diff-panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--cl-ghost-mid);
+}
+
+.card-update-diff-panel.local .card-update-diff-panel-header i {
+    color: var(--cl-error-pale);
+}
+
+.card-update-diff-panel.remote .card-update-diff-panel-header i {
+    color: var(--cl-success-pale);
+}
+
+.card-update-diff-panel-content {
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-sm);
+    line-height: 1.6;
+}
+
+.card-update-diff-panel-content .diff-line {
+    padding: var(--space-2xs) var(--space-sm-md);
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 1.6em;
+    border-left: 3px solid transparent;
+}
+
+.card-update-diff-panel-content .diff-line.empty {
+    background: var(--cl-ghost-faint);
+}
+
+.card-update-diff-panel.local .diff-line.changed,
+.card-update-diff-panel.local .diff-line.removed {
+    background: rgba(var(--cl-error-rgb), 0.12);
+    border-left-color: var(--cl-error);
+}
+
+.card-update-diff-panel.remote .diff-line.changed,
+.card-update-diff-panel.remote .diff-line.added {
+    background: rgba(var(--cl-success-rgb), 0.12);
+    border-left-color: var(--cl-success);
+}
+
+/* Word-level highlighting within side-by-side panels */
+/* no inset of their own, so a run of changed words reads as one band */
+.card-update-diff-panel-content .word-removed {
+    background: rgba(var(--cl-error-rgb), 0.35);
+    color: var(--text-primary);
+    text-decoration: line-through;
+}
+
+.card-update-diff-panel-content .word-added {
+    background: rgba(var(--cl-success-rgb), 0.35);
+    color: var(--text-primary);
+}
+
+/* ---- batch, step one: which fields to compare ---- */
+.card-update-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.card-update-fields > .card-update-list-head {
+    padding: 0;
+}
+
+.card-update-fields-title {
+    margin-right: auto;
+    font-size: var(--font-md);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.card-update-hint {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.card-update-field-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2xs) var(--space-md);
+    align-content: start;
+}
+
+.card-update-field-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs-sm) var(--space-sm);
+    border-radius: var(--radius-md);
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.card-update-field-option:hover {
+    background: var(--cl-ghost-mid);
+}
+
+.card-update-field-label {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- batch, the run: the status tabs, the list head, the rows ---- */
+.card-update-batch-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+}
+
+/* WRAP is the strip's overflow policy: a status with no rows has left it, so most runs show two or three */
+.card-update-tabs {
+    flex-wrap: wrap;
+}
+
+/* one step over the window family's tab, as Settings' view tabs in a dialog */
+.card-update-tabs .cl-cwin-tab {
+    font-size: var(--font-xs);
+}
+
+.card-update-tab-count {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.card-update-tabs .cl-cwin-tab.is-on .card-update-tab-count {
+    color: inherit;
+}
+
+.card-update-batch-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+.card-update-batch-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-sm-md);
+    padding: var(--space-sm) var(--space-xs-sm) var(--space-sm) var(--space-sm-md);
+}
+
+.card-update-batch-item-check {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.card-update-batch-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+}
+
+.card-update-batch-item-name {
+    font-size: var(--font-md);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-update-batch-item-meta {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-update-batch-item-fields:not(:empty)::before {
+    content: '\00b7';
+    margin: 0 var(--space-xs);
+    color: var(--text-faint);
+}
+
+.card-update-batch-item-status {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    max-width: 22em;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.card-update-count {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.card-update-batch-item[data-status="up-to-date"] .card-update-batch-item-status,
+.card-update-batch-item[data-status="applied"] .card-update-batch-item-status {
+    color: var(--cl-success-pale);
+}
+
+.card-update-batch-item[data-status="error"] .card-update-batch-item-status,
+.card-update-batch-item[data-status="errors"] .card-update-batch-item-status {
+    color: var(--cl-error-pale);
+}
+
+.card-update-batch-item[data-status="unavailable"] .card-update-batch-item-status,
+.card-update-batch-item[data-status="locked"] .card-update-batch-item-status {
+    color: var(--cl-warning-pale);
+}
+
+/* nothing to take from these: they dim, bar the lock that brings one back */
+.card-update-batch-item:is([data-status="locked"], [data-status="unavailable"], [data-status="deleted"]) > :not(.card-update-lock-toggle) {
+    opacity: var(--op-disabled);
+}
+
+.card-update-batch-item[data-status="locked"] .card-update-lock-toggle {
+    color: var(--cl-warning-pale);
+}
+
+/* ---- batch, the review before Apply ---- */
+.card-update-batch-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.batch-summary-header,
+.batch-summary-clears {
+    margin-bottom: 0;
+}
+
+/* the changes that empty a filled field, listed apart: in the field groups they read like any other change */
+.batch-summary-clears {
+    align-items: flex-start;
+}
+
+.batch-summary-clears-list {
+    margin: var(--space-xs) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.batch-summary-clears-list strong {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.batch-summary-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+}
+
+.batch-summary-field-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+    font-size: var(--font-xs);
+    color: var(--text-primary);
+}
+
+.batch-field-icon {
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+}
+
+.batch-summary-field-count {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.batch-summary-char-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+.batch-summary-char-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    padding: var(--space-sm) var(--space-sm-md);
+    cursor: pointer;
+}
+
+.batch-summary-char-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    min-width: 0;
+}
+
+.batch-summary-char-name {
+    font-size: var(--font-md);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.batch-summary-char-fields {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- the footer: Apply's progress at its start while the write runs ---- */
+.card-update-modal .cl-modal-footer {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.card-update-apply-progress {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 280px;
+    margin-right: auto;
+}
+
+.card-update-apply-text {
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.card-update-apply-bar {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--cl-veil-2);
+    overflow: hidden;
+}
+
+.card-update-apply-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width var(--dur-base) var(--ease-standard);
+}
+
+/* Lorebook diff */
+.lorebook-diff-entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm-md) var(--space-md);
+}
+
+.lorebook-diff-entry {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    font-size: var(--font-sm);
+}
+
+.lorebook-diff-entry.added { background: rgba(var(--cl-success-rgb), 0.1); }
+.lorebook-diff-entry.removed { background: rgba(var(--cl-error-rgb), 0.1); }
+.lorebook-diff-entry.modified { background: rgba(var(--cl-warning-rgb), 0.1); }
+.lorebook-diff-entry.unchanged { padding: var(--space-xs) var(--space-sm-md); }
+
+.lorebook-diff-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-circle);
+    font-weight: 600;
+    font-size: var(--font-xs);
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.lorebook-diff-badge.added { background: rgba(var(--cl-success-rgb), 0.25); color: var(--cl-success-pale); }
+.lorebook-diff-badge.removed { background: rgba(var(--cl-error-rgb), 0.25); color: var(--cl-error-pale); }
+.lorebook-diff-badge.modified { background: rgba(var(--cl-warning-rgb), 0.25); color: var(--cl-warning-pale); }
+.lorebook-diff-badge.local-only { background: var(--cl-ghost-strong); color: var(--text-secondary); font-size: var(--font-2xs); }
+.lorebook-diff-entry.local-only { opacity: 0.7; }
+
+.lorebook-diff-info-box {
+    display: flex;
+    gap: var(--space-sm-md);
+    padding: var(--space-sm-md) var(--space-md);
+    margin: var(--space-xs-sm) var(--space-sm-md);
+    background: var(--cl-accent-tint);
+    border: 1px solid var(--cl-accent-tint-border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.lorebook-diff-info-box > i {
+    color: var(--accent);
+    margin-top: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+.lorebook-diff-info-box.is-warning {
+    border-color: rgba(var(--cl-warning-rgb), 0.3);
+    background: rgba(var(--cl-warning-rgb), 0.06);
+}
+.lorebook-diff-info-box strong {
+    color: var(--text-primary);
+}
+.lorebook-diff-help-details { margin-top: var(--space-xs-sm); }
+.lorebook-diff-help-details summary {
+    cursor: pointer;
+    font-size: var(--font-sm);
+    color: var(--accent);
+    user-select: none;
+    list-style: none;
+}
+.lorebook-diff-help-details summary::-webkit-details-marker { display: none; }
+.lorebook-diff-help-details summary::before {
+    content: '\25B8 ';
+    font-size: var(--font-sm);
+}
+.lorebook-diff-help-details[open] summary::before {
+    content: '\25BE ';
+}
+.lorebook-diff-help-body {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--cl-accent-tint-border);
+    font-size: var(--font-sm);
+    line-height: 1.6;
+}
+.lorebook-diff-help-body p { margin: var(--space-xs-sm) 0; }
+.lorebook-diff-help-body ul {
+    margin: var(--space-xs) 0 var(--space-xs-sm) 0;
+    padding-left: 18px;
+}
+.lorebook-diff-help-body li { margin: var(--space-xs) 0; }
+
+.lorebook-diff-entry-tag {
+    margin-left: auto;
+    font-size: var(--font-xs);
+    padding: 1px 7px;
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-weight: 500;
+}
+.lorebook-diff-entry-tag.added {
+    background: rgba(var(--cl-success-rgb), 0.2);
+    color: var(--cl-success-pale);
+}
+.lorebook-diff-entry-tag.local-only {
+    background: var(--cl-ghost-mid);
+    color: var(--text-secondary);
+}
+.lorebook-diff-entry-tag.warning {
+    background: rgba(var(--cl-warning-rgb), 0.2);
+    color: var(--cl-warning-pale);
+}
+
+.lorebook-world-check {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--space-xs);
+}
+
+.lorebook-diff-entry-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.lorebook-diff-entry-keys {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.lorebook-diff-entry-keys::before {
+    content: '\00b7\00a0';
+    opacity: 0.6;
+}
+
+.lorebook-diff-entry-changes {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.lorebook-diff-unchanged-count {
+    color: var(--text-faint);
+    font-style: italic;
+    font-size: var(--font-sm);
+}
+
+.lorebook-entry-counts {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    margin-left: var(--space-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.lorebook-entry-counts i {
+    font-size: var(--font-4xs);
+    color: var(--text-faint);
+}
+
+.lorebook-diff-meta-section {
+    padding: var(--space-sm) var(--space-sm-md);
+    border-bottom: 1px solid var(--cl-elev-hairline);
+}
+
+.lorebook-diff-meta-title {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs-sm);
+    font-weight: 500;
+}
+
+.lorebook-diff-meta-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) 0;
+    font-size: var(--font-sm);
+}
+
+.lorebook-diff-meta-key {
+    font-weight: 500;
+    min-width: 100px;
+    flex-shrink: 0;
+}
+
+.lorebook-diff-meta-old {
+    color: var(--cl-error-pale);
+    background: rgba(var(--cl-error-rgb), 0.15);
+    padding: 1px var(--space-xs-sm);
+    border-radius: var(--radius-xs);
+    text-decoration: line-through;
+}
+
+.lorebook-diff-meta-new {
+    color: var(--cl-success-pale);
+    background: rgba(var(--cl-success-rgb), 0.15);
+    padding: 1px var(--space-xs-sm);
+    border-radius: var(--radius-xs);
+}
+
+.lorebook-diff-meta-row i {
+    color: var(--text-faint);
+    font-size: var(--font-2xs);
+    flex-shrink: 0;
+}
+
+/* ========================================
+   MOBILE OVERRIDES
+   ======================================== */
+html.cl-mobile .card-update-modal .cl-modal-body {
+    gap: var(--space-sm-md);
+}
+
+/* a short field: the change under its label */
+html.cl-mobile .card-update-diff-item.short {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-xs-sm);
+}
+html.cl-mobile .card-update-diff-item.short > label {
+    min-height: var(--touch-target-slim);
+}
+html.cl-mobile .card-update-diff-values {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: var(--space-xs-sm);
+}
+html.cl-mobile .card-update-diff-values .local-value,
+html.cl-mobile .card-update-diff-values .remote-value {
+    white-space: normal;
+    max-width: none;
+}
+
+/* a long field: the summary under its label, the chevron kept to its own column */
+html.cl-mobile .card-update-diff-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "label expand" "stats expand";
+    row-gap: var(--space-2xs);
+    min-height: var(--touch-target-min);
+}
+html.cl-mobile .card-update-diff-header > label { grid-area: label; }
+html.cl-mobile .card-update-diff-header > .card-update-diff-expand { grid-area: expand; }
+html.cl-mobile .card-update-diff-stats {
+    grid-area: stats;
+    text-align: left;
+    padding-left: calc(var(--cu-check) + var(--space-sm));
+}
+
+html.cl-mobile .card-update-array-diff,
+html.cl-mobile .card-update-diff-sidebyside {
+    grid-template-columns: minmax(0, 1fr);
+}
+html.cl-mobile .card-update-diff-panel.local {
+    border-right: none;
+    border-bottom: 1px solid var(--cl-ghost-mid);
+}
+html.cl-mobile .card-update-diff-panel-content {
+    font-size: var(--font-xs);
+}
+
+html.cl-mobile .card-update-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-sm);
+}
+html.cl-mobile .card-update-field-option {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+/* a run row: the name on its line with the lock, what was found under it */
+html.cl-mobile .card-update-batch-item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "check info lock" ". status status";
+    row-gap: var(--space-xs);
+}
+html.cl-mobile .card-update-batch-item-check {
+    grid-area: check;
+    align-self: start;
+    min-height: var(--touch-target-slim);
+}
+html.cl-mobile .card-update-batch-item-info { grid-area: info; }
+html.cl-mobile .card-update-lock-toggle { grid-area: lock; align-self: start; }
+html.cl-mobile .card-update-batch-item-status {
+    grid-area: status;
+    justify-content: flex-start;
+    max-width: none;
+}
+
+html.cl-mobile .batch-summary-char-item {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .card-update-apply-progress {
+    flex-basis: 100%;
+    max-width: none;
+    margin-right: 0;
+}
+
+/* Lorebook diff entries */
+html.cl-mobile .lorebook-diff-entries { padding: var(--space-xs-sm) var(--space-sm); gap: var(--space-2xs); }
+html.cl-mobile .lorebook-diff-info-box {
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-sm) var(--space-sm-md);
+    margin: var(--space-xs) var(--space-xs-sm);
+    font-size: var(--font-xs);
+    line-height: 1.4;
+}
+html.cl-mobile .lorebook-diff-entry {
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-xs-sm);
+    padding: var(--space-xs-sm) var(--space-sm);
+    font-size: var(--font-sm);
+}
+html.cl-mobile .lorebook-diff-badge { width: 18px; height: 18px; font-size: var(--font-3xs); }
+html.cl-mobile .lorebook-diff-entry-name { max-width: 45%; }
+html.cl-mobile .lorebook-diff-entry-tag {
+    font-size: var(--font-2xs);
+    padding: 1px var(--space-xs-sm);
+    order: 10;
+}
+html.cl-mobile .lorebook-world-check { margin-left: 0; }
+html.cl-mobile .lorebook-diff-entry-keys { font-size: var(--font-xs); flex-basis: 100%; padding-left: 26px; }
+html.cl-mobile .lorebook-diff-meta-row { flex-wrap: wrap; gap: var(--space-xs) var(--space-xs-sm); }
+html.cl-mobile .lorebook-diff-meta-key { min-width: unset; }

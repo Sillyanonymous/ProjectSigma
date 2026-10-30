@@ -1,0 +1,49 @@
+# Project Σ with docker compose. From the repository root:
+#   docker compose -f docker/compose.yaml up -d
+# then open http://<this machine>:7788. Everything you add lives in the sigma-data volume.
+#
+# The sites behind Cloudflare (JanitorAI, JannyAI) need a real browser. Start the optional one beside the app:
+#   docker compose -f docker/compose.yaml --profile browser up -d
+# and set Settings > Online > Hosted Browser to "Use my own browser endpoint", endpoint http://browser:9222.
+name: project-sigma
+
+services:
+  sigma:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: project-sigma:local
+    container_name: project-sigma
+    restart: unless-stopped
+    init: true
+    ports:
+      - "7788:7788"
+    volumes:
+      - sigma-data:/data
+      - sigma-extensions:/extensions
+      # To bring a SillyTavern library across, mount its user folder read-only and give the wizard /sillytavern:
+      # - /path/to/SillyTavern/data/default-user:/sillytavern:ro
+    # environment:
+    #   CL_MULTI_USER: "true"
+
+  # The Hosted Browser, reached by the app over the compose network only: its port is not published.
+  browser:
+    profiles: ["browser"]
+    build: ../tools/hosted-browser
+    image: cl-hosted-browser:local
+    container_name: project-sigma-browser
+    restart: unless-stopped
+    init: true
+    volumes:
+      # holds the sites' logins and Cloudflare clearance
+      - browser-profile:/profile
+    # chromium on the default 64m shm dies in ways that mimic a driver fault
+    shm_size: 1gb
+    # keeps chromium's own sandbox, which Docker's default seccomp profile blocks
+    security_opt:
+      - seccomp:unconfined
+
+volumes:
+  sigma-data:
+  sigma-extensions:
+  browser-profile:

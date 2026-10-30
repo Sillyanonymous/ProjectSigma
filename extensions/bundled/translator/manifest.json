@@ -1,0 +1,14 @@
+{
+    "id": "translator",
+    "name": "Translator",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Translates chat messages with your own model: one at a time from a message's menu, each new reply as it arrives, and what you send before it is posted, each chat in its own language. A translation shows beneath the message or in its place. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["message.action", "chat.window"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": { "profileId": "", "lang": "English", "mode": "beneath" }
+}

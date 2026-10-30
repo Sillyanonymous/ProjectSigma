@@ -1,0 +1,76 @@
+/* ============================================
+   Pygmalion Browse CSS
+   ============================================ */
+
+
+#pygFollowAuthorBtn {
+    background: linear-gradient(135deg, rgba(var(--cl-error-bright-rgb), 0.2), rgba(var(--cl-error-bright-darker-rgb), 0.2));
+    border: 1px solid rgba(var(--cl-error-bright-rgb), 0.4);
+    color: var(--cl-error-bright);
+    padding: var(--space-xs-sm) var(--space-md);
+    font-size: var(--font-md);
+}
+
+#pygFollowAuthorBtn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(var(--cl-error-bright-rgb), 0.3), rgba(var(--cl-error-bright-darker-rgb), 0.3));
+    border-color: rgba(var(--cl-error-bright-rgb), 0.6);
+}
+
+#pygFollowAuthorBtn.following {
+    background: linear-gradient(135deg, rgba(var(--cl-error-bright-rgb), 0.4), rgba(var(--cl-error-bright-darker-rgb), 0.4));
+    color: #fff;
+}
+
+#pygFollowAuthorBtn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Pygmalion Login - plugin status & auth status */
+
+.pyg-plugin-status {
+    font-size: var(--font-md);
+    margin-bottom: var(--space-md);
+    line-height: 1.5;
+}
+
+.pyg-plugin-status a {
+    color: var(--accent);
+}
+
+.pyg-auth-status {
+    background: rgba(var(--cl-success-bright-rgb), 0.1);
+    border: 1px solid rgba(var(--cl-success-bright-rgb), 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md) var(--space-lg);
+    margin-bottom: var(--space-lg);
+    font-size: var(--font-md);
+    line-height: 1.5;
+}
+
+.pyg-login-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.pyg-manual-token-section {
+    margin-top: var(--space-lg);
+    background: var(--cl-ghost-soft);
+    padding: var(--space-sm-md);
+    border-radius: var(--radius-lg);
+}
+
+.pyg-manual-token-section > summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-md);
+}
+
+.pyg-manual-token-section > summary:hover {
+    color: var(--accent);
+}
+
+
+/* Mobile overrides */
+
+html.cl-mobile .pyg-plugin-status { font-size: var(--font-sm); }

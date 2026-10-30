@@ -1,0 +1,296 @@
+/* ========================================
+   Notifications shell
+   Legacy "gallery-sync" class names kept: the topbar bell container, button,
+   and dropdown grew out of the extension-era gallery-sync audit and every
+   consumer (html, library.js, mobile) binds to these names.
+   ======================================== */
+
+.gallery-sync-container {
+    position: relative;
+}
+
+.gallery-sync-container.hidden {
+    display: none;
+}
+
+.gallery-sync-btn {
+    position: relative;
+    color: var(--text-muted) !important;
+    transition: color var(--dur-base) ease;
+}
+
+.gallery-sync-btn:hover {
+    color: var(--text-primary) !important;
+}
+
+.gallery-sync-btn.has-issues {
+    color: var(--cl-warning-bright) !important;
+    animation: pulse-warning 2s ease-in-out infinite;
+}
+
+.gallery-sync-btn.has-issues:hover {
+    color: var(--cl-warning-bright-darker) !important;
+    background: rgba(var(--cl-warning-bright-rgb), 0.15) !important;
+}
+
+.gallery-sync-btn .warning-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 16px;
+    height: 16px;
+    background: var(--cl-error-bright);
+    color: white;
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--space-xs);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.gallery-sync-btn .warning-badge.hidden {
+    display: none;
+}
+
+/* Notifications dropdown (shared shell for the media-downloads + gallery-sync sections) */
+.gallery-sync-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: var(--space-sm);
+    min-width: 280px;
+    max-width: 350px;
+    background: rgba(30, 30, 35, 0.98);
+    backdrop-filter: blur(var(--cl-blur-popup));
+    border: 1px solid var(--cl-ghost-heavy);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    z-index: var(--z-float);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    padding: var(--space-sm-md);
+}
+
+/* Each notification section reads as its own inset card */
+.notif-section {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md);
+}
+
+/* nothing to report: the shell shows it when no section is (a phone opens the sheet regardless) */
+.notif-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-lg) var(--space-md);
+    text-align: center;
+    color: var(--text-secondary);
+}
+.notif-empty i { font-size: var(--font-xl); color: var(--text-faint); }
+.notif-empty p { margin: 0; font-weight: 600; color: var(--text-primary); }
+.notif-empty span { font-size: var(--font-sm); color: var(--text-muted); }
+
+/* the rows every section draws: one vocabulary, so two sections never drift apart */
+.notif-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+.notif-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-xs);
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.notif-header i {
+    color: var(--accent);
+    font-size: var(--font-sm);
+}
+
+.notif-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+}
+
+.notif-row-icon {
+    flex: 0 0 auto;
+    width: 18px;
+    margin-top: 1px;
+    text-align: center;
+    color: var(--accent);
+    font-size: var(--font-sm);
+}
+
+.notif-row-icon.is-error {
+    color: var(--cl-error-bright);
+}
+
+.notif-row-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+
+.notif-row-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.notif-row-name {
+    font-size: var(--font-md);
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notif-row-actions {
+    display: flex;
+    gap: var(--space-2xs);
+    flex-shrink: 0;
+}
+
+/* a row that asks: its answers as buttons under the line, wrapping on a narrow sheet */
+.notif-row-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
+}
+
+.notif-row-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.notif-row-btn:hover {
+    color: var(--text-primary);
+    background: rgba(var(--accent-rgb), 0.15);
+}
+
+.notif-row-sub {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notif-row-meta {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.notif-row-error {
+    color: var(--cl-error-pale);
+    white-space: normal;
+}
+
+.notif-progress {
+    height: 6px;
+    border-radius: var(--radius-sm);
+    background: var(--cl-ghost-strong);
+    overflow: hidden;
+    margin-top: var(--space-2xs);
+}
+
+.notif-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width var(--dur-base) ease;
+}
+
+.notif-pending {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-sm);
+    color: var(--text-faint);
+}
+
+.notif-pending i {
+    font-size: var(--font-2xs);
+    opacity: 0.7;
+}
+
+.notif-done-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    padding-top: var(--space-sm);
+    margin-top: var(--space-2xs);
+    border-top: 1px solid var(--glass-border);
+}
+
+.notif-done-row > span {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.notif-done-row i {
+    color: var(--cl-success);
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* ========================================
+ * Mobile Overrides
+ * ======================================== */
+
+/* ---------------------------------------------------
+   NOTIFICATIONS SHEET: the dropdown is hosted inside a bottom sheet on a phone
+   (library-mobile.js moves it there and marks the sheet data-notif-host), so it is a
+   block in the sheet's flow, not a popup of its own; the sheet is the surface.
+   --------------------------------------------------- */
+html.cl-mobile [data-notif-host] .gallery-sync-dropdown {
+    position: static;
+    margin: 0;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: transparent;
+    backdrop-filter: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 var(--space-md-lg) var(--space-md);
+}
+
+html.cl-mobile .notif-row-btn {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+}

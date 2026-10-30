@@ -1,0 +1,84 @@
+/* This chat's card window: furniture from .cl-cwin, fields from the window family's form classes; here only the layout, status line and verbs bar. */
+
+.cct-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-md);
+}
+
+/* the held band sits above the scrolling body, so it stays in view however far the form scrolls */
+.cct-held {
+    flex-shrink: 0;
+    padding: var(--space-md) var(--space-md) 0;
+}
+
+.cct-held .settings-band { margin-bottom: 0; }
+
+/* The two views (the card's texts, the Author's Note) both stay in the page, their groups apart as
+   the chat settings window's are. */
+.cct-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.cct-field-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.cct-input { width: 100%; resize: vertical; }
+
+/* Two views, so the strip reads as one segmented pair across the window rather than two small
+   buttons at its start. */
+.cct-tabs .cl-cwin-tab { flex: 1; justify-content: center; }
+
+/* a chat reading the default note says so at the end of its group's title */
+.cct-group-tag { margin-left: auto; }
+
+/* when a reply next carries the note: a status under the frequency, ruled off like a block, never
+   one more grey hint */
+.cct-schedule {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin: 0;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--cl-elev-hairline);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.cct-schedule i { color: var(--accent); font-size: var(--font-2xs); }
+
+/* Empty and error states are the shared .cl-cwin-empty (chats.css). */
+
+/* Each tab's verbs: a bar under the scrolling body, as the background panel's footer is, so Save is in
+   reach however long the form runs. */
+.cct-foot-host { flex-shrink: 0; }
+
+.cct-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-top: 1px solid var(--glass-border);
+}
+
+.cct-foot-gap { flex: 1; }
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+html.cl-mobile .cct-btn {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .cct-foot {
+    padding-bottom: max(var(--space-sm), var(--safe-bottom));
+}

@@ -1,0 +1,188 @@
+/* =========================================================
+   Batch Tagging Module Styles
+   ========================================================= */
+
+.bt-char-count {
+    font-size: var(--font-md);
+    color: var(--cl-text-secondary);
+    margin-left: auto;
+    margin-right: var(--space-sm);
+}
+
+.bt-section {
+    margin-bottom: var(--space-xl);
+}
+
+.bt-section:last-child {
+    margin-bottom: 0;
+}
+
+.bt-section-title {
+    font-weight: 600;
+    margin-bottom: var(--space-sm-md);
+    color: var(--cl-text-primary);
+    font-size: var(--font-base);
+}
+
+.bt-existing {
+    background: var(--cl-shade-20);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md);
+    min-height: 40px;
+}
+
+.bt-group {
+    margin-bottom: var(--space-md);
+}
+
+.bt-group:last-child {
+    margin-bottom: 0;
+}
+
+.bt-group-label {
+    font-size: var(--font-sm);
+    color: var(--cl-text-secondary);
+    margin-bottom: var(--space-xs-sm);
+}
+
+.bt-group-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+}
+
+.bt-group-more {
+    font-size: var(--font-sm);
+    color: var(--cl-text-secondary);
+    margin-top: var(--space-xs-sm);
+}
+
+.bt-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs-sm);
+    min-height: 32px;
+    margin-top: var(--space-sm-md);
+}
+
+.bt-hint {
+    font-size: var(--font-xs);
+    color: var(--cl-text-secondary);
+    margin-top: var(--space-sm);
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.bt-empty {
+    color: var(--cl-text-secondary);
+    font-style: italic;
+    font-size: var(--font-md);
+}
+
+.bt-count {
+    font-size: var(--font-sm);
+    opacity: 0.7;
+}
+
+/* Tag pill close button */
+.bt-pill-close {
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: var(--font-md);
+    margin-left: var(--space-2xs);
+}
+
+.bt-pill-close:hover {
+    opacity: 1;
+}
+
+/* Autocomplete input wrapper */
+.bt-input-wrapper {
+    position: relative;
+}
+
+/* Autocomplete suggestions dropdown */
+.bt-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--cl-glass-bg);
+    border: 1px solid var(--cl-border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: calc(var(--z-modal) + 1);
+    box-shadow: var(--cl-shadow-lg);
+}
+
+.bt-suggestions.hidden {
+    display: none;
+}
+
+.bt-suggestion-item {
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    color: var(--cl-text-primary);
+    font-size: var(--font-md);
+    transition: background var(--dur-fast);
+}
+
+.bt-suggestion-item:hover,
+.bt-suggestion-item.selected {
+    background: var(--cl-veil-2);
+}
+
+.bt-suggestion-item strong {
+    color: var(--accent);
+}
+
+/* =========================================================
+   Mobile-mode overrides (html.cl-mobile)
+   ========================================================= */
+html.cl-mobile .bt-section {
+    margin-bottom: var(--space-lg);
+}
+
+html.cl-mobile .bt-existing {
+    padding: var(--space-sm-md);
+}
+
+html.cl-mobile .bt-group-pills,
+html.cl-mobile .bt-pills {
+    gap: var(--space-sm);
+}
+
+html.cl-mobile .bt-existing .cl-tag {
+    touch-action: manipulation;
+}
+
+html.cl-mobile .bt-pill-close {
+    padding: var(--space-xs) var(--space-2xs);
+    margin-left: var(--space-xs);
+}
+
+html.cl-mobile .bt-suggestions {
+    max-height: 40vh;
+}
+
+html.cl-mobile .bt-suggestion-item {
+    padding: var(--space-md) var(--space-md-lg);
+    min-height: var(--touch-target-min);
+    display: flex;
+    align-items: center;
+    font-size: var(--font-sm);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .batch-tag-modal .cl-modal-close {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-xl);
+}
+
+html.cl-mobile .batch-tag-modal .cl-modal-footer {
+    padding-bottom: max(14px, var(--safe-bottom));
+}
+
+.batch-tag-content { max-width: calc(600px * var(--modal-scale, 1)); }

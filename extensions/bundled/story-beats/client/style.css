@@ -1,0 +1,667 @@
+/* Story Beats: its window on the .cl-cwin parts and the window family's form rows, the prompt manager's language; here only layout and its own states. */
+
+.sb {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    height: 100%;
+    min-height: 0;
+}
+
+/* the window's views on the canon strip, its padding left to the host's body, which already pads the window */
+.sb-views.cl-cwin-tabs { padding: 0 0 var(--space-sm); }
+/* three views across the window, as the chat card's two are */
+.sb-views .cl-cwin-tab { flex: 1; justify-content: center; }
+
+.sb-pane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+}
+
+/* a pane's filter or mode: one quiet track, the picked segment raised in neutral, so it reads under the accent views */
+.sb-seg {
+    display: flex;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    border: 1px solid var(--cl-ghost-mid);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+}
+
+.sb-seg-btn {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--font-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.sb-seg-btn:hover { color: var(--text-primary); background: var(--cl-ghost-mid); }
+.sb-seg-btn.is-on { color: var(--text-primary); background: var(--cl-ghost-strong); }
+
+.sb-seg-count {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.sb-seg-btn.is-on .sb-seg-count { color: var(--text-faint); }
+
+/* ---------------------------------------------------------------- the director's line */
+
+.sb-director {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: var(--space-xs-sm);
+}
+
+/* its state said once over the timeline, the prompt manager's note line: a glyph in its own slot, the words, the tension at the end */
+.sb-director-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-soft);
+    border: 1px solid var(--cl-ghost-mid);
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+}
+
+.sb-director-line > i {
+    flex-shrink: 0;
+    width: var(--space-lg);
+    text-align: center;
+    color: var(--text-faint);
+    font-size: var(--font-3xs);
+}
+
+.sb-director-line.is-on > i,
+.sb-director-line.is-busy > i { color: var(--accent); }
+
+.sb-director-state {
+    flex: 1;
+    min-width: 0;
+}
+
+/* the prompt manager's token readout */
+.sb-tension {
+    flex-shrink: 0;
+    padding: var(--space-2xs) var(--space-xs-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-ghost-mid);
+    color: var(--text-faint);
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-2xs);
+    white-space: nowrap;
+}
+
+.sb-summary {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    overflow-wrap: anywhere;
+}
+
+.sb-note {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs-sm);
+    margin: 0;
+    padding: var(--space-xs-sm) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--cl-accent-tint);
+    border: 1px solid var(--cl-accent-tint-border);
+    color: var(--text-primary);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    overflow-wrap: anywhere;
+}
+
+.sb-note > i { flex-shrink: 0; color: var(--accent); }
+
+.sb-note.is-error {
+    background: color-mix(in srgb, var(--cl-error) 12%, transparent);
+    border-color: color-mix(in srgb, var(--cl-error) 35%, transparent);
+}
+
+.sb-note.is-error > i { color: var(--cl-error); }
+
+/* ---------------------------------------------------------------- the timeline */
+
+.sb-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.sb-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+.sb-group-title {
+    margin: 0;
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wide);
+    color: var(--text-muted);
+}
+
+.sb-beats,
+.sb-draft-list,
+.sb-log {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* a beat: the head on one line, what it says under the title, lined up past the grip and the chevron */
+.sb-beat {
+    --sb-lead: calc(var(--space-lg) * 2 + var(--space-xs-sm) * 2);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-sm-md);
+}
+
+.sb-beat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    min-width: 0;
+}
+
+/* the prompt manager's grip; a row with nowhere to go keeps the slot, so the titles stay in line */
+.sb-grip {
+    flex-shrink: 0;
+    width: var(--space-lg);
+    text-align: center;
+    cursor: grab;
+    color: var(--text-muted);
+    font-size: var(--font-3xs);
+    user-select: none;
+    touch-action: none;
+}
+
+.sb-grip:active { cursor: grabbing; }
+.sb-beat:hover .sb-grip { color: var(--text-secondary); }
+.sb-grip.is-still { visibility: hidden; }
+
+.sb-beat-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--font-sm);
+    text-align: left;
+    cursor: pointer;
+}
+
+.sb-chevron {
+    flex-shrink: 0;
+    width: var(--space-lg);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-3xs);
+    transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.sb-beat-open[aria-expanded="true"] .sb-chevron { transform: rotate(90deg); }
+
+.sb-beat-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+/* a row's verbs, the prompt manager's quiet icons: in flow at rest, so a hover moves nothing */
+.sb-acts {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: var(--space-2xs);
+}
+
+.sb-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: var(--space-2xs);
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    opacity: 0.4;
+    cursor: pointer;
+    transition: opacity var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.sb-act:hover,
+.sb-act:focus-visible { opacity: 0.8; color: var(--accent); }
+.sb-act.is-danger:hover { color: var(--cl-error); }
+
+/* the desktop keeps the verbs on the row; the kebab is their phone face */
+.sb-kebab { display: none; }
+
+.sb-directive,
+.sb-waits {
+    margin: 0 0 0 var(--sb-lead);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+/* two lines on the row; the editor holds the whole of it */
+.sb-directive {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+}
+
+.sb-waits {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs-sm);
+    color: var(--text-muted);
+}
+
+.sb-suggest {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    margin-left: var(--sb-lead);
+}
+
+/* where a dragged row lands: a bar in the gap above or below the row its over */
+.sb-beat.is-dragging { opacity: var(--op-disabled); }
+
+.sb-beat.is-drop-before::before,
+.sb-beat.is-drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: var(--space-2xs);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    pointer-events: none;
+}
+
+.sb-beat.is-drop-before::before { top: calc(-1 * var(--space-xs)); }
+.sb-beat.is-drop-after::after { bottom: calc(-1 * var(--space-xs)); }
+
+/* the open beat's editor: the prompt manager's drawer rows, under a rule */
+.sb-edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm-md);
+    border-top: 1px solid var(--cl-ghost-mid);
+}
+
+.sb-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.sb-deps {
+    display: flex;
+    flex-direction: column;
+    max-height: 15em;
+    overflow-y: auto;
+}
+
+.sb-dep .cl-cwin-field-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
+.sb-row-verbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
+/* the pane's verbs under a rule, as the prompt manager's footer: the director's pair, then the beats' pair */
+.sb-foot {
+    display: flex;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-sm);
+    padding-top: var(--space-sm-md);
+    border-top: 1px solid var(--glass-border);
+}
+
+.sb-foot-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.sb-foot-group.is-end { margin-left: auto; }
+
+.sb-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.sb-empty-lead {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- the planner */
+
+.sb-plan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    min-height: 0;
+}
+
+.sb-plan[data-sb-mode-pane="discuss"] { flex: 1; }
+
+.sb-notes {
+    resize: vertical;
+    min-height: 8em;
+    line-height: var(--leading-prose);
+}
+
+.sb-plan-status {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.sb-talk {
+    flex: 1;
+    min-height: 6em;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.sb-turn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-width: 90%;
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    border-radius: var(--radius-lg);
+    background: var(--cl-ghost-faint);
+    border: 1px solid var(--cl-ghost-mid);
+}
+
+.sb-turn.is-user {
+    align-self: flex-end;
+    background: var(--cl-accent-tint);
+    border-color: var(--cl-accent-tint-border);
+}
+
+.sb-turn.is-assistant { align-self: flex-start; }
+
+.sb-turn-who {
+    font-size: var(--font-3xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wide);
+    color: var(--text-muted);
+}
+
+.sb-turn-text {
+    margin: 0;
+    font-size: var(--font-sm);
+    line-height: var(--leading-prose);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.sb-turn-wait {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+/* the drafts' list scrolls between its head and its verbs, so Add to the Chat stays in reach however many there are */
+.sb-drafts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    max-height: 55%;
+    min-height: 0;
+    padding-top: var(--space-sm-md);
+    border-top: 1px solid var(--glass-border);
+}
+
+.sb-drafts .sb-draft-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.sb-drafts-head {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.sb-draft {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+}
+
+.sb-draft-top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs-sm);
+    min-width: 0;
+}
+
+.sb-draft-title {
+    flex: 1;
+    min-width: 0;
+}
+
+/* the converted select's container carries the class: the weight takes what its words need */
+.sb-draft-weight { flex: none; }
+
+.sb-said-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs-sm);
+}
+
+/* what a model said, as the chat's thinking block reads: quiet, as written, scrolling past its height */
+.sb-said {
+    max-height: 10em;
+    overflow-y: auto;
+    padding: var(--space-xs-sm) var(--space-sm);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-ghost-faint);
+    font-size: var(--font-pre-base);
+    line-height: var(--leading-prose);
+    color: var(--cl-veil-5);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- the log */
+
+.sb-log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+.sb-log-state {
+    flex: 1;
+    min-width: 0;
+}
+
+.sb-log {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.sb-entry {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-xs-sm) var(--space-sm-md);
+    font-size: var(--font-xs);
+    line-height: var(--leading-prose);
+    color: var(--text-secondary);
+}
+
+.sb-entry.is-error { border-color: color-mix(in srgb, var(--cl-error) 35%, transparent); }
+
+.sb-entry p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.sb-entry-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.sb-entry-what {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-primary);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.sb-entry-when {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: var(--font-3xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.sb-log-key {
+    margin-right: var(--space-xs);
+    color: var(--text-muted);
+}
+
+.sb-why { color: var(--text-muted); }
+
+/* ---------------------------------------------------------------- the settings */
+
+.sb-set-title { margin-top: var(--space-lg); }
+
+.sb-count { width: 6.5em; }
+.sb-count-wide { width: 8em; }
+
+/* ---------------------------------------------------------------- phone */
+
+/* the zoom guard: the mobile input size, never a literal */
+html.cl-mobile .sb input,
+html.cl-mobile .sb textarea { font-size: var(--mobile-input-size); }
+
+/* a labelled verb on the full tier (fields stand there as every window's do), a segment and an icon on the slim one */
+html.cl-mobile .sb-btn,
+html.cl-mobile .sb-switch { min-height: var(--touch-target-min); }
+
+html.cl-mobile .sb-btn,
+html.cl-mobile .sb-seg-btn { touch-action: manipulation; }
+
+html.cl-mobile .sb-seg-btn { min-height: var(--touch-target-slim); }
+
+/* the prompt manager's phone row: no grip (touch has no HTML5 drag), the verbs behind one kebab, the head on the full tier */
+html.cl-mobile .sb-grip,
+html.cl-mobile .sb-acts { display: none; }
+
+html.cl-mobile .sb-beat {
+    --sb-lead: calc(var(--space-lg) + var(--space-xs-sm));
+    padding: 0 var(--space-sm) var(--space-sm);
+}
+
+html.cl-mobile .sb-beat-open { min-height: var(--touch-target-min); }
+
+html.cl-mobile .sb-act {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+    opacity: 0.8;
+    touch-action: manipulation;
+}
+
+html.cl-mobile .sb-kebab { display: inline-flex; }
+
+/* the footer in two pairs across the window: the director's, then the beats' */
+html.cl-mobile .sb-foot-group { flex: 1 1 100%; }
+html.cl-mobile .sb-foot-group.is-end { margin-left: 0; }
+
+html.cl-mobile .sb-foot-group > * {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+html.cl-mobile .sb-turn { max-width: 100%; }

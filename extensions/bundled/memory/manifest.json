@@ -1,0 +1,14 @@
+{
+    "id": "memory",
+    "name": "Memory",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Keeps a running summary of each chat, written by your own model and placed in the chat's prompt, so a long chat keeps its facts once its first messages stop fitting in the prompt. Read, edit and rebuild it from the chat's Memory window. Ships off; switch it on to use it.",
+    "requires": { "api": 2 },
+    "defaultOff": true,
+    "contributes": ["chat.window"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": { "profileId": "", "every": 10, "keep": 4, "words": 250, "placement": "pre_history", "depth": 4, "template": "[Summary of the story so far: {{memory}}]" }
+}

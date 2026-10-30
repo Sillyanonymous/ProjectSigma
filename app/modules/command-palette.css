@@ -1,0 +1,487 @@
+/* ========================================================================
+ * THE COMMAND PALETTE: one field over the app, the list under it, a preview beside it on a wide screen
+ * ======================================================================== */
+.cl-palette {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal-top);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 14vh var(--space-lg) var(--space-lg);
+    background: var(--cl-modal-scrim-light);
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.cl-palette.is-open {
+    opacity: 1;
+}
+
+.cl-palette-box {
+    width: min(680px, 100%);
+    height: min(520px, 76vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--cl-elev-border);
+    border-radius: var(--radius-3xl);
+    background: var(--cl-sheet-bg);
+    backdrop-filter: blur(var(--cl-blur-panel)) saturate(var(--cl-sheet-saturate));
+    -webkit-backdrop-filter: blur(var(--cl-blur-panel)) saturate(var(--cl-sheet-saturate));
+    box-shadow: var(--cl-elev-shadow), inset 0 1px 0 var(--cl-sheet-highlight);
+    transform: translateY(-6px) scale(0.99);
+    transition: transform var(--dur-base) var(--ease-decel), width var(--dur-base) var(--ease-standard);
+}
+
+.cl-palette-box.has-preview {
+    width: min(900px, 100%);
+}
+
+.cl-palette.is-open .cl-palette-box {
+    transform: none;
+}
+
+/* ---- the field ---- */
+.cl-palette-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    min-height: 56px;
+    padding: 0 var(--space-lg);
+    border-bottom: 1px solid var(--cl-elev-hairline);
+}
+
+.cl-palette-mark {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    font-size: var(--font-base);
+}
+
+.cl-palette-chip {
+    flex-shrink: 0;
+    max-width: 45%;
+    overflow: hidden;
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--cl-accent-tint-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-accent-tint);
+    color: var(--text-primary);
+    font-size: var(--font-sm);
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cl-palette-input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-sm) 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-lg);
+    outline: none;
+}
+
+.cl-palette-input::placeholder {
+    color: var(--text-muted);
+}
+
+.cl-palette-input:focus-visible {
+    outline: none;
+}
+
+.cl-palette-close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: var(--font-md);
+    cursor: pointer;
+}
+
+.cl-palette-close-label {
+    display: none;
+}
+
+/* ---- the list and the preview ---- */
+.cl-palette-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.cl-palette-list {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: var(--space-xs) var(--space-sm) var(--space-sm);
+    list-style: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.cl-palette-group {
+    padding: var(--space-sm-md) var(--space-sm) var(--space-xs);
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    font-weight: 600;
+}
+
+/* a heading that opens its whole kind: the heading's own look, its offer at the end */
+.cl-palette-group:has(.cl-palette-group-all) {
+    padding: var(--space-xs) 0 0;
+}
+
+.cl-palette-group-all {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cl-palette-group-more {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-weight: 500;
+}
+
+.cl-palette-group-more i {
+    font-size: var(--font-2xs);
+}
+
+.cl-palette-group-all:hover,
+.cl-palette-group-all:focus-visible {
+    background: var(--cl-ghost-mid);
+    color: var(--text-primary);
+}
+
+.cl-palette-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+    min-height: 40px;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-lg);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.cl-palette-option {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm-md);
+}
+
+.cl-palette-item.is-on {
+    color: var(--text-primary);
+    background: var(--cl-veil-2);
+}
+
+.cl-palette-icon,
+.cl-palette-pic {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+}
+
+.cl-palette-pic img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cl-palette-item.is-on .cl-palette-icon {
+    color: var(--accent);
+}
+
+.cl-palette-item.is-danger.is-on,
+.cl-palette-item.is-danger.is-on .cl-palette-icon {
+    color: var(--cl-error-vivid);
+}
+
+.cl-palette-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.cl-palette-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.cl-palette-title mark,
+.cl-palette-pv-text mark {
+    border-radius: var(--radius-xs);
+    background: var(--cl-accent-tint-border);
+    color: var(--text-primary);
+}
+
+.cl-palette-note {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* a message: its matched line over two lines at most, its chat and character under it */
+.cl-palette-item.is-message .cl-palette-text,
+.cl-palette-item.is-entry .cl-palette-text {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2xs);
+}
+
+.cl-palette-item.is-message .cl-palette-title,
+.cl-palette-item.is-entry .cl-palette-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    font-weight: 400;
+}
+
+.cl-palette-item.is-message .cl-palette-note,
+.cl-palette-item.is-entry .cl-palette-note {
+    flex: none;
+}
+
+/* an entry's line: its name, then the words around the match */
+.cl-palette-entry-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.cl-palette-entry-text {
+    color: var(--text-secondary);
+}
+
+.cl-palette-hint {
+    display: none;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: var(--font-2xs);
+}
+
+.cl-palette-item.is-on .cl-palette-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.cl-palette-more {
+    display: none;
+}
+
+.cl-palette-empty {
+    padding: var(--space-2xl) var(--space-lg);
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.cl-palette-preview {
+    display: none;
+}
+
+.has-preview .cl-palette-preview {
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    overflow-y: auto;
+    padding: var(--space-lg);
+    border-left: 1px solid var(--cl-elev-hairline);
+}
+
+.cl-palette-portrait {
+    width: 128px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border-radius: var(--radius-xl);
+    background: var(--cl-veil-1);
+    box-shadow: var(--cl-shadow-md);
+}
+
+.cl-palette-avatar {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: var(--radius-circle);
+    background: var(--cl-veil-1);
+}
+
+.cl-palette-pv-icon {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-xl);
+    background: var(--cl-veil-1);
+    color: var(--accent);
+    font-size: var(--font-xl);
+}
+
+.cl-palette-pv-title {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    font-size: var(--font-base);
+    font-weight: 600;
+}
+
+.cl-palette-pv-note {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+}
+
+.cl-palette-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.cl-palette-tag {
+    max-width: 100%;
+    overflow: hidden;
+    padding: var(--space-2xs) var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--cl-veil-1);
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cl-palette-pv-text {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 8;
+    line-clamp: 8;
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
+/* ---- the keys ---- */
+.cl-palette-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-lg);
+    padding: var(--space-sm) var(--space-lg);
+    border-top: 1px solid var(--cl-elev-hairline);
+    color: var(--text-muted);
+    font-size: var(--font-2xs);
+}
+
+/* ---- the phone: the whole screen, the field on top, no preview, no keys ---- */
+html.cl-mobile .cl-palette {
+    padding: 0;
+    background: none;
+}
+
+html.cl-mobile .cl-palette-box {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    transform: none;
+    transition: none;
+    padding-top: var(--safe-top);
+    border: 0;
+    border-radius: 0;
+    background: var(--cl-sheet-bg-mobile);
+    backdrop-filter: var(--cl-blur-mobile);
+    -webkit-backdrop-filter: var(--cl-blur-mobile);
+    box-shadow: none;
+}
+
+html.cl-mobile .cl-palette-input {
+    font-size: var(--mobile-input-size);
+}
+
+html.cl-mobile .cl-palette-close {
+    min-height: var(--touch-target-min);
+    color: var(--accent);
+}
+
+html.cl-mobile .cl-palette-close .cl-kbd,
+html.cl-mobile .cl-palette-foot,
+html.cl-mobile .cl-palette-item .cl-palette-hint {
+    display: none;
+}
+
+html.cl-mobile .cl-palette-more {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    margin-right: calc(-1 * var(--space-sm));
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: none;
+    color: var(--text-muted);
+}
+
+html.cl-mobile .cl-palette-close-label {
+    display: inline;
+}
+
+html.cl-mobile .cl-palette-list {
+    padding-bottom: calc(var(--space-sm) + var(--safe-bottom));
+}
+
+html.cl-mobile .cl-palette-item {
+    min-height: var(--touch-target-min);
+}
+
+html.cl-mobile .cl-palette-group-all {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}

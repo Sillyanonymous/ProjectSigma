@@ -1,0 +1,239 @@
+/* Batch Transfer (export/import bundles) */
+
+.btx-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+/* --- Export chooser --- */
+
+.btx-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.btx-option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--cl-ghost-mid);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+
+.btx-option:hover {
+    background: rgba(var(--accent-rgb), 0.12);
+    border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.btx-option > i {
+    font-size: var(--font-lg);
+    color: var(--accent);
+    margin-top: var(--space-2xs);
+    width: 22px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.btx-option-text {
+    min-width: 0;
+}
+
+.btx-option-title {
+    font-weight: 600;
+    font-size: var(--font-base);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.btx-option-desc {
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    margin-top: var(--space-2xs);
+}
+
+.btx-default-badge {
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    border: 1px solid rgba(var(--accent-rgb), 0.5);
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-xs);
+}
+
+.btx-worlds-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+/* --- Progress view --- */
+
+.btx-progress-label {
+    font-size: var(--font-md);
+    color: var(--text-primary);
+}
+
+.btx-bar {
+    height: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--cl-ghost-strong);
+    overflow: hidden;
+}
+
+.btx-bar-fill {
+    height: 100%;
+    width: 0;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg, var(--accent), var(--accent-secondary));
+    transition: width var(--dur-base) ease;
+}
+
+.btx-log {
+    max-height: 40vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    font-size: var(--font-sm);
+    padding: var(--space-sm);
+    background: var(--cl-shade-25);
+    border-radius: var(--radius-md);
+}
+
+.btx-log-line { color: var(--text-secondary); }
+.btx-log-success { color: var(--cl-success-pale); }
+.btx-log-warn { color: var(--cl-warning-pale); }
+.btx-log-error { color: var(--cl-error-pale); }
+
+.btx-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--cl-error-pale);
+    font-size: var(--font-md);
+}
+
+/* --- Import review --- */
+
+.btx-review-header {
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+}
+
+.btx-review-list {
+    max-height: 32vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    background: var(--cl-shade-20);
+    border-radius: var(--radius-md);
+}
+
+.btx-review-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+}
+
+.btx-review-row:hover {
+    background: var(--cl-ghost-mid);
+}
+
+.btx-review-name {
+    font-size: var(--font-md);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.btx-review-meta {
+    font-size: var(--font-xs);
+    color: var(--text-faint);
+}
+
+.btx-exists-badge {
+    font-size: var(--font-3xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--cl-warning-pale);
+    border: 1px solid rgba(var(--cl-warning-rgb), 0.5);
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-xs);
+}
+
+.btx-policy {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.btx-policy-title {
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+
+/* --- Mobile ---
+   the shared drawer classes already make a content-sized sheet (a full-viewport override
+   stranded the short chooser up top); only touch sizing + scroll caps here. */
+
+html.cl-mobile .btx-body {
+    overflow-y: auto;
+    padding-top: var(--space-xs);
+}
+
+html.cl-mobile .btx-option {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+    padding: var(--space-sm-md) var(--space-md);
+    gap: var(--space-sm-md);
+}
+html.cl-mobile .btx-option > i {
+    font-size: var(--font-md-lg);
+    width: 20px;
+}
+html.cl-mobile .btx-option-title { font-size: var(--font-md-lg); }
+html.cl-mobile .btx-option-desc { font-size: var(--font-xs); }
+html.cl-mobile .btx-worlds-check { font-size: var(--font-xs); }
+
+html.cl-mobile .btx-option:hover {
+    background: var(--cl-ghost-mid);
+    border-color: var(--glass-border);
+}
+
+html.cl-mobile .btx-review-row {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .btx-review-list {
+    max-height: 34vh;
+}
+
+html.cl-mobile .btx-log {
+    max-height: 34vh;
+}
+
+.btx-content { max-width: calc(560px * var(--modal-scale, 1)); }

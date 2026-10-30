@@ -1,0 +1,163 @@
+/* Prompt inspector: a debug reader, deliberately plain. Monospace, hard wraps kept, role bands, and widest since its lines shouldnt wrap twice. */
+
+.cpi-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-sm) var(--space-md) var(--space-lg);
+}
+
+.cpi-msg {
+    margin-bottom: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--cl-ghost-mid);
+    background: var(--cl-ghost-faint);
+    overflow: hidden;
+}
+
+.cpi-msg-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm-md);
+    background: var(--cl-ghost-soft);
+    font-size: var(--font-3xs);
+    color: var(--text-muted);
+}
+
+.cpi-role {
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    flex: 1;
+}
+
+/* The role is the only colour in here, because it is the only thing you scan for. */
+.cpi-role-system .cpi-msg-head { color: var(--accent-muted); }
+.cpi-role-user .cpi-msg-head { color: var(--cl-chat-speech); }
+.cpi-role-assistant .cpi-msg-head { color: var(--cl-success); }
+
+.cpi-msg-len, .cpi-msg-idx { font-variant-numeric: tabular-nums; opacity: 0.7; }
+
+/* the pictures a turn sends, as named chips over its text */
+.cpi-pics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm-md) 0;
+}
+
+.cpi-pic {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    max-width: 100%;
+    padding: var(--space-2xs) var(--space-xs-sm) var(--space-2xs) var(--space-2xs);
+    border: 1px solid var(--cl-veil-2);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    font-size: var(--font-2xs);
+    color: var(--text-secondary);
+}
+
+.cpi-pic img {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+.cpi-pic > i { width: 28px; text-align: center; opacity: 0.7; }
+
+.cpi-pic-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* what the build did with pictures it could not send as pictures */
+.cpi-note {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    margin: 0 0 var(--space-sm);
+    padding: var(--space-sm) var(--space-sm-md);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+}
+
+/* pre-wrap, not pre: the point is to see the real string, including where it wraps and
+   where it does not. */
+.cpi-content {
+    margin: 0;
+    padding: var(--space-sm-md);
+    font-family: var(--font-stack-mono);
+    font-size: var(--font-2xs);
+    line-height: 1.5;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* tinted, not the browser's yellow plate; inherits colour so a hit in dim text stays legible */
+.cpi-hit {
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+    color: inherit;
+    border-radius: var(--radius-xs);
+}
+
+/* The one you are ON is solid, the rest are tinted: stepping through matches is useless
+   if every match looks the same. */
+.cpi-hit.is-current {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+/* Room at the right end for the counter and the two arrows that sit over it. */
+.cpi-filter { padding-right: calc(var(--space-2xl) + var(--space-xl)); }
+
+/* inside the filter bar over the field's right end, so finding costs no second row */
+.cpi-find {
+    position: absolute;
+    right: calc(var(--space-md) + var(--space-2xs));
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+}
+
+.cpi-find-count {
+    font-size: var(--font-4xs);
+    font-family: var(--font-stack-mono);
+    color: var(--text-muted);
+    min-width: var(--space-2xl);
+    text-align: right;
+}
+
+.cpi-find-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-4xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.cpi-find-btn:hover { background: var(--cl-veil-2); color: var(--text-primary); }
+
+/* Empty, loading and error states are the shared .cl-cwin-empty (chats.css). */
+
+/* ========================================
+   MOBILE
+   ======================================== */
+
+/* phone: the find arrows take the slim tier, and the field's padding grows to clear the wider cluster */
+html.cl-mobile .cpi-find-btn {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+    font-size: var(--font-xs);
+}
+
+html.cl-mobile .cpi-filter {
+    padding-right: calc(2 * var(--touch-target-slim) + var(--space-2xl) + var(--space-sm));
+}

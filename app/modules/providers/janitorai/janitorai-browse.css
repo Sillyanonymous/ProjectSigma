@@ -1,0 +1,10 @@
+/* JanitorAI browse view: only the few elements with no shared browse-shared.css equivalent */
+
+/* Book name + entry count above the entries themselves, which render as the canonical .lb-entry */
+.janitorai-lorebook-head {
+    margin-bottom: var(--space-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+}
+
+/* on a phone the full-width check label runs off the side, so let it shrink and wrap */

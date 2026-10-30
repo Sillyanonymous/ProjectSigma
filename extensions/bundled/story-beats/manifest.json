@@ -1,0 +1,27 @@
+{
+    "id": "story-beats",
+    "name": "Story Beats",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Plan the moments a chat's story should reach and drip-feed them into its prompt as guidance, not script: a timeline of beats in the conversation's Story Beats window, a director your own model runs every few replies to start and finish them, and a planner that drafts beats from your notes or a conversation. Ships off; switch it on to use it.",
+    "requires": { "api": "2.4" },
+    "defaultOff": true,
+    "contributes": ["chat.window"],
+    "client": "client/index.js",
+    "style": "client/style.css",
+    "server": "server/index.js",
+    "settings": {
+        "profileId": "",
+        "maxTokens": 8192,
+        "reasoning": false,
+        "reasoningTokens": 8192,
+        "director": false,
+        "strategy": "adaptive",
+        "every": 3,
+        "messages": 8,
+        "confirm": false,
+        "role": "system",
+        "depth": 4,
+        "budget": 2400
+    }
+}
