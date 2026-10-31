@@ -100,8 +100,8 @@ export async function createApp() {
                 res.setHeader('Access-Control-Allow-Origin', allowAll ? '*' : origin);
                 res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
                 res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CL-Client, X-UTC-Offset, X-Time-Zone');
-                // the answer headers a client reads: what a bundle export left out
-                res.setHeader('Access-Control-Expose-Headers', 'X-Bundle-Count, X-Bundle-Skipped, X-Bundle-Skipped-Count');
+                // the answer headers a client reads: what a bundle export left out, and a 401 that is the server's own sign-in
+                res.setHeader('Access-Control-Expose-Headers', 'X-Bundle-Count, X-Bundle-Skipped, X-Bundle-Skipped-Count, X-CL-Auth');
                 if (!allowAll) res.setHeader('Vary', 'Origin');
             }
             if (req.method === 'OPTIONS') return res.sendStatus(204);

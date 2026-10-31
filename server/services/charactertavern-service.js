@@ -1,6 +1,7 @@
 // charactertavern provider service, mounted by provider-services.js init() under /api/provider-services
 import { sessionSlot, guardProxyTarget, debugLog, BROWSER_UA, fetchUpstream, relayUpstream, validAnswer, invalidAnswer } from './shared.js';
-import { readJsonCapped } from '../lib/net-guard.js';
+import { readTextCapped } from '../lib/net-guard.js';
+import { decodeSvelteKitData } from '../lib/sveltekit-data.js';
 
 
 // =============================================================================
@@ -22,12 +23,17 @@ function captureCtExpiry(req, setCookieHeader) {
     if (!Number.isNaN(t) && sessionOf.get(req)) sessionOf.set(req, { cookies: ctCookies(req), expires: t });
 }
 
-// CT API paths the proxy is allowed to forward (read-only endpoints only).
+// the CT pages whose data the proxy may read: the catalog's search (tags too) and one character's page
 const CT_ALLOWED_PATHS = [
-    /^\/api\/search\/cards\b/,
-    /^\/api\/character\/[^/]+\/[^/]+$/,
-    /^\/api\/catalog\/top-tags$/,
+    /^\/search\/cards\/__data\.json$/,
+    /^\/character\/[^/]+\/[^/]+\/__data\.json$/,
 ];
+
+// a page's data answer, decoded; null when CT answered something else (a page, an error)
+async function readCtPageData(response) {
+    const text = await readTextCapped(response);
+    try { return decodeSvelteKitData(text); } catch { return null; }
+}
 
 export function registerCharacterTavernRoutes(router) {
     /**
@@ -71,21 +77,22 @@ export function registerCharacterTavernRoutes(router) {
         }
 
         try {
-            // Search a term that returns both SFW and NSFW results when authenticated
-            const response = await fetch('https://character-tavern.com/api/search/cards?query=sara+lane&limit=5', {
+            const response = await fetch('https://character-tavern.com/search/cards/__data.json?query=sara+lane&x-sveltekit-invalidated=001', {
                 headers: {
                     'User-Agent': BROWSER_UA,
-                    'Accept': 'application/json',
+                    'Accept': '*/*',
                     'Cookie': ctSessionCookies,
                 },
             });
 
             if (response.ok) {
-                const data = await readJsonCapped(response);
-                const hits = data?.hits || [];
-                // Authenticated sessions return NSFW results (isNSFW=true, contentWarnings populated)
-                const hasNsfw = hits.some(h => h.isNSFW === true);
-                
+                const data = await readCtPageData(response);
+                const results = data?.nodes.find(n => n?.searchResults)?.searchResults;
+                if (!results) return res.json(invalidAnswer('transient', 'CharacterTavern answered no search results'));
+                const hits = results.hits || [];
+                // a hit carrying a content warning shows the session sees flagged cards; none read proves nothing either way
+                const hasNsfw = hits.some(h => Array.isArray(h.contentWarnings) && h.contentWarnings.length > 0) ? true : null;
+
                 const setCookie = response.headers.get('set-cookie');
                 const isRejected = setCookie && (setCookie.includes('session=;') || setCookie.includes('Max-Age=0'));
                 
@@ -97,7 +104,7 @@ export function registerCharacterTavernRoutes(router) {
                 }
 
                 captureCtExpiry(req, setCookie); // this authed request slid the window; snapshot the new expiry
-                debugLog(req, `CT validate: ${hits.length} hits, totalHits=${data?.totalHits}, hasNSFW=${hasNsfw}`);
+                debugLog(req, `CT validate: ${hits.length} hits, totalHits=${results.totalHits}, hasNSFW=${hasNsfw}`);
                 res.json(validAnswer({ hasNsfw, expires: ctExpires(req) }));
             } else if (response.status === 403) {
                 sessionOf.clear(req);
@@ -132,14 +139,14 @@ export function registerCharacterTavernRoutes(router) {
 
     /**
      * GET /ct-proxy/*
-     * Read-only proxy to character-tavern.com with stored session cookies.
+     * Read-only proxy to character-tavern.com's page data, with the stored session cookie, answered as plain JSON.
      * Path-allowlisted to prevent abuse as an open relay.
      */
     router.get('/ct-proxy/*splat', async (req, res) => {
         const targetUrl = guardProxyTarget(req, res, { base: 'https://character-tavern.com/', allowedPaths: CT_ALLOWED_PATHS, hosts: 'character-tavern.com', label: 'CT' });
         if (!targetUrl) return;
 
-        const headers = { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' };
+        const headers = { 'User-Agent': BROWSER_UA, 'Accept': '*/*' };
         const ctSessionCookies = ctCookies(req);
         if (ctSessionCookies) {
             headers['Cookie'] = ctSessionCookies;
@@ -149,7 +156,12 @@ export function registerCharacterTavernRoutes(router) {
             // the cookie pins the host: an off-host redirect is refused, never left to undici's stripping
             const response = await fetchUpstream(targetUrl, { method: 'GET', headers });
             captureCtExpiry(req, response.headers.get('set-cookie')); // browse calls slide the window too
-            await relayUpstream(res, response);
+            if (!response.ok) return relayUpstream(res, response);
+            const data = await readCtPageData(response);
+            if (!data) return res.status(502).json({ error: 'CharacterTavern answered something other than page data' });
+            // a page that failed (a card that does not exist) answers with its own status, as CT's API once did
+            if (data.error) return res.status(data.error.status >= 400 && data.error.status < 600 ? data.error.status : 502).json({ error: data.error.message });
+            res.json({ nodes: data.nodes });
         } catch (err) {
             console.error('[provider-services] CT proxy error:', err.message);
             res.status(502).json({ error: 'Failed to reach CharacterTavern' });

@@ -623,6 +623,10 @@
     min-height: 90px;
 }
 
+/* a grid whose source sends no tags reserves no tag row, nor the gap above it, at every width */
+.browse-grid.is-tagless .browse-card-body { min-height: 0; }
+.browse-grid.is-tagless .browse-card-body > :last-child { margin-bottom: 0; }
+
 .browse-card-name {
     font-weight: 600;
     color: var(--text-primary);

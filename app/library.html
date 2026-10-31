@@ -1999,10 +1999,22 @@ https://jannyai.com/characters/uuid_slug
                                             <button id="toggleChubTokenVisibility" class="glass-btn icon-only" title="Show/Hide">
                                                 <i class="fa-solid fa-eye"></i>
                                             </button>
+                                            <button id="validateChubBtn" class="settings-verify-btn" title="Verify Token">
+                                                <i class="fa-solid fa-check"></i>
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="settings-row">
-                                        <span class="settings-hint">Token location: DevTools → Application → Cookies → "__Secure-next-auth.session-token"</span>
+                                        <span class="settings-hint">Token location: on chub.ai, DevTools → Application → Local Storage → https://chub.ai → "URQL_TOKEN"</span>
+                                    </div>
+                                </div>
+                                <div class="settings-group">
+                                    <div class="settings-group-title"><i class="fa-solid fa-clock"></i> Timeline</div>
+                                    <div class="settings-row">
+                                        <label>
+                                            <input type="checkbox" class="cl-switch-input" id="settingsChubTimelineJoined"><span class="cl-switch" aria-hidden="true"></span> Build the timeline from every followed creator
+                                        </label>
+                                        <span class="settings-hint">Off: ChubAI's own timeline, the latest updates from creators and tags you follow, newest first, loading as you scroll. On: each followed creator's newest characters in one list you can sort; one request per creator, so it loads slower the more creators you follow. Applies the next time the timeline opens or refreshes.</span>
                                     </div>
                                 </div>
                                 <div class="settings-group">

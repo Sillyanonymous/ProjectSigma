@@ -1752,7 +1752,8 @@ export class BrowseView {
 
     _deferredScrollCheck() {
         requestAnimationFrame(() => {
-            if (!this.isInfiniteScrollEnabled()) return;
+            // a view deactivated since (its listener gone) would measure, and page, whatever pane shows now
+            if (!this._scrollHandler || !this.isInfiniteScrollEnabled()) return;
             if (this._prefetching || !this.canLoadMore()) return;
             const sc = document.querySelector('.gallery-content');
             if (!sc) return;

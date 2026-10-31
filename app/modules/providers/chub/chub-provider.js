@@ -17,6 +17,8 @@ import {
     resolveChubCharacterBook,
     buildCharacterCardFromChub,
     getChubHeaders,
+    savedChubToken,
+    verifyChubToken,
 } from './chub-api.js';
 
 // Cached state for version history session
@@ -235,7 +237,7 @@ class ChubProvider extends ProviderBase {
             catch { response = await fetch(proxiedUrl(pngUrl)); }
             if (!response.ok) throw httpFailureError(response.status, await response.text().catch(() => ''));
             const buffer = await response.arrayBuffer();
-            const cardData = CoreAPI.extractCharacterDataFromPng(buffer);
+            const cardData = await CoreAPI.extractCharacterDataFromPng(buffer);
             return cardData || null;
         });
     }
@@ -396,7 +398,7 @@ class ChubProvider extends ProviderBase {
     // Authentication
 
     get isAuthenticated() {
-        return !!(CoreAPI.getSetting('chubToken'));
+        return !!savedChubToken();
     }
 
     openAuthUI() {
@@ -684,3 +686,6 @@ class ChubProvider extends ProviderBase {
 
 const chubProvider = new ChubProvider();
 export default chubProvider;
+
+// Helper for Settings UI: the Verify beside the token field
+window.chubTokenCheck = (raw) => verifyChubToken(raw);

@@ -99,14 +99,22 @@ export function attachUser(req, res, next) {
     next();
 }
 
+/** The server's own "sign in first", marked so a client tells it from a site's 401 that a relay passes through. */
+export function authRequired(res) {
+    res.set(AUTH_REQUIRED_HEADER, 'required');
+    return res.status(401).json({ error: 'authentication required' });
+}
+export const AUTH_REQUIRED_HEADER = 'X-CL-Auth';
+
 export function requireUser(req, res, next) {
     if (req.user) return next();
-    res.status(401).json({ error: 'authentication required' });
+    authRequired(res);
 }
 
 export function requireAdmin(req, res, next) {
     if (req.user?.admin) return next();
-    res.status(req.user ? 403 : 401).json({ error: req.user ? 'admin required' : 'authentication required' });
+    if (req.user) return res.status(403).json({ error: 'admin required' });
+    authRequired(res);
 }
 
 // enforced here, not by the overlay a client can ignore; /api/auth mounts above it so the change can land

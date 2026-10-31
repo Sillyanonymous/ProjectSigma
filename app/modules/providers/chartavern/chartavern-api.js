@@ -1,7 +1,6 @@
-// Shared CharacterTavern API utilities - used by both chartavern-provider.js and chartavern-browse.js
+// Shared CharacterTavern utilities - used by both chartavern-provider.js and chartavern-browse.js
 //
-// Contains constants, fetch helpers, and text utilities for the
-// character-tavern.com API.
+// Contains constants, fetch helpers, and text utilities for character-tavern.com's page data.
 
 // ========================================
 // CONSTANTS
@@ -9,7 +8,6 @@
 
 import { PROVIDER_SERVICES_BASE as CL_HELPER_CT_BASE } from '../provider-utils.js';
 
-export const CT_API_BASE = 'https://character-tavern.com/api';
 export const CT_SITE_BASE = 'https://character-tavern.com';
 export const CT_CARDS_CDN = 'https://ct-cards.storage.character-tavern.com';
 
@@ -18,7 +16,6 @@ export const CT_CARDS_CDN = 'https://ct-cards.storage.character-tavern.com';
 // ========================================
 
 import { fetchWithProxy, readJsonClassified, parseProviderUrl } from '../provider-utils.js';
-export { fetchWithProxy };
 
 // ========================================
 // AUTH - service cookie session
@@ -141,46 +138,35 @@ export async function fetchCtSessionInfo(apiRequest) {
     }
 }
 
-// One /health probe per session backing ctFetch's transport choice; concurrent callers share it.
-let _ctHelperProbe = null;
-
-function ctHelperAvailable(apiRequest) {
-    if (!apiRequest) return Promise.resolve(false);
-    if (!_ctHelperProbe) _ctHelperProbe = checkCtPluginAvailable(apiRequest);
-    return _ctHelperProbe;
-}
-
 /**
- * Fetch a CT API URL, routing through the service's /ct-proxy whenever the service is available.
- * @param {string} url - Full CT API URL (e.g. https://character-tavern.com/api/search/cards?...)
- * @param {Function} [apiRequest] - CoreAPI.apiRequest (required for proxied requests)
- * @returns {Promise<Response>}
+ * One CT page's data, read through the server: it decodes the page-data format and carries the session cookie.
+ * @param {string} sitePath the page's data path on character-tavern.com, query included
+ * @param {Function} apiRequest CoreAPI.apiRequest
+ * @returns {Promise<Response>} JSON {nodes} when ok; a page CT could not load answers with its own status
  */
-async function ctFetch(url, apiRequest) {
-    // /ct-proxy even with no session: CT's edge answers a browser's zstd, which a pass-through relay cant decode
-    if (apiRequest && (ctSessionActive || await ctHelperAvailable(apiRequest))) {
-        const path = url.replace(CT_SITE_BASE, '');
-        return apiRequest(`${CL_HELPER_CT_BASE}/ct-proxy${path}`);
-    }
-    return fetchWithProxy(url);
+function ctPageData(sitePath, apiRequest) {
+    if (!apiRequest) throw new Error('CharacterTavern is read through the server');
+    return apiRequest(`${CL_HELPER_CT_BASE}/ct-proxy${sitePath}`);
 }
 
 // ========================================
 // API FUNCTIONS
 // ========================================
 
+// the catalog's orders, as its own sort menu sends them; none is its Best, the top matches for a search
+export const CT_SORTS = ['new_noteworthy', 'popular', 'most_liked', 'hidden_gems', 'newest', 'recently_updated'];
+
 /**
- * Search characters via /api/search/cards
+ * Search the catalog: thin hits (name, tagline, path, author, contentWarnings, tokens), 30 to a page.
  * @param {Object} opts
- * @param {Function} [apiRequest] - CoreAPI.apiRequest for authenticated proxy
+ * @param {Function} apiRequest - CoreAPI.apiRequest
  * @returns {Promise<{hits: Array, totalHits: number, totalPages: number, page: number}>}
  */
 export async function searchCards(opts = {}, apiRequest) {
     const {
         query = '',
-        sort = 'most_popular',
+        sort = '',
         page = 1,
-        limit = 30,
         tags = '',
         excludeTags = '',
         minimumTokens,
@@ -191,54 +177,104 @@ export async function searchCards(opts = {}, apiRequest) {
     } = opts;
 
     const params = new URLSearchParams();
-    params.set('query', query);
-    params.set('sort', sort);
-    params.set('page', String(page));
-    params.set('limit', String(limit));
+    if (query) params.set('query', query);
+    if (CT_SORTS.includes(sort)) params.set('sort', sort);
+    if (page > 1) params.set('page', String(page));
     if (tags) params.set('tags', tags);
     if (excludeTags) params.set('exclude_tags', excludeTags);
     if (minimumTokens != null) params.set('minimum_tokens', String(minimumTokens));
     if (maximumTokens != null) params.set('maximum_tokens', String(maximumTokens));
-    if (hasLorebook != null) params.set('hasLorebook', String(hasLorebook));
-    if (isOC != null) params.set('isOC', String(isOC));
+    if (hasLorebook) params.set('hasLorebook', 'true');
+    if (isOC) params.set('isOC', 'true');
 
-    // CT API has no explicit NSFW toggle - exclude_tags is used instead
+    // CT has no NSFW switch of its own: the nsfw tag excluded stands for it
     if (!nsfw) {
         const existing = excludeTags ? excludeTags.split(',').map(t => t.trim()) : [];
         if (!existing.includes('nsfw')) existing.push('nsfw');
         params.set('exclude_tags', existing.join(','));
     }
+    // the search node alone, as the catalog asks when its filters change
+    params.set('x-sveltekit-invalidated', '001');
 
-    const url = `${CT_API_BASE}/search/cards?${params}`;
-    const resp = await ctFetch(url, apiRequest);
-    return readJsonClassified(resp);
+    const data = await readJsonClassified(await ctPageData(`/search/cards/__data.json?${params}`, apiRequest));
+    const results = data?.nodes?.find(n => n?.searchResults)?.searchResults;
+    if (!results) throw new Error('CharacterTavern answered no search results');
+    return { ...results, hits: (results.hits || []).map(h => ({ ...h, totalTokens: h.permanentTokens ?? h.totalTokens })) };
 }
 
 /**
- * Fetch full character details via /api/character/{author}/{slug}
+ * One character's page data: the card (with its tags, likes and author), its alternate greetings and lorebook.
  * @param {string} author
  * @param {string} slug
- * @param {Function} [apiRequest] - CoreAPI.apiRequest for authenticated proxy
- * @returns {Promise<Object>} { card: {...}, ownerCTId: ... }
+ * @param {Function} apiRequest - CoreAPI.apiRequest
+ * @returns {Promise<{card: Object, ownerCTId: string|null, alternativeGreetings: string[], lorebook: Object|null}>}
  */
 export async function fetchCharacterDetail(author, slug, apiRequest) {
-    const url = `${CT_API_BASE}/character/${encodeURIComponent(author)}/${encodeURIComponent(slug)}`;
-    const resp = await ctFetch(url, apiRequest);
+    const resp = await ctPageData(`/character/${encodeURIComponent(author)}/${encodeURIComponent(slug)}/__data.json`, apiRequest);
     // the status rides the error so a 404 reads as a definitive miss upstream
     if (!resp.ok) throw Object.assign(new Error(`CT detail returned HTTP ${resp.status}`), { status: resp.status });
-    return resp.json();
+    const data = await resp.json();
+    const page = data?.nodes?.find(n => n?.character);
+    if (!page) throw new Error('CharacterTavern answered no character');
+    return {
+        card: {
+            ...page.character,
+            tags: Array.isArray(page.tags) ? page.tags : [],
+            likes: page.likesData?.likeCount ?? null,
+            author: page.authorUsername || author,
+        },
+        ownerCTId: page.authorUserId ?? null,
+        alternativeGreetings: Array.isArray(page.alternativeGreetings) ? page.alternativeGreetings.filter(g => typeof g === 'string' && g) : [],
+        lorebook: page.lorebook ?? null,
+    };
 }
 
 /**
- * Fetch top tags from /api/catalog/top-tags
- * @param {Function} [apiRequest] - CoreAPI.apiRequest for the service transport
+ * The rich hit the preview and the importers read, built from a character's page data (a search hit is thin).
+ * @param {{card: Object, alternativeGreetings: string[]}} detail fetchCharacterDetail's answer
+ * @returns {Object}
+ */
+export function hitFromDetail(detail) {
+    const c = detail.card;
+    return {
+        id: c.id || null,
+        path: c.path,
+        name: c.name,
+        inChatName: c.inChatName,
+        author: c.author,
+        tagline: c.tagline || '',
+        pageDescription: c.description || '',
+        characterDefinition: c.definition_character_description || '',
+        characterPersonality: c.definition_personality || '',
+        characterScenario: c.definition_scenario || '',
+        characterFirstMessage: c.definition_first_message || '',
+        characterExampleMessages: c.definition_example_messages || '',
+        characterPostHistoryPrompt: c.definition_post_history_prompt || '',
+        alternativeFirstMessage: detail.alternativeGreetings || [],
+        tags: c.tags || [],
+        likes: c.likes,
+        totalTokens: c.tokenTotal ?? null,
+        // seconds, as the grid and the preview read a hit's date
+        createdAt: c.createdAt ? Math.floor(Date.parse(c.createdAt) / 1000) : null,
+        isNSFW: c.isNSFW === true,
+        hasLorebook: c.lorebookId != null,
+        isOC: c.isOC === true,
+    };
+}
+
+/**
+ * The catalog's tag list, most used first.
+ * @param {Function} apiRequest - CoreAPI.apiRequest
  * @returns {Promise<Array<{tag: string, count: number}>>}
  */
 export async function fetchTopTags(apiRequest) {
-    const url = `${CT_API_BASE}/catalog/top-tags`;
-    const resp = await ctFetch(url, apiRequest);
+    // the layout's tag node alone, which streams the catalogue
+    const resp = await ctPageData('/search/cards/__data.json?x-sveltekit-invalidated=01', apiRequest);
     if (!resp.ok) throw new Error(`Top tags fetch failed (${resp.status})`);
-    return resp.json();
+    const data = await resp.json();
+    const catalogue = data?.nodes?.find(n => n?.tagCatalogue)?.tagCatalogue;
+    if (!Array.isArray(catalogue?.tags)) throw new Error('CharacterTavern answered no tag list');
+    return catalogue.tags.filter(t => t && typeof t.value === 'string').map(t => ({ tag: t.value, count: Number(t.count) || 0 }));
 }
 
 // ========================================
@@ -262,6 +298,15 @@ export function getAvatarUrl(path, { width } = {}) {
  */
 export function getCardPngUrl(path) {
     return `${CT_CARDS_CDN}/${path}.png`;
+}
+
+/**
+ * The card file itself. The CDN answers WebP to an image Accept with no Vary, so a preview's cached copy has no card inside.
+ * @param {string} path - "author/slug" format
+ * @returns {Promise<Response>}
+ */
+export function fetchCtCardFile(path) {
+    return fetchWithProxy(getCardPngUrl(path), { cache: 'no-store', headers: { Accept: 'image/png' } });
 }
 
 /**

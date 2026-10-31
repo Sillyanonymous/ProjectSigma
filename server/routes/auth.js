@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { config, HANDLE_RE } from '../config.js';
-import { issueSession, clearSession, requireUser } from '../auth.js';
+import { issueSession, clearSession, requireUser, authRequired } from '../auth.js';
 import { openServerDb, getUser, verifyPassword, setPassword } from '../db/server-store.js';
 
 export const authRouter = Router();
@@ -99,7 +99,7 @@ authRouter.get('/me', (req, res) => {
     if (!config.multiUser) {
         return res.json({ multiUser: false, handle: 'default', displayName: 'Default', admin: true, mustChangePassword: false });
     }
-    if (!req.user) return res.status(401).json({ error: 'authentication required' });
+    if (!req.user) return authRequired(res);
     res.json({ multiUser: true, ...req.user });
 });
 

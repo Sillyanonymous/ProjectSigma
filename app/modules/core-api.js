@@ -1470,7 +1470,7 @@ export function calculateHash(arrayBuffer) {
 /**
  * Extract character data from PNG buffer
  * @param {ArrayBuffer} pngBuffer - PNG file data
- * @returns {Object|null} Parsed character card or null
+ * @returns {Promise<Object|null>|null} Parsed character card or null (await it)
  */
 export function extractCharacterDataFromPng(pngBuffer) {
     return window.extractCharacterDataFromPng?.(pngBuffer) || null;

@@ -1091,6 +1091,7 @@ const DEFAULT_SETTINGS = {
 
     // Provider Config
     chubUseV4Api: false,
+    chubTimelineJoined: false,
     providerOrder: null,
     providerDefaults: {},
     infiniteScroll: {},
@@ -2284,9 +2285,8 @@ async function apiRequest(endpoint, method = 'GET', data = null, options = {}) {
         config.body = raw ? data : JSON.stringify(data);
     }
     const resp = await fetch(`${API_BASE}${endpoint}`, config);
-    // multi-user session missing/expired: one sign-in overlay, not a failure storm.
-    // /auth/* is exempt so the login flow's own 401s dont re-trigger it.
-    if (resp.status === 401 && !endpoint.startsWith('/auth/')) showAuthOverlay('login');
+    // only the server's own 401 carries the marker; a site's 401 relayed by a provider route is that provider's to handle
+    if (resp.status === 401 && resp.headers.get('X-CL-Auth') === 'required' && !endpoint.startsWith('/auth/')) showAuthOverlay('login');
     return resp;
 }
 
@@ -3675,7 +3675,7 @@ function userScopedKey(base) {
 async function initAuth() {
     try {
         const resp = await apiRequest('/auth/me', 'GET');
-        if (resp.status === 401) return; // the apiRequest hook already raised the overlay
+        if (resp.status === 401) return; // no session yet: the first request past /auth raises the sign-in
         if (!resp.ok) return;
         currentUser = await resp.json();
         if (currentUser.mustChangePassword) showAuthOverlay('issued');
@@ -14680,7 +14680,7 @@ async function dropStagedCardFile(file) {
 
 /** The card a local file holds, for the import modal's duplicate check: a PNG read here, anything else staged. Null for none. */
 async function readLocalCardFile(file) {
-    if (await isPngFile(file)) return extractCharacterDataFromPng(await file.arrayBuffer());
+    if (await isPngFile(file)) return await extractCharacterDataFromPng(await file.arrayBuffer());
     return (await stageCardFile(file)).card || null;
 }
 
@@ -14699,7 +14699,7 @@ async function importLocalCharacterNow(file, { onExisting = null, staged: given 
         const staged = given || (png ? null : await stageCardFile(file));
         if (staged && !given) _stagedCardFiles.delete(file);
 
-        let cardData = png ? extractCharacterDataFromPng(arrayBuffer) : staged.card;
+        let cardData = png ? await extractCharacterDataFromPng(arrayBuffer) : staged.card;
         if (!cardData) {
             throw new Error('No character card data found in PNG. Is this a V2 character card?');
         }
@@ -14999,14 +14999,14 @@ function createTextChunk(keyword, text) {
 
 /**
  * Extract character card data from a PNG file
- * Reads the 'chara' tEXt/iTXt chunk and decodes the base64 JSON
+ * Reads the 'chara' tEXt, iTXt or zTXt chunk and decodes the base64 JSON
  * @param {ArrayBuffer} pngBuffer - The PNG file data
- * @returns {Object|null} The parsed character card object, or null if not found/invalid
+ * @returns {Promise<Object|null>} The parsed character card object, or null if not found/invalid
  */
-function extractCharacterDataFromPng(pngBuffer) {
+async function extractCharacterDataFromPng(pngBuffer) {
     try {
         const bytes = new Uint8Array(pngBuffer);
-        
+
         if (!isPngBytes(pngBuffer)) {
             debugLog('[PNG Extract] Invalid PNG signature');
             return null;
@@ -15015,20 +15015,20 @@ function extractCharacterDataFromPng(pngBuffer) {
         // Read the V2 'chara' chunk, the canonical complete one; a V3 'ccv3' is provider-dependent and may
         // be incomplete.
         let pos = 8;
-        
+
         while (pos < bytes.length) {
             const view = new DataView(bytes.buffer, pos);
             const length = view.getUint32(0, false);
             const typeBytes = bytes.slice(pos + 4, pos + 8);
             const type = String.fromCharCode(...typeBytes);
             const chunkEnd = pos + 12 + length;
-            
-            if (type === 'tEXt' || type === 'iTXt') {
+
+            if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
                 // Check keyword (null-terminated string at start of data)
                 const dataStart = pos + 8;
                 let keyword = '';
                 let keywordEnd = dataStart;
-                
+
                 for (let i = dataStart; i < dataStart + Math.min(20, length); i++) {
                     if (bytes[i] === 0) {
                         keywordEnd = i;
@@ -15036,31 +15036,42 @@ function extractCharacterDataFromPng(pngBuffer) {
                     }
                     keyword += String.fromCharCode(bytes[i]);
                 }
-                
+
                 if (keyword.toLowerCase() === 'chara') {
                     debugLog('[PNG Extract] Found chara chunk, type:', type);
-                    
+
                     // Extract the base64 data after the null terminator
                     let textStart = keywordEnd + 1;
-                    
-                    // For iTXt, skip compression flag, compression method, language tag, and translated keyword
-                    if (type === 'iTXt') {
-                        textStart += 2;
-                        while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
-                        textStart++;
-                        while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
-                        textStart++;
-                    }
-                    
                     const textEnd = dataStart + length;
+                    let slice;
+
+                    if (type === 'zTXt') {
+                        // compression method 0 (deflate) is the only one the spec defines
+                        if (bytes[textStart] !== 0) return null;
+                        slice = await inflatePngText(bytes.subarray(textStart + 1, textEnd));
+                        if (!slice) {
+                            debugLog('[PNG Extract] zTXt chara chunk would not inflate within the cap');
+                            return null;
+                        }
+                    } else {
+                        // For iTXt, skip compression flag, compression method, language tag, and translated keyword
+                        if (type === 'iTXt') {
+                            textStart += 2;
+                            while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
+                            textStart++;
+                            while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
+                            textStart++;
+                        }
+                        slice = bytes.subarray(textStart, textEnd);
+                    }
+
                     // Build base64 string in chunks (avoid spread operator stack overflow on large data)
                     let base64Data = '';
-                    const slice = bytes.subarray(textStart, textEnd);
                     const chunkSz = 32768;
                     for (let ci = 0; ci < slice.length; ci += chunkSz) {
                         base64Data += String.fromCharCode.apply(null, slice.subarray(ci, Math.min(ci + chunkSz, slice.length)));
                     }
-                    
+
                     try {
                         const jsonString = decodeURIComponent(escape(atob(base64Data)));
                         const cardData = JSON.parse(jsonString);
@@ -15076,17 +15087,40 @@ function extractCharacterDataFromPng(pngBuffer) {
                     }
                 }
             }
-            
+
             pos = chunkEnd;
         }
-        
+
         debugLog('[PNG Extract] No chara chunk found in PNG');
         return null;
-        
+
     } catch (error) {
         debugLog('[PNG Extract] Error extracting character data:', error.message);
         return null;
     }
+}
+
+// a zTXt payload is deflate, and a few bytes can inflate without end, so the read stops at the server's cap
+const PNG_CARD_TEXT_MAX_BYTES = 50 * 1024 * 1024;
+async function inflatePngText(compressed) {
+    const reader = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+    const parts = [];
+    let total = 0;
+    // a corrupt stream throws, and the reader around this reads that as no card
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > PNG_CARD_TEXT_MAX_BYTES) {
+            reader.cancel().catch(() => { /* the stream is dropped either way */ });
+            return null;
+        }
+        parts.push(value);
+    }
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const p of parts) { out.set(p, at); at += p.length; }
+    return out;
 }
 
 // Embed character data into PNG (removes existing chara and ccv3 chunks first)

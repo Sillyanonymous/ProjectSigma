@@ -358,6 +358,7 @@ function setupSettingsModal() {
     
     // Card Updates
     const chubUseV4ApiCheckbox = document.getElementById('settingsChubUseV4Api');
+    const chubTimelineJoinedCheckbox = document.getElementById('settingsChubTimelineJoined');
 
     // Version History
     const autoSnapshotOnEditCheckbox = document.getElementById('settingsAutoSnapshotOnEdit');
@@ -1625,6 +1626,9 @@ function setupSettingsModal() {
         if (chubUseV4ApiCheckbox) {
             chubUseV4ApiCheckbox.checked = getSetting('chubUseV4Api') || false;
         }
+        if (chubTimelineJoinedCheckbox) {
+            chubTimelineJoinedCheckbox.checked = getSetting('chubTimelineJoined') === true;
+        }
 
         // Version History
         if (autoSnapshotOnEditCheckbox) {
@@ -2649,6 +2653,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             hidePlaylistBadges: hidePlaylistBadgesCheckbox ? hidePlaylistBadgesCheckbox.checked : false,
             enableCharDetailNav: enableCharDetailNavCheckbox ? enableCharDetailNavCheckbox.checked : true,
             chubUseV4Api: chubUseV4ApiCheckbox ? chubUseV4ApiCheckbox.checked : false,
+            chubTimelineJoined: chubTimelineJoinedCheckbox ? chubTimelineJoinedCheckbox.checked : false,
             autoSnapshotOnEdit: autoSnapshotOnEditCheckbox ? autoSnapshotOnEditCheckbox.checked : false,
             backupFrequency: backupFrequencySelect ? backupFrequencySelect.value : 'off',
             backupWindowStart: backupWindowStartSelect ? Number(backupWindowStartSelect.value) : getDefaultSetting('backupWindowStart'),
@@ -2833,8 +2838,12 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                 renderCtSessionTimer(); // validate slid the window and refreshed the stored expiry
 
                 if (result.valid) {
-                    if (result.hasNsfw) {
+                    if (result.hasNsfw === true) {
                         showToast('Session valid, NSFW access confirmed', 'success');
+                        validateCtCookieBtn.classList.add('success');
+                        validateCtCookieBtn.innerHTML = '<i class="fa-solid fa-check-double"></i>';
+                    } else if (result.hasNsfw == null) {
+                        showToast('Session valid', 'success');
                         validateCtCookieBtn.classList.add('success');
                         validateCtCookieBtn.innerHTML = '<i class="fa-solid fa-check-double"></i>';
                     } else {
@@ -2917,7 +2926,42 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             }
         };
     }
-    
+
+    // Session Validation - ChubAI: the token in the field, before or after it is saved
+    const validateChubBtn = document.getElementById('validateChubBtn');
+    if (validateChubBtn && chubTokenInput) {
+        validateChubBtn.onclick = async (e) => {
+            e.preventDefault();
+            validateChubBtn.classList.remove('success', 'error');
+            const originalHtml = '<i class="fa-solid fa-check"></i>';
+            validateChubBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            validateChubBtn.disabled = true;
+            try {
+                if (!window.chubTokenCheck) throw new Error('ChubAI is not loaded yet');
+                const result = await window.chubTokenCheck(chubTokenInput.value);
+                if (result.ok) {
+                    showToast(`Logged in to ChubAI as ${result.name}`, 'success');
+                    validateChubBtn.classList.add('success');
+                } else {
+                    showToast(result.error, 'error');
+                    validateChubBtn.classList.add('error');
+                    validateChubBtn.innerHTML = '<i class="fa-solid fa-times"></i>';
+                }
+            } catch (err) {
+                showToast(`Could not check the token: ${err.message}`, 'error');
+                validateChubBtn.classList.add('error');
+                validateChubBtn.innerHTML = '<i class="fa-solid fa-exclamation"></i>';
+            } finally {
+                validateChubBtn.disabled = false;
+                if (validateChubBtn.classList.contains('success')) validateChubBtn.innerHTML = originalHtml;
+                setTimeout(() => {
+                    validateChubBtn.classList.remove('success', 'error');
+                    validateChubBtn.innerHTML = originalHtml;
+                }, 3000);
+            }
+        };
+    }
+
     // Session Validation - Wyvern
     const validateWyvernBtn = document.getElementById('validateWyvernBtn');
     if (validateWyvernBtn && wyvernEmailInput && wyvernPasswordInput) {

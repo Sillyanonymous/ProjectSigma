@@ -22,11 +22,36 @@ export const CHUB_AVATAR_BASE = 'https://avatars.charhub.io/avatars/';
  */
 export function getChubHeaders(includeAuth = true) {
     const headers = { 'Accept': 'application/json' };
-    const token = CoreAPI.getSetting('chubToken');
+    const token = savedChubToken();
     if (includeAuth && token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
+}
+
+/** A token as pasted: a copy of the request header carries its "Bearer " scheme. */
+export function normalizeChubToken(raw) {
+    return String(raw ?? '').trim().replace(/^bearer\s+/i, '').trim();
+}
+
+/** The token as saved, wherever it was saved (Settings or the browse popup), read at the moment of use. */
+export function savedChubToken() {
+    return normalizeChubToken(CoreAPI.getSetting('chubToken'));
+}
+
+/**
+ * Whether ChubAI accepts a token: an unknown token gets an anonymous account (a negative id), not an error.
+ * @param {string} raw the token as pasted
+ * @returns {Promise<{ok: true, name: string}|{ok: false, error: string}>}
+ */
+export async function verifyChubToken(raw) {
+    const token = normalizeChubToken(raw);
+    if (!token) return { ok: false, error: 'No token entered' };
+    const resp = await fetch(`${CHUB_API_BASE}/api/account`, { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` } });
+    if (!resp.ok) return { ok: false, error: `ChubAI answered HTTP ${resp.status}` };
+    const account = await resp.json().catch(() => null);
+    if (!(Number(account?.id) > 0)) return { ok: false, error: 'ChubAI did not recognize this token' };
+    return { ok: true, name: String(account.user_name || account.name || 'your account') };
 }
 
 export { fetchWithProxy } from '../provider-utils.js';

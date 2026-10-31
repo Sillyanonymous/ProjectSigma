@@ -2,7 +2,7 @@
 
 import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
-    browseCardImageWidth, activeFeatureRows, featurePasses, featureBadgesHtml, applyTagsClamp, updateTagStateButton, cardTagsHtml,
+    browseCardImageWidth, activeFeatureRows, featurePasses, featureBadgesHtml, applyTagsClamp, updateTagStateButton,
     tagStateButtonHtml, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
@@ -56,7 +56,7 @@ let ctAuthorFilter = null;
 let ctSessionChecked = false;
 let ctNsfwEnabled = false;
 let ctNsfwWarnedThisSession = false;
-let ctSortMode = 'most_popular';
+let ctSortMode = 'popular';
 let ctSelectedChar = null;
 let ctGridRenderedCount = 0;
 let ctLoadToken = 0; // Generation counter for search requests
@@ -67,12 +67,9 @@ let ctLoginInProgress = false;
 
 // hasLorebook and isOC are server-side and carry the nodeTest their badges share, so filter and badge cant drift
 const CT_FEATURE_FILTERS = [
-    { key: 'hasLorebook', id: 'ctFilterHasLorebook', section: 'must', icon: 'fa-book', label: 'Lorebook',
-      nodeTest: (c) => !!c.hasLorebook,
-      badge: { cls: '', title: 'Has Lorebook', icon: 'fa-book' } },
-    { key: 'isOC', id: 'ctFilterIsOC', section: 'must', icon: 'fa-star', label: 'Original Character',
-      nodeTest: (c) => !!c.isOC,
-      badge: { cls: '', title: 'Original Character', icon: 'fa-star' } },
+    // CT filters these itself; a search hit carries neither field, so no row has a client test or a badge
+    { key: 'hasLorebook', id: 'ctFilterHasLorebook', section: 'must', icon: 'fa-book', label: 'Lorebook' },
+    { key: 'isOC', id: 'ctFilterIsOC', section: 'must', icon: 'fa-star', label: 'Original Character' },
     ...libraryFeatureRows('ct', () => view, isCharPossibleMatchObj),
 ];
 const ctFeatureState = featureFilterState(CT_FEATURE_FILTERS);
@@ -115,7 +112,6 @@ function createCtCard(hit) {
     const name = hit.name || 'Unknown';
     const desc = stripHtml(hit.tagline || hit.pageDescription || '');
     const avatarUrl = hit.path ? getAvatarUrl(hit.path, { width: browseCardImageWidth() }) : '/img/no-portrait.png';
-    const tags = parseTags(hit.tags);
     const tokens = formatNumber(hit.totalTokens || 0);
     const author = hit.author || hit.path?.split('/')[0] || '';
     const inLibrary = view.isHitInLibrary(hit);
@@ -139,18 +135,16 @@ function createCtCard(hit) {
         <div class="${cardClass}" data-ct-path="${escapeHtml(hit.path || '')}"${view.linkKeyAttr(hit)} data-match-name="${escapeHtml(getCtCharName(hit))}" ${desc ? `title="${escapeHtml(desc)}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
-                ${hit.isNSFW ? '<span class="browse-nsfw-badge">NSFW</span>' : ''}
                 ${badges.length > 0 ? `<div class="browse-feature-badges">${badges.join('')}</div>` : ''}
             </div>
             <div class="browse-card-body">
                 <div class="browse-card-name">${escapeHtml(name)}</div>
                 ${author ? `<span class="browse-card-creator-link" data-author="${escapeHtml(author)}" title="Click to see all characters by ${escapeHtml(author)}">${escapeHtml(author)}</span>` : ''}
-                ${cardTagsHtml(tags)}
             </div>
             <div class="browse-card-footer">
                 <span class="browse-card-stat" title="Tokens"><i class="fa-solid fa-font"></i> ${tokens}</span>
-                <span class="browse-card-stat" title="Downloads"><i class="fa-solid fa-download"></i> ${formatNumber(hit.downloads || 0)}</span>
-                <span class="browse-card-stat" title="Likes"><i class="fa-solid fa-heart"></i> ${formatNumber(hit.likes || 0)}</span>
+                ${hit.downloads != null ? `<span class="browse-card-stat" title="Downloads"><i class="fa-solid fa-download"></i> ${formatNumber(hit.downloads)}</span>` : ''}
+                ${hit.likes != null ? `<span class="browse-card-stat" title="Likes"><i class="fa-solid fa-heart"></i> ${formatNumber(hit.likes)}</span>` : ''}
                 ${dateInfo}
             </div>
         </div>
@@ -217,7 +211,6 @@ async function loadCharacters(append = false) {
             query: ctAuthorFilter || ctCurrentSearch,
             sort: ctSortMode,
             page: ctCurrentPage,
-            limit: 60,
             nsfw: ctNsfwEnabled
         };
 
@@ -244,22 +237,17 @@ async function loadCharacters(append = false) {
         await chartavernBrowseView.probeHits(hits);
         ctTotalPages = data?.totalPages || 1;
 
-        // Client-side: filter NSFW when toggle is off (exclude_tags alone doesn't catch all isNSFW cards)
-        if (!ctNsfwEnabled) {
-            hits = hits.filter(h => !h.isNSFW);
-        }
-
-        // Client-side: required features plus hide owned / possible match characters
+        // Client-side: hide owned / possible match characters
         const activeRows = activeFeatureRows(CT_FEATURE_FILTERS, ctFeatureState);
         if (activeRows.length > 0) {
             hits = hits.filter(h => featurePasses(h, activeRows));
         }
 
         // Auto-fetch when client-side filters remove too many results
-        const hasClientFilters = activeRows.length > 0 || !ctNsfwEnabled;
-        if (hasClientFilters && ctCurrentPage < ctTotalPages) {
+        if (activeRows.length > 0 && ctCurrentPage < ctTotalPages) {
+            const pageSize = data?.hitsPerPage || 30;
             let autoFetches = 0;
-            while (hits.length < 60 && ctCurrentPage < ctTotalPages && autoFetches < 3 && delegatesInitialized) {
+            while (hits.length < pageSize && ctCurrentPage < ctTotalPages && autoFetches < 3 && delegatesInitialized) {
                 autoFetches++;
                 ctCurrentPage++;
                 opts.page = ctCurrentPage;
@@ -267,7 +255,6 @@ async function loadCharacters(append = false) {
                 if (thisToken !== ctLoadToken || !delegatesInitialized) return;
                 let moreHits = moreData?.hits || [];
                 await chartavernBrowseView.probeHits(moreHits);
-                if (!ctNsfwEnabled) moreHits = moreHits.filter(h => !h.isNSFW);
                 if (activeRows.length > 0) moreHits = moreHits.filter(h => featurePasses(h, activeRows));
                 hits = hits.concat(moreHits);
             }
@@ -329,6 +316,16 @@ async function loadCharacters(append = false) {
 
 let ctDetailFetchToken = 0;
 
+// a preview count CT sent, or its row hidden: a count it does not send is not a zero
+function setCtStat(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const known = value != null && Number.isFinite(Number(value));
+    if (known) el.textContent = formatNumber(Number(value));
+    const row = el.closest('.browse-stat');
+    if (row) row.hidden = !known;
+}
+
 function openPreviewModal(hit) {
     ctSelectedChar = hit;
 
@@ -348,9 +345,6 @@ function openPreviewModal(hit) {
         const tagline = stripHtml(hit.tagline || '');
         const creatorNotes = hit.pageDescription || '';
         const tags = parseTags(hit.tags);
-        const tokens = formatNumber(hit.totalTokens || 0);
-        const downloads = formatNumber(hit.downloads || 0);
-        const likes = formatNumber(hit.likes || 0);
 
         const createdDate = hit.createdAt
             ? new Date(hit.createdAt * 1000).toLocaleDateString()
@@ -392,13 +386,10 @@ function openPreviewModal(hit) {
             }
         }
 
-        // Stats
-        const tokensEl = document.getElementById('ctCharTokens');
-        if (tokensEl) tokensEl.textContent = tokens;
-        const downloadsEl = document.getElementById('ctCharDownloads');
-        if (downloadsEl) downloadsEl.textContent = downloads;
-        const likesEl = document.getElementById('ctCharLikes');
-        if (likesEl) likesEl.textContent = likes;
+        // Stats: a number CT did not send is hidden, never shown as 0
+        setCtStat('ctCharTokens', hit.totalTokens);
+        setCtStat('ctCharDownloads', hit.downloads);
+        setCtStat('ctCharLikes', hit.likes);
         const dateEl = document.getElementById('ctCharDate');
         if (dateEl) dateEl.textContent = createdDate || 'Unknown';
 
@@ -529,7 +520,7 @@ async function fetchAndPopulateDetails(hit, token) {
             ctSelectedChar._fullDetail = card;
         }
 
-        // Detail-API populate (richer than the search hit). RAF defer in case the modal-open transition is still running.
+        // the page's fields, richer than the search hit; RAF defer in case the modal-open transition is still running
         const creatorNotesSection = document.getElementById('ctCharCreatorNotesSection');
         const creatorNotesEl = document.getElementById('ctCharCreatorNotes');
         const detailNotes = card.description || '';
@@ -584,11 +575,26 @@ async function fetchAndPopulateDetails(hit, token) {
             }
         });
 
-        // Lorebook stat (detail API has lorebookId; search hit might not)
+        // a search hit never says whether a lorebook is attached; the page does
         const lorebookStat = document.getElementById('ctCharLorebookStat');
         if (lorebookStat && card.lorebookId) {
             lorebookStat.hidden = false;
         }
+
+        // a search hit carries none of these now: the page fills them
+        if (!(Array.isArray(hit.alternativeFirstMessage) && hit.alternativeFirstMessage.length)) {
+            renderAltGreetingsList('ct', data.alternativeGreetings || [], name);
+        }
+        const tagsEl = document.getElementById('ctCharTags');
+        if (tagsEl && !parseTags(hit.tags).length && parseTags(card.tags).length) {
+            tagsEl.innerHTML = parseTags(card.tags).map(t => `<span class="browse-tag">${escapeHtml(t)}</span>`).join('');
+            requestAnimationFrame(() => applyTagsClamp(tagsEl));
+        }
+        setCtStat('ctCharLikes', card.likes);
+        // the grid showed the hit's permanent tokens; swapping to the page's total would change the number under the user
+        if (hit.totalTokens == null) setCtStat('ctCharTokens', card.tokenTotal);
+        const dateEl = document.getElementById('ctCharDate');
+        if (dateEl && card.createdAt && !hit.createdAt) dateEl.textContent = new Date(card.createdAt).toLocaleDateString();
     } catch (err) {
         debugLog('[CTBrowse] Detail fetch error:', err);
         if (token === ctDetailFetchToken) {
@@ -634,15 +640,17 @@ async function importCharacter(charData) {
     if (!charData?.path) return;
     const charName = charData.name || charData.path.split('/').pop() || '';
     const charCreator = charData.author || charData.path?.split('/')[0] || '';
+    const full = charData._fullDetail;
     await view.importFromPreview({
         button: document.getElementById('ctImportBtn'), hit: charData, provider: 'chartavern', id: charData.path, data: charData, label: 'CTBrowse',
         closePreview: closePreviewModal,
+        // the page card the preview loaded, when it did: a search hit carries no definition to compare
         probe: {
             name: charName, creator: charCreator, fullPath: charData.path,
-            description: charData.characterDescription || '',
-            first_mes: charData.characterFirstMessage || '',
-            personality: charData.characterPersonality || '',
-            scenario: charData.characterScenario || '',
+            description: full?.definition_character_description || charData.characterDefinition || '',
+            first_mes: full?.definition_first_message || charData.characterFirstMessage || '',
+            personality: full?.definition_personality || charData.characterPersonality || '',
+            scenario: full?.definition_scenario || charData.characterScenario || '',
         },
         dialog: { name: charName, creator: charCreator, fullPath: charData.path, avatarUrl: getAvatarUrl(charData.path) },
     });
@@ -1115,8 +1123,11 @@ async function saveCookieAndConnect(cookieStr) {
         ctNsfwEnabled = getSetting('ctNsfw') === true;
         updateNsfwToggle();
 
-        if (validation.hasNsfw) {
+        // hasNsfw is true, false, or null when the check could not tell
+        if (validation.hasNsfw === true) {
             showToast('Connected to CharacterTavern, NSFW content available', 'success');
+        } else if (validation.hasNsfw == null) {
+            showToast('Connected to CharacterTavern', 'success');
         } else {
             showToast('Connected, but NSFW content not detected. Check that your content preferences are enabled on character-tavern.com, or your session may be expired.', 'warning', 6000);
         }
@@ -1170,7 +1181,7 @@ async function tryCheckSession() {
             openCtLoginModal();
             return;
         }
-        if (!validation.hasNsfw) {
+        if (validation.hasNsfw === false) {
             // a valid session without NSFW still works: keep it and say so once per app session
             ctNsfwEnabled = false;
             updateNsfwToggle();
@@ -1238,11 +1249,13 @@ class ChartavernBrowseView extends BrowseView {
     getSettingsConfig() {
         return {
             browseSortOptions: [
-                { value: 'most_popular', label: 'Most Popular' },
-                { value: 'trending', label: 'Trending' },
+                { value: 'popular', label: 'Popular' },
+                { value: 'best', label: 'Best' },
+                { value: 'new_noteworthy', label: 'New & Noteworthy' },
+                { value: 'most_liked', label: 'Top Rated' },
+                { value: 'hidden_gems', label: 'Hidden Gems' },
                 { value: 'newest', label: 'Newest' },
-                { value: 'oldest', label: 'Oldest' },
-                { value: 'most_likes', label: 'Most Liked' },
+                { value: 'recently_updated', label: 'Recently Updated' },
             ],
             followingSortOptions: [],
             viewModes: [],
@@ -1270,11 +1283,13 @@ class ChartavernBrowseView extends BrowseView {
             <!-- Sort -->
             <div class="browse-sort-container">
                 <select id="ctSortSelect" class="glass-select" title="Sort order">
-                    <option value="most_popular" data-icon="fa-solid fa-fire" selected>Most Popular</option>
-                    <option value="trending" data-icon="fa-solid fa-arrow-trend-up">Trending</option>
+                    <option value="popular" data-icon="fa-solid fa-fire" selected>Popular</option>
+                    <option value="best" data-icon="fa-solid fa-bullseye">Best</option>
+                    <option value="new_noteworthy" data-icon="fa-solid fa-star">New &amp; Noteworthy</option>
+                    <option value="most_liked" data-icon="fa-solid fa-heart">Top Rated</option>
+                    <option value="hidden_gems" data-icon="fa-solid fa-gem">Hidden Gems</option>
                     <option value="newest" data-icon="fa-solid fa-calendar-plus">Newest</option>
-                    <option value="oldest" data-icon="fa-solid fa-hourglass">Oldest</option>
-                    <option value="most_likes" data-icon="fa-solid fa-heart">Most Liked</option>
+                    <option value="recently_updated" data-icon="fa-solid fa-clock-rotate-left">Recently Updated</option>
                 </select>
             </div>
 
@@ -1359,7 +1374,7 @@ class ChartavernBrowseView extends BrowseView {
                 </div>
 
                 <!-- Results Grid -->
-                <div id="ctGrid" class="browse-grid"></div>
+                <div id="ctGrid" class="browse-grid is-tagless"></div>
 
                 <!-- Load More -->
                 <div class="browse-load-more" id="ctLoadMore" hidden>
@@ -1584,10 +1599,11 @@ class ChartavernBrowseView extends BrowseView {
 
     applyDefaults(defaults) {
         super.applyDefaults(defaults);
-        if (defaults.sort) {
+        // a saved default naming an order CT does not offer keeps the view's own
+        const el = document.getElementById('ctSortSelect');
+        if (defaults.sort && el && [...el.options].some(o => o.value === defaults.sort)) {
             ctSortMode = defaults.sort;
-            const el = document.getElementById('ctSortSelect');
-            if (el) el.value = defaults.sort;
+            el.value = defaults.sort;
         }
     }
 
@@ -1607,7 +1623,7 @@ class ChartavernBrowseView extends BrowseView {
         ctExcludeTags = new Set();
         ctMinTokens = 0;
         ctMaxTokens = 0;
-        ctSortMode = 'most_popular';
+        ctSortMode = 'popular';
         ctNsfwEnabled = false;
         ctSelectedChar = null;
     }
@@ -1690,18 +1706,16 @@ registerCdAdapter('chartavern', {
         if (!authorName) return [];
         const wanted = authorName.toLowerCase();
         const nsfw = CoreAPI.getSetting('ctNsfw') === true && isCtSessionActive();
-        const sort = document.getElementById('ctSortSelect')?.value || 'most_popular';
+        const sort = document.getElementById('ctSortSelect')?.value || ctSortMode;
         const results = [];
         const seen = new Set();
         const MAX_PAGES = 50;
         for (let page = 1; page <= MAX_PAGES; page++) {
-            const data = await searchCards({ query: authorName, sort, page, limit: 60, nsfw }, CoreAPI.apiRequest);
+            const data = await searchCards({ query: authorName, sort, page, nsfw }, CoreAPI.apiRequest);
             const hits = data?.hits || [];
             for (const hit of hits) {
                 const path = hit.path || '';
                 if (!path || seen.has(path)) continue;
-                // exclude_tags alone doesnt catch all isNSFW cards
-                if (!nsfw && hit.isNSFW) continue;
                 const hitAuthor = (hit.author_username || hit.author || path.split('/')[0] || '').toLowerCase();
                 if (hitAuthor !== wanted) continue;
                 seen.add(path);

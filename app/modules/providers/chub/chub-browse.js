@@ -15,6 +15,8 @@ import {
     CHUB_AVATAR_BASE,
     getChubHeaders,
     extractNodes,
+    normalizeChubToken,
+    savedChubToken,
 } from './chub-api.js';
 
 // ========================================
@@ -60,7 +62,6 @@ let chubDiscoveryPreset = 'popular_week'; // Combined sort + time preset
 let chubNsfwEnabled = false;
 let chubCurrentSearch = '';
 let chubSelectedChar = null;
-let chubToken = null; // URQL_TOKEN from chub.ai localStorage for Authorization Bearer
 
 // Discovery preset definitions (sort + time combinations)
 const CHUB_DISCOVERY_PRESETS = {
@@ -118,16 +119,18 @@ let chubViewMode = 'browse'; // 'browse' or 'timeline'
 let chubAuthorFilter = null; // Username to filter by
 let chubAuthorSort = 'id'; // Sort for author view (id = newest)
 let chubTimelineCharacters = [];
-let chubTimelinePage = 1;
-let chubTimelineCursor = null; // Cursor for pagination
+let chubTimelinePage = 1; // the next page of the source the list came from
 let chubTimelineHasMore = true;
-let chubTimelineAuthorPage = 1;      // Per-author supplemental page (increments on Load More)
-let chubTimelineAuthorHasMore = false; // True if any author returned a full page of results
-let chubTimelineSort = 'newest'; // Sort for timeline view (client-side)
+let chubTimelineLoadedFrom = null; // 'feed' or 'creators': the source the loaded list came from
+let chubTimelineSort = 'newest'; // Sort for the joined timeline (client-side); the feed keeps its own order
 let chubUserFavoriteIds = new Set(); // Cache of user's favorited character IDs
 let chubFavoriteIdsFetchedAt = 0;    // lets per-card reads reuse the Set instead of refetching 500 rows
-let chubTimelineRenderToken = 0; // Cancels in-flight chunked timeline renders
 let chubTimelineLoadInFlight = false;
+// the timeline paints this many cards at a time, revealing more from what it fetched before it asks for more
+const CHUB_TIMELINE_WINDOW = 96;
+let chubTimelineHidden = 0; // sorted timeline cards not painted yet
+let chubTimelineSorted = null; // the last filter and sort, reused by a reveal while the list stands
+let chubTimelineLoadGen = 0; // bumped by every fresh load and every reset; a load from an older one discards what it fetched
 let chubCardLookup = new Map();
 let chubTimelineLookup = new Map();
 let chubDelegatesInitialized = false;
@@ -202,13 +205,25 @@ class ChubBrowseView extends BrowseView {
 
     getCreatorAvatarUrl(creator) {
         if (creator.avatar) return creator.avatar;
-        const fp = chubTimelineCharacters.find(c =>
-            (c.fullPath || c.full_path || '').toLowerCase().startsWith(creator.id + '/'));
-        return fp ? `${CHUB_AVATAR_BASE}${fp.fullPath || fp.full_path}/avatar.webp` : '';
+        // each creator's first timeline card, mapped in one pass whenever the list changes
+        const list = chubTimelineCharacters;
+        if (this._firstCards?.from !== list || this._firstCards.len !== list.length) {
+            const map = new Map();
+            for (const c of list) {
+                const fp = c.fullPath || c.full_path || '';
+                const slash = fp.indexOf('/');
+                if (slash <= 0) continue;
+                const key = fp.slice(0, slash).toLowerCase();
+                if (!map.has(key)) map.set(key, fp);
+            }
+            this._firstCards = { from: list, len: list.length, map };
+        }
+        const fp = this._firstCards.map.get(creator.id);
+        return fp ? `${CHUB_AVATAR_BASE}${fp}/avatar.webp` : '';
     }
 
     async followCreator(query) {
-        if (!chubToken) {
+        if (!savedChubToken()) {
             showToast('Login required to follow authors on ChubAI', 'warning');
             return null;
         }
@@ -237,7 +252,7 @@ class ChubBrowseView extends BrowseView {
     }
 
     async unfollowCreator(id) {
-        if (!chubToken) return false;
+        if (!savedChubToken()) return false;
         try {
             const response = await fetch(`${CHUB_API_BASE}/api/follow/${id}`, {
                 method: 'DELETE',
@@ -280,7 +295,7 @@ class ChubBrowseView extends BrowseView {
             filters: 'chubFiltersBtn',
             nsfw: 'chubNsfwToggle',
             refresh: 'refreshChubBtn',
-            timelineSort: 'chubTimelineSortHeader',
+            timelineSort: chubTimelineJoined() ? 'chubTimelineSortHeader' : undefined,
             modeBrowseSelector: '.browse-view-btn[data-chub-view="browse"]',
             modeFollowSelector: '.browse-view-btn[data-chub-view="timeline"]',
             modeBtnClass: 'browse-view-btn',
@@ -304,7 +319,8 @@ class ChubBrowseView extends BrowseView {
                 { value: 'recent_hits', label: 'Recent Hits' },
                 { value: 'random', label: 'Random' },
             ],
-            followingSortOptions: [
+            // the feed has one order, so its timeline offers no default sort (as janitorai's following feed)
+            followingSortOptions: !chubTimelineJoined() ? [] : [
                 { value: 'newest', label: 'Newest Created' },
                 { value: 'updated', label: 'Recently Updated' },
                 { value: 'oldest', label: 'Oldest First' },
@@ -323,7 +339,7 @@ class ChubBrowseView extends BrowseView {
 
     canLoadMore() {
         if (chubViewMode === 'browse') return chubHasMore && !chubIsLoading;
-        if (chubViewMode === 'timeline') return (chubTimelineHasMore || chubTimelineAuthorHasMore) && !chubTimelineLoadInFlight;
+        if (chubViewMode === 'timeline') return (chubTimelineHidden > 0 || chubTimelineHasMore) && !chubTimelineLoadInFlight;
         return false;
     }
 
@@ -502,7 +518,7 @@ class ChubBrowseView extends BrowseView {
                 <div class="browse-timeline-header">
                     <div class="browse-timeline-header-left">
                         <h3><i class="fa-solid fa-clock"></i> Timeline</h3>
-                        <p>New characters from authors you follow</p>
+                        <p id="chubTimelineSubtitle"></p>
                     </div>
                     <div class="browse-timeline-header-right">
                         <button class="follow-mgr-toggle-btn glass-btn" id="chubFollowMgrToggle"
@@ -760,6 +776,8 @@ class ChubBrowseView extends BrowseView {
         chubAuthorFilter = null;
         chubCharacters = [];
         chubTimelineCharacters = [];
+        chubTimelineHidden = 0;
+        chubTimelineSorted = null;
         chubCurrentPage = 1;
         chubHasMore = true;
         chubIsLoading = false;
@@ -767,11 +785,10 @@ class ChubBrowseView extends BrowseView {
         chubViewMode = 'browse';
         chubSelectedChar = null;
         chubTimelinePage = 1;
-        chubTimelineCursor = null;
         chubTimelineHasMore = true;
+        chubTimelineLoadedFrom = null;
         chubTimelineLoadInFlight = false;
-        chubTimelineAuthorPage = 1;
-        chubTimelineAuthorHasMore = false;
+        chubTimelineLoadGen++;
     }
 
     onActivated(isReEntry) {
@@ -782,8 +799,10 @@ class ChubBrowseView extends BrowseView {
             chubNsfwEnabled = nsfw;
             updateNsfwToggleState();
             chubCharacters = []; chubCurrentPage = 1; chubHasMore = true; chubGridRenderedCount = 0;
-            chubTimelineCharacters = []; chubTimelinePage = 1; chubTimelineCursor = null; chubTimelineHasMore = true;
+            chubTimelineCharacters = []; chubTimelinePage = 1; chubTimelineHasMore = true; chubTimelineHidden = 0; chubTimelineLoadGen++;
         }
+        // a settings save re-activates the view: the timeline's sort menu and subtitle follow the joined switch
+        setChubModeChrome(chubViewMode);
     }
 
     get creatorScope() {
@@ -841,13 +860,14 @@ class ChubBrowseView extends BrowseView {
                 timeline: {
                     sectionId: 'chubTimelineSection',
                     gridId: 'chubTimelineGrid',
-                    hasData: () => chubTimelineCharacters.length > 0,
-                    // a cursor feed cannot re-fetch in place, so any non-append load is a fresh one
-                    load: (o) => o?.append ? loadMoreChubTimeline() : loadChubTimeline(true),
+                    // a list from the other source (the setting changed since) is no data: the next entry loads afresh
+                    hasData: () => chubTimelineCharacters.length > 0 && chubTimelineLoadedFrom === chubTimelineSource(),
+                    // any non-append load starts again from page 1; an append reveals fetched cards before it fetches the next page
+                    load: (o) => !o?.append ? loadChubTimeline(true) : chubTimelineHidden > 0 ? Promise.resolve(renderChubTimeline(true)) : loadMoreChubTimeline(),
                     render: () => renderChubTimeline(),
                     chrome: () => setChubModeChrome('timeline'),
                     enter: async () => {
-                        if (chubFeatureState.favorites && chubToken) {
+                        if (chubFeatureState.favorites && savedChubToken()) {
                             await fetchChubUserFavoriteIds();
                         }
                     },
@@ -864,8 +884,6 @@ class ChubBrowseView extends BrowseView {
     deactivate() {
         super.deactivate();
         chubDelegatesInitialized = false;
-        // Increment render token to cancel in-flight chunked renders
-        chubTimelineRenderToken++;
         // Reset in-flight flag so a stuck flag from a hung fetch can't block the
         // next view re-entry from kicking off a fresh load.
         chubTimelineLoadInFlight = false;
@@ -917,7 +935,7 @@ function initChubView() {
             if (newMode === chubViewMode) return;
             
             // Timeline requires token
-            if (newMode === 'timeline' && !chubToken) {
+            if (newMode === 'timeline' && !savedChubToken()) {
                 showToast('Timeline needs your ChubAI URQL token. Add it in the window that opened.', 'warning');
                 openChubTokenModal();
                 return;
@@ -1008,7 +1026,7 @@ function initChubView() {
         badge: updateChubFiltersButtonState,
         beforeChange(f, e) {
             // favorites is token-gated: bounce to the login modal instead of flipping
-            if (f.key === 'favorites' && e.target.checked && !chubToken) {
+            if (f.key === 'favorites' && e.target.checked && !savedChubToken()) {
                 e.target.checked = false;
                 showToast('Favorites need your ChubAI URQL token. Add it in the window that opened.', 'warning');
                 show('chubLoginModal');
@@ -1125,16 +1143,9 @@ function initChubView() {
 // ============================================================================
 
 function loadChubToken() {
-    // Gallery settings are already loaded by DOMContentLoaded init
-    
-    const savedToken = getSetting('chubToken');
-    if (savedToken) {
-        chubToken = savedToken;
-        debugLog('[ChubToken] Loaded from gallery settings');
-        
-        const tokenInput = document.getElementById('chubApiKeyInput');
-        if (tokenInput) tokenInput.value = savedToken;
-    }
+    const savedToken = savedChubToken();
+    const tokenInput = document.getElementById('chubApiKeyInput');
+    if (savedToken && tokenInput) tokenInput.value = savedToken;
 }
 
 function saveChubToken() {
@@ -1142,14 +1153,11 @@ function saveChubToken() {
     
     if (!tokenInput) return;
     
-    // DevTools header copies arrive as "Bearer <token>"; strip the scheme
-    const token = tokenInput.value.trim().replace(/^bearer\s+/i, '');
+    const token = normalizeChubToken(tokenInput.value);
     if (!token) {
         showToast('Please enter your URQL token', 'warning');
         return;
     }
-    
-    chubToken = token;
     
     setSettings({ chubToken: token });
     debugLog('[ChubToken] Saved to gallery settings (persistent)');
@@ -1164,8 +1172,6 @@ function saveChubToken() {
 }
 
 function clearChubToken() {
-    chubToken = null;
-
     setSettings({ chubToken: null });
     debugLog('[ChubToken] Cleared from gallery settings');
 
@@ -1180,9 +1186,9 @@ function clearChubToken() {
     }
 
     // Drop timeline / follows state so logged-out users dont see stale data.
-    // Token-bump cancels any in-flight chunked render.
-    chubTimelineRenderToken++;
     chubTimelineCharacters = [];
+    chubTimelineHidden = 0;
+    chubTimelineLoadGen++;
     chubTimelineLookup = new Map();
     chubFollowsNodeMap.clear();
     if (chubViewMode === 'timeline') {
@@ -1199,12 +1205,13 @@ export function openChubTokenModal() {
     const tokenInput = document.getElementById('chubApiKeyInput');
     const clearBtn = document.getElementById('chubClearKeyBtn');
     
-    if (tokenInput && chubToken) {
-        tokenInput.value = chubToken;
+    const savedToken = savedChubToken();
+    if (tokenInput && savedToken) {
+        tokenInput.value = savedToken;
     }
-    
+
     if (clearBtn) {
-        clearBtn.hidden = !chubToken;
+        clearBtn.hidden = !savedToken;
     }
     
     modal.classList.remove('hidden');
@@ -1649,7 +1656,11 @@ function setChubModeChrome(mode) {
     if (dpTarget) dpTarget.classList.toggle('browse-filter-hidden', !browse);
     // the username query never reads the preset, so the scope collapses the sort slot
     discoveryPreset?.closest('.browse-sort-container')?.classList.toggle('hidden', browse && !!chubAuthorFilter);
-    if (tsTarget) tsTarget.classList.toggle('browse-filter-hidden', browse);
+    // the feed has one order, so its timeline takes no sort; the joined timeline sorts what it holds
+    const joined = chubTimelineJoined();
+    if (tsTarget) tsTarget.classList.toggle('browse-filter-hidden', browse || !joined);
+    const subtitle = document.getElementById('chubTimelineSubtitle');
+    if (subtitle) subtitle.textContent = joined ? 'Newest characters from every creator you follow' : 'Latest updates from creators and tags you follow';
     // tags stay usable in BOTH modes (the timeline filters topics client-side);
     // browse only ever restores visibility defensively
     if (browse && tagsDropdownContainer) tagsDropdownContainer.classList.remove('browse-filter-hidden');
@@ -1664,179 +1675,133 @@ function switchChubViewMode(mode) {
 }
 
 // ============================================================================
-// CHUBAI TIMELINE (New from followed authors)
+// CHUBAI TIMELINE (Chub's own feed; every followed creator merged when chubTimelineJoined is on)
 // ============================================================================
 
-async function loadChubTimeline(forceRefresh = false, _isAutoPage = false, _appendRender = false) {
-    if (!chubToken) {
+const chubTimelineJoined = () => getSetting('chubTimelineJoined') === true;
+const chubTimelineSource = () => (chubTimelineJoined() ? 'creators' : 'feed');
+
+// the feed carries every kind a followed creator posts: a character is user/slug, the rest sit under their kind (lorebooks/, presets/ etc)
+function isChubTimelineCharacter(node) {
+    const path = (node.fullPath || node.full_path || '').replace(/^characters\//, '');
+    return path.split('/').length === 2 && !Array.isArray(node.entries);
+}
+
+/**
+ * One page of Chub's timeline feed, read as chub.ai reads it: numbered, twenty to a page, no cursor; an empty page is its end.
+ * @param {number} page
+ * @returns {Promise<object[]|null>} the page's nodes, null when the token is refused
+ */
+async function fetchChubFeedPage(page) {
+    const params = new URLSearchParams({ page: String(page), count: 'false', nsfw: String(chubNsfwEnabled), nsfl: String(chubNsfwEnabled) });
+    const response = await fetch(`${CHUB_API_BASE}/api/timeline/v1?${params}`, { headers: getChubHeaders(true) });
+    if (response.status === 401) return null;
+    const data = await readJsonClassified(response);
+    return (data.data || data).nodes || [];
+}
+
+/**
+ * One page of each followed creator's newest characters, 24 a creator; there is more while any creator filled its page.
+ * @param {number} page
+ * @returns {Promise<{ nodes: object[], more: boolean }|null>} null when ChubAI does not recognize the token
+ */
+async function fetchJoinedTimelinePage(page) {
+    const followedAuthors = await fetchMyFollowsList();
+    if (!followedAuthors || followedAuthors.size === 0) return chubFollowsSignedIn === false ? null : { nodes: [], more: false };
+    const PAGE_SIZE = 24;
+    const authors = [...followedAuthors];
+    const nodes = [];
+    let more = false;
+    for (let i = 0; i < authors.length; i += 5) {
+        const results = await Promise.all(authors.slice(i, i + 5).map(async (author) => {
+            try {
+                const params = new URLSearchParams({ username: author, first: String(PAGE_SIZE), page: String(page), sort: 'id', nsfw: String(chubNsfwEnabled), nsfl: String(chubNsfwEnabled), include_forks: 'true' });
+                const response = await fetch(`${CHUB_API_BASE}/search?${params}`, { headers: getChubHeaders(true) });
+                if (!response.ok) {
+                    debugLog(`[ChubTimeline] Error from ${author}: ${response.status}`);
+                    return [];
+                }
+                const data = await response.json();
+                const found = data.nodes || data.data?.nodes || [];
+                if (found.length >= PAGE_SIZE) more = true;
+                return found;
+            } catch (e) {
+                debugLog(`[ChubTimeline] Error fetching from ${author}:`, e.message);
+                return [];
+            }
+        }));
+        for (const found of results) nodes.push(...found);
+    }
+    return { nodes, more };
+}
+
+// a fresh load starts the source the setting names; an append fetches the next page of the source the list came from
+async function loadChubTimeline(forceRefresh = false, append = false) {
+    if (!savedChubToken()) {
         renderTimelineEmpty('login');
         return;
     }
-
-    // Prevent concurrent top-level loads from stacking loading bars / racing renders.
-    // Auto-pagination recursion is allowed through.
-    if (!_isAutoPage && chubTimelineLoadInFlight) return;
-
+    if (chubTimelineLoadInFlight) return;
+    chubTimelineLoadInFlight = true;
     const grid = document.getElementById('chubTimelineGrid');
-    const isInitialLoad = !_isAutoPage;
-
-    if (!_isAutoPage) chubTimelineLoadInFlight = true;
-
-    if (forceRefresh || (!chubTimelineCursor && chubTimelineCharacters.length === 0)) {
+    if (forceRefresh || !append) {
+        chubTimelineLoadGen++;
         renderSkeletonGrid(grid);
-        if (forceRefresh) {
-            chubTimelineCharacters = [];
-            chubTimelinePage = 1;
-            chubTimelineCursor = null;
-            chubTimelineAuthorPage = 1;
-            chubTimelineAuthorHasMore = false;
-        }
+        chubTimelineCharacters = [];
+        chubTimelineHidden = 0;
+        chubTimelinePage = 1;
+        chubTimelineHasMore = true;
+        chubTimelineLoadedFrom = chubTimelineSource();
     }
+    // a load a newer one superseded (or a leave dropped) lands on nothing: its page and its cards are the newer load's to fetch
+    const gen = chubTimelineLoadGen;
 
     try {
-        // Use the dedicated timeline endpoint which returns updates from followed authors
-        // This API uses cursor-based pagination, not page-based
-        const params = new URLSearchParams();
-        params.set('first', '50');
-        params.set('nsfw', chubNsfwEnabled.toString());
-        params.set('nsfl', chubNsfwEnabled.toString()); // NSFL follows NSFW setting
-        params.set('count', 'true'); // Request total count for better pagination info
-        
-        if (chubTimelineCursor) {
-            params.set('cursor', chubTimelineCursor);
-            debugLog('[ChubTimeline] Loading next page with cursor');
-        }
-        
-        const headers = getChubHeaders(true);
-        
-        debugLog('[ChubTimeline] Loading timeline, nsfw:', chubNsfwEnabled);
-        
-        const response = await fetch(`${CHUB_API_BASE}/api/timeline/v1?${params.toString()}`, {
-            method: 'GET',
-            headers
-        });
-        
-        if (response.status === 401) {
-            renderTimelineEmpty('login');
-            return;
-        }
-        const data = await readJsonClassified(response);
-
-        // Extract response data (may be nested under 'data')
-        const responseData = data.data || data;
-        
-        const nextCursor = responseData.cursor || null;
-        
-        let nodes = [];
-        if (responseData.nodes) {
-            nodes = responseData.nodes;
-        } else if (Array.isArray(responseData)) {
-            nodes = responseData;
-        }
-        
-        debugLog('[ChubTimeline] Got', nodes.length, 'items from API');
-        
-        // characters only: timeline paths lack the characters/ prefix, so keep username/slug paths or character fields
-        await chubBrowseView.probeHits(nodes);
-        const characterNodes = nodes.filter(node => {
-            const fullPath = node.fullPath || node.full_path || '';
-            
-            if (fullPath.startsWith('lorebooks/') || fullPath.startsWith('posts/')) {
-                return false;
-            }
-            
-            // If it has entries array, it's a lorebook
-            if (node.entries && Array.isArray(node.entries)) {
-                return false;
-            }
-            
-            // Characters have: tagline, first_mes/definition, topics, etc.
-            const hasCharacterProperties = node.tagline !== undefined || 
-                                          node.definition !== undefined ||
-                                          node.first_mes !== undefined ||
-                                          node.topics !== undefined ||
-                                          (node.labels && Array.isArray(node.labels));
-            
-            const hasCharPath = fullPath.startsWith('characters/') || 
-                               (fullPath.includes('/') && !fullPath.startsWith('lorebooks/') && !fullPath.startsWith('posts/'));
-            
-            const isCharacter = hasCharPath || hasCharacterProperties;
-            
-            return isCharacter;
-        });
-        
-        // Dedupe by fullPath
-        if (chubTimelineCharacters.length === 0) {
-            chubTimelineCharacters = characterNodes;
-        } else {
-            const existingPaths = new Set(chubTimelineCharacters.map(c => c.fullPath || c.full_path));
-            // Push new items instead of spread-copying the entire array
-            for (const c of characterNodes) {
-                const fp = c.fullPath || c.full_path;
-                if (!existingPaths.has(fp)) {
-                    chubTimelineCharacters.push(c);
-                    existingPaths.add(fp);
+        const seen = new Set(chubTimelineCharacters.map(c => getChubFullPath(c).toLowerCase()));
+        let added = 0;
+        // a page of lorebooks or presets alone adds no card, so the next is asked for at once, a few pages at most
+        for (let pages = 0; pages < 5 && added === 0 && chubTimelineHasMore; pages++) {
+            // the page is claimed before the request, so two appends never ask for the same one
+            const page = chubTimelinePage++;
+            let nodes;
+            if (chubTimelineLoadedFrom === 'creators') {
+                const got = await fetchJoinedTimelinePage(page);
+                if (gen !== chubTimelineLoadGen) return;
+                if (got === null) {
+                    renderTimelineEmpty('login');
+                    return;
                 }
-            }
-        }
-
-        debugLog('[ChubTimeline] Total characters:', chubTimelineCharacters.length);
-        
-        chubTimelineCursor = nextCursor;
-        
-        const gotItems = nodes.length > 0;
-        chubTimelineHasMore = gotItems && nextCursor;
-        
-        let oldestInBatch = null;
-        if (nodes.length > 0) {
-            const lastNode = nodes[nodes.length - 1];
-            oldestInBatch = lastNode.createdAt || lastNode.created_at;
-        }
-        
-        // Auto-load more pages to get recent content
-        let shouldAutoLoad = false;
-        const autoLoadTarget = 96;
-        const autoLoadPageLimit = 8;
-        if (nextCursor) {
-            if (characterNodes.length === 0) {
-                shouldAutoLoad = true; // All filtered out
-            } else if (chubTimelineCharacters.length < autoLoadTarget) {
-                if (oldestInBatch) {
-                    const oldestDate = new Date(oldestInBatch);
-                    const daysSinceOldest = (Date.now() - oldestDate.getTime()) / (1000 * 60 * 60 * 24);
-                    shouldAutoLoad = daysSinceOldest < 14;
-                } else {
-                    shouldAutoLoad = true;
+                nodes = got.nodes;
+                chubTimelineHasMore = got.more;
+            } else {
+                nodes = await fetchChubFeedPage(page);
+                if (gen !== chubTimelineLoadGen) return;
+                if (nodes === null) {
+                    renderTimelineEmpty('login');
+                    return;
                 }
+                chubTimelineHasMore = nodes.length > 0;
+            }
+            await chubBrowseView.probeHits(nodes);
+            if (gen !== chubTimelineLoadGen) return;
+
+            for (const node of nodes) {
+                const path = getChubFullPath(node).toLowerCase();
+                if (!path || seen.has(path) || !isChubTimelineCharacter(node)) continue;
+                seen.add(path);
+                chubTimelineCharacters.push(node);
+                added++;
             }
         }
-        
-        // Limit auto-loading to prevent infinite loops
-        if (shouldAutoLoad && chubTimelinePage < autoLoadPageLimit) {
-            debugLog('[ChubTimeline] Auto-loading next page... (have', chubTimelineCharacters.length, 'chars so far)');
-            chubTimelinePage++;
-            await loadChubTimeline(false, true, _appendRender);
-            return;
-        }
-        
-        // Timeline API is unreliable -- supplement with direct author fetches
-        // on any initial/forced load (not on auto-page recursion or Load More)
-        if (isInitialLoad) {
-            debugLog('[ChubTimeline] Supplementing with direct author fetches...');
-            await supplementTimelineWithAuthorFetches();
-        }
-        
-        if (chubTimelineCharacters.length === 0) {
-            renderTimelineEmpty('empty');
-        } else {
-            await chubBrowseView.probeHits(chubTimelineCharacters);
-            // the fill check measures the grid, so wait for the cards; a superseded render leaves it to its successor
-            if (!await renderChubTimeline(_appendRender)) return;
-        }
 
-        chubBrowseView.updateLoadMoreVisibility('chubTimelineLoadMore', chubTimelineHasMore || chubTimelineAuthorHasMore, true);
-        
+        if (chubTimelineCharacters.length === 0) {
+            if (!chubTimelineHasMore) renderTimelineEmpty('empty');
+            reportChubTimelinePage();
+        } else {
+            renderChubTimeline(append);
+        }
     } catch (e) {
+        if (gen !== chubTimelineLoadGen) return;
         console.error('[ChubTimeline] Load error:', e);
         if (grid) {
             renderBrowseError(grid, {
@@ -1844,18 +1809,18 @@ async function loadChubTimeline(forceRefresh = false, _isAutoPage = false, _appe
                 error: e,
                 title: 'Failed to Load Timeline',
                 view: 'timeline',
-                flags: { token: !!chubToken },
+                flags: { token: !!savedChubToken() },
                 retry: () => loadChubTimeline(true),
             });
         }
     } finally {
-        if (!_isAutoPage) chubTimelineLoadInFlight = false;
+        if (gen === chubTimelineLoadGen) chubTimelineLoadInFlight = false;
     }
 }
 
-// the cursor leg sets the in-flight flag itself; pre-setting it here trips its own re-entry guard
+// the loader sets the in-flight flag itself; pre-setting it here trips its own re-entry guard
 async function loadMoreChubTimeline() {
-    if (chubTimelineLoadInFlight) return;
+    if (chubTimelineLoadInFlight || !chubTimelineHasMore) return;
     const loadMoreBtn = document.getElementById('chubTimelineLoadMoreBtn');
     const originalLoadMoreHtml = loadMoreBtn ? loadMoreBtn.innerHTML : '';
     if (loadMoreBtn) {
@@ -1863,106 +1828,12 @@ async function loadMoreChubTimeline() {
         loadMoreBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
     }
     try {
-        if (chubTimelineCursor) {
-            chubTimelinePage++;
-            await loadChubTimeline(false, false, true);
-        } else if (chubTimelineAuthorHasMore) {
-            chubTimelineLoadInFlight = true;
-            try {
-                chubTimelineAuthorPage++;
-                await supplementTimelineWithAuthorFetches(chubTimelineAuthorPage);
-                await chubBrowseView.probeHits(chubTimelineCharacters);
-                if (await renderChubTimeline(true)) {
-                    chubBrowseView.updateLoadMoreVisibility('chubTimelineLoadMore', chubTimelineAuthorHasMore, true);
-                }
-            } finally {
-                chubTimelineLoadInFlight = false;
-            }
-        }
+        await loadChubTimeline(false, true);
     } finally {
         if (loadMoreBtn) {
             loadMoreBtn.disabled = false;
             loadMoreBtn.innerHTML = originalLoadMoreHtml || '<i class="fa-solid fa-plus"></i> Load More';
         }
-    }
-}
-
-/**
- * Supplement the timeline with each followed author's newest 24 per page; any full page sets chubTimelineAuthorHasMore.
- */
-async function supplementTimelineWithAuthorFetches(page = 1) {
-    try {
-        const followedAuthors = await fetchMyFollowsList();
-        if (!followedAuthors || followedAuthors.size === 0) {
-            debugLog('[ChubTimeline] No followed authors to fetch from');
-            chubTimelineAuthorHasMore = false;
-            return;
-        }
-        
-        debugLog('[ChubTimeline] Fetching page', page, 'from', followedAuthors.size, 'followed authors');
-        
-        const existingPaths = new Set(chubTimelineCharacters.map(c => 
-            (c.fullPath || c.full_path || '').toLowerCase()
-        ));
-        
-        const authorsToFetch = [...followedAuthors];
-        const PAGE_SIZE = 24;
-        let anyFullPage = false;
-
-        const batchSize = 5;
-        for (let i = 0; i < authorsToFetch.length; i += batchSize) {
-            const batch = authorsToFetch.slice(i, i + batchSize);
-            
-            const promises = batch.map(async (author) => {
-                try {
-                    const params = new URLSearchParams();
-                    params.set('username', author);
-                    params.set('first', PAGE_SIZE.toString());
-                    params.set('page', page.toString());
-                    params.set('sort', 'id');
-                    params.set('nsfw', chubNsfwEnabled.toString());
-                    params.set('nsfl', chubNsfwEnabled.toString());
-                    params.set('include_forks', 'true');
-                    
-                    const response = await fetch(`${CHUB_API_BASE}/search?${params.toString()}`, {
-                        headers: getChubHeaders(true)
-                    });
-                    
-                    if (!response.ok) {
-                        debugLog(`[ChubTimeline] Error from ${author}: ${response.status}`);
-                        return [];
-                    }
-                    
-                    const data = await response.json();
-                    const nodes = data.nodes || data.data?.nodes || [];
-                    if (nodes.length >= PAGE_SIZE) anyFullPage = true;
-                    return nodes;
-                } catch (e) {
-                    debugLog(`[ChubTimeline] Error fetching from ${author}:`, e.message);
-                    return [];
-                }
-            });
-            
-            const results = await Promise.all(promises);
-            
-            for (const authorChars of results) {
-                for (const char of authorChars) {
-                    const path = (char.fullPath || char.full_path || '').toLowerCase();
-                    if (path && !existingPaths.has(path)) {
-                        existingPaths.add(path);
-                        chubTimelineCharacters.push(char);
-                    }
-                }
-            }
-
-        }
-        
-        chubTimelineAuthorHasMore = anyFullPage;
-        debugLog('[ChubTimeline] After supplement page', page, '- have', chubTimelineCharacters.length, 'total chars, hasMore:', anyFullPage);
-        
-    } catch (e) {
-        console.error('[ChubTimeline] Error supplementing timeline:', e);
-        chubTimelineAuthorHasMore = false;
     }
 }
 
@@ -2089,51 +1960,72 @@ function _handleTimelineCardClick(e) {
     if (char) openChubCharPreview(char);
 }
 
-// resolves true once the cards are in (chunked over frames), false when a newer render or a leave superseded it
-async function renderChubTimeline(appendOnly = false) {
+const chubTimelineShowing = () => getCurrentView() === 'online' && chubViewMode === 'timeline';
+
+// the fill check measures the grid showing, so a hidden timeline never reports
+function reportChubTimelinePage() {
+    if (!chubTimelineShowing()) return;
+    chubBrowseView.updateLoadMoreVisibility('chubTimelineLoadMore', chubTimelineHidden > 0 || chubTimelineHasMore, true);
+}
+
+// paints the first window, or appending the next cards not yet painted, then reports the page; false when the timeline is hidden
+function renderChubTimeline(appendOnly = false) {
     const grid = document.getElementById('chubTimelineGrid');
-    
-    const includeTags = [];
-    const excludeTags = [];
-    for (const [tag, state] of chubTagFilters) {
-        if (state === 'include') includeTags.push(tag.toLowerCase());
-        else if (state === 'exclude') excludeTags.push(tag.toLowerCase());
-    }
-    // Persistent excludes are user-typed; lowercase to match the charTopics map below.
-    for (const t of view.persistentExcludeTags()) {
-        const lt = t.toLowerCase();
-        if (!excludeTags.includes(lt)) excludeTags.push(lt);
+    if (!chubTimelineShowing()) {
+        // an empty grid has the mode dispatch paint it when it shows; the shared image observer stays with the grid showing
+        grid.innerHTML = '';
+        chubTimelineHidden = 0;
+        return false;
     }
 
-    let sourceChars = chubTimelineCharacters;
-
-    // active predicate rows precomputed once per render, then one pass per card
-    const activeRows = activeFeatureRows(CHUB_FEATURE_FILTERS, chubFeatureState);
-    const favoritesActive = chubFeatureState.favorites && chubUserFavoriteIds.size > 0;
-    const anyFilterActive = activeRows.length > 0 || favoritesActive ||
-        includeTags.length > 0 || excludeTags.length > 0;
-    
-    let filteredCharacters;
-    if (anyFilterActive) {
-        filteredCharacters = sourceChars.filter(c => {
-            if (!featurePasses(c, activeRows)) return false;
-            if (favoritesActive && !chubUserFavoriteIds.has(c.id || c.project_id)) return false;
-            // Tag filters (client-side - timeline data already has topics)
-            if (includeTags.length > 0 || excludeTags.length > 0) {
-                const charTopics = (c.topics || []).map(t => t.toLowerCase());
-                if (includeTags.length > 0 && !includeTags.every(t => charTopics.includes(t))) return false;
-                if (excludeTags.length > 0 && excludeTags.some(t => charTopics.includes(t))) return false;
-            }
-            return true;
-        });
+    let sortedCharacters;
+    const sorted = chubTimelineSorted;
+    // a reveal reuses the last sort while the list stands; new cards or a full render sort again
+    if (appendOnly && sorted?.from === chubTimelineCharacters && sorted.len === chubTimelineCharacters.length) {
+        sortedCharacters = sorted.list;
     } else {
-        filteredCharacters = sourceChars.slice();
+        const includeTags = [];
+        const excludeTags = [];
+        for (const [tag, state] of chubTagFilters) {
+            if (state === 'include') includeTags.push(tag.toLowerCase());
+            else if (state === 'exclude') excludeTags.push(tag.toLowerCase());
+        }
+        // Persistent excludes are user-typed; lowercase to match the charTopics map below.
+        for (const t of view.persistentExcludeTags()) {
+            const lt = t.toLowerCase();
+            if (!excludeTags.includes(lt)) excludeTags.push(lt);
+        }
+
+        // active predicate rows precomputed once per render, then one pass per card
+        const activeRows = activeFeatureRows(CHUB_FEATURE_FILTERS, chubFeatureState);
+        const favoritesActive = chubFeatureState.favorites && chubUserFavoriteIds.size > 0;
+        const anyFilterActive = activeRows.length > 0 || favoritesActive ||
+            includeTags.length > 0 || excludeTags.length > 0;
+
+        let filteredCharacters;
+        if (anyFilterActive) {
+            filteredCharacters = chubTimelineCharacters.filter(c => {
+                if (!featurePasses(c, activeRows)) return false;
+                if (favoritesActive && !chubUserFavoriteIds.has(c.id || c.project_id)) return false;
+                // Tag filters (client-side - timeline data already has topics)
+                if (includeTags.length > 0 || excludeTags.length > 0) {
+                    const charTopics = (c.topics || []).map(t => t.toLowerCase());
+                    if (includeTags.length > 0 && !includeTags.every(t => charTopics.includes(t))) return false;
+                    if (excludeTags.length > 0 && excludeTags.some(t => charTopics.includes(t))) return false;
+                }
+                return true;
+            });
+        } else {
+            filteredCharacters = chubTimelineCharacters.slice();
+        }
+
+        sortedCharacters = chubTimelineLoadedFrom === 'creators' ? sortTimelineCharacters(filteredCharacters) : filteredCharacters;
+        chubTimelineSorted = { from: chubTimelineCharacters, len: chubTimelineCharacters.length, list: sortedCharacters };
+        buildChubLookup(chubTimelineLookup, sortedCharacters);
     }
-    
-    const sortedCharacters = sortTimelineCharacters(filteredCharacters);
-    
+
     if (sortedCharacters.length === 0 && chubTimelineCharacters.length > 0) {
-        chubTimelineRenderToken++;
+        chubTimelineHidden = 0;
         chubTimelineLookup.clear();
         grid.innerHTML = `
             <div class="browse-timeline-empty">
@@ -2142,53 +2034,33 @@ async function renderChubTimeline(appendOnly = false) {
                 <p>No characters match your current filters. Try adjusting the filters.</p>
             </div>
         `;
+        reportChubTimelinePage();
         return true;
     }
 
-    buildChubLookup(chubTimelineLookup, sortedCharacters);
-
-    // Append-only: only add new cards without destroying existing DOM
-    if (appendOnly && grid.children.length > 0) {
-        const existingPaths = new Set();
-        for (const card of grid.querySelectorAll('.browse-card[data-full-path]')) {
-            existingPaths.add(card.dataset.fullPath);
+    const painted = appendOnly ? new Set(Array.from(grid.querySelectorAll('.browse-card[data-full-path]'), c => c.dataset.fullPath)) : null;
+    if (painted?.size) {
+        // the next window in sort order: cards a fetch sorted above the fold join at the end, never mid-grid
+        const next = [];
+        let unpainted = 0;
+        for (const c of sortedCharacters) {
+            if (painted.has(getChubFullPath(c))) continue;
+            if (next.length < CHUB_TIMELINE_WINDOW) next.push(c);
+            unpainted++;
         }
-        const newChars = sortedCharacters.filter(c => !existingPaths.has(getChubFullPath(c)));
-        if (newChars.length > 0) {
-            grid.insertAdjacentHTML('beforeend', newChars.map(char => createChubCard(char)).join(''));
+        if (next.length > 0) {
+            grid.insertAdjacentHTML('beforeend', next.map(char => createChubCard(char)).join(''));
             chubBrowseView.observeImages(grid);
         }
-        return true;
+        chubTimelineHidden = unpainted - next.length;
+    } else {
+        chubBrowseView.disconnectImageObserver();
+        const first = sortedCharacters.slice(0, CHUB_TIMELINE_WINDOW);
+        grid.innerHTML = first.map(char => createChubCard(char)).join('');
+        chubBrowseView.observeImages(grid);
+        chubTimelineHidden = sortedCharacters.length - first.length;
     }
-
-    chubBrowseView.disconnectImageObserver();
-
-    if (sortedCharacters.length > 180) {
-        const token = ++chubTimelineRenderToken;
-        const chunkSize = 60;
-        let index = 0;
-        grid.innerHTML = '';
-
-        return new Promise((resolve) => {
-            const appendNextChunk = () => {
-                if (token !== chubTimelineRenderToken || getCurrentView() !== 'online' || chubViewMode !== 'timeline') { resolve(false); return; }
-                const end = Math.min(index + chunkSize, sortedCharacters.length);
-                grid.insertAdjacentHTML('beforeend', sortedCharacters.slice(index, end).map(char => createChubCard(char)).join(''));
-                index = end;
-                if (index < sortedCharacters.length) {
-                    requestAnimationFrame(appendNextChunk);
-                } else {
-                    chubBrowseView.observeImages(grid);
-                    resolve(true);
-                }
-            };
-            requestAnimationFrame(appendNextChunk);
-        });
-    }
-
-    chubTimelineRenderToken++;
-    grid.innerHTML = sortedCharacters.map(char => createChubCard(char)).join('');
-    chubBrowseView.observeImages(grid);
+    reportChubTimelinePage();
     return true;
 }
 
@@ -2240,15 +2112,18 @@ function filterByAuthor(authorName) {
 // Track if we're following the current author
 let chubIsFollowingCurrentAuthor = false;
 let chubMyFollowsList = null; // Cache of who we follow
+let chubFollowsSignedIn = null; // the follows read's verdict on the token: true, false, or null when it could not tell
+let chubMyFollowsToken = null; // the token the cached follows were read with
 let chubFollowsNodeMap = new Map(); // username → node data from follows API
 
 // Fetch list of users we follow (cached)
 async function fetchMyFollowsList(forceRefresh = false) {
-    if (chubMyFollowsList && !forceRefresh) {
+    // the cache is the account's whose token read it: a token changed anywhere (the view, Settings) reads again
+    if (chubMyFollowsList && !forceRefresh && chubMyFollowsToken === savedChubToken()) {
         return chubMyFollowsList;
     }
     
-    if (!chubToken) return [];
+    if (!savedChubToken()) return [];
     
     try {
         const accountResp = await fetch(`${CHUB_API_BASE}/api/account`, {
@@ -2257,10 +2132,14 @@ async function fetchMyFollowsList(forceRefresh = false) {
         
         if (!accountResp.ok) {
             debugLog('[ChubFollow] Could not get account info');
+            chubFollowsSignedIn = accountResp.status === 401 ? false : null;
             return [];
         }
         
         const accountData = await accountResp.json();
+        // an unrecognized token answers an anonymous account, its id zero or below
+        chubFollowsSignedIn = Number(accountData.id ?? accountData.data?.id) > 0;
+        if (!chubFollowsSignedIn) return [];
         
         // API returns user_name (with underscore), not username
         const myUsername = accountData.user_name || accountData.name || accountData.username || 
@@ -2322,6 +2201,7 @@ async function fetchMyFollowsList(forceRefresh = false) {
         }
         
         chubMyFollowsList = followedUsernames;
+        chubMyFollowsToken = savedChubToken();
         debugLog('[ChubFollow] Following', followedUsernames.size, 'users:', [...followedUsernames]);
         return followedUsernames;
         
@@ -2336,7 +2216,7 @@ async function updateFollowAuthorButton(authorName) {
     const followBtn = document.getElementById('chubFollowAuthorBtn');
     if (!followBtn) return;
     
-    if (!chubToken) {
+    if (!savedChubToken()) {
         followBtn.hidden = true;
         return;
     }
@@ -2368,7 +2248,7 @@ async function updateFollowAuthorButton(authorName) {
 
 // Follow/unfollow the currently viewed author
 async function toggleFollowAuthor() {
-    if (!chubAuthorFilter || !chubToken) {
+    if (!chubAuthorFilter || !savedChubToken()) {
         showToast('Login required to follow authors', 'warning');
         return;
     }
@@ -2483,7 +2363,7 @@ async function loadChubCharacters(forceRefresh = false) {
     const grid = document.getElementById('chubGrid');
 
     // Special handling for favorites filter - use gateway API directly
-    if (chubFeatureState.favorites && chubToken) {
+    if (chubFeatureState.favorites && savedChubToken()) {
         await loadChubFavorites(forceRefresh, thisToken);
         return;
     }
@@ -2688,7 +2568,7 @@ async function loadChubCharacters(forceRefresh = false) {
                 provider: 'chub',
                 error: e,
                 title: 'Failed to load ChubAI',
-                flags: { token: !!chubToken, nsfw: chubNsfwEnabled },
+                flags: { token: !!savedChubToken(), nsfw: chubNsfwEnabled },
                 retry: () => loadChubCharacters(true),
             });
         } else {
@@ -2710,7 +2590,7 @@ async function loadChubCharacters(forceRefresh = false) {
  * Used for filtering in timeline view
  */
 async function fetchChubUserFavoriteIds({ maxAgeMs = 0 } = {}) {
-    if (!chubToken) {
+    if (!savedChubToken()) {
         chubUserFavoriteIds = new Set();
         chubFavoriteIdsFetchedAt = 0;
         return;
@@ -2725,8 +2605,8 @@ async function fetchChubUserFavoriteIds({ maxAgeMs = 0 } = {}) {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
-                'samwise': chubToken,
-                'CH-API-KEY': chubToken
+                'samwise': savedChubToken(),
+                'CH-API-KEY': savedChubToken()
             }
         });
 
@@ -2770,8 +2650,8 @@ async function loadChubFavorites(forceRefresh = false, loadToken = 0) {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
-                'samwise': chubToken,
-                'CH-API-KEY': chubToken
+                'samwise': savedChubToken(),
+                'CH-API-KEY': savedChubToken()
             }
         });
         
@@ -2847,7 +2727,7 @@ async function loadChubFavorites(forceRefresh = false, loadToken = 0) {
                 error: e,
                 title: 'Failed to load favorites',
                 view: 'favorites',
-                flags: { token: !!chubToken },
+                flags: { token: !!savedChubToken() },
                 retry: () => chubBrowseView.reload({ force: true }),
             });
         } else {
@@ -3278,9 +3158,9 @@ async function openChubCharPreview(char) {
 
             // Gateway only allow-origins https://chub.ai so direct CORS-rejects; inline /proxy/ fallback keeps the Response for the 401/403 auth-required hint.
             const galleryHeaders = { 'Accept': 'application/json' };
-            if (chubToken) {
-                galleryHeaders['samwise'] = chubToken;
-                galleryHeaders['CH-API-KEY'] = chubToken;
+            if (savedChubToken()) {
+                galleryHeaders['samwise'] = savedChubToken();
+                galleryHeaders['CH-API-KEY'] = savedChubToken();
             }
             const charProjectId = char.id || char.project_id;
             const fetchGallery = async (url) => {
@@ -3383,7 +3263,7 @@ async function updateChubFavoriteButton(char) {
     favoriteBtn.querySelector('i').className = 'fa-regular fa-heart';
     
     // If no token, show but disable with tooltip
-    if (!chubToken) {
+    if (!savedChubToken()) {
         favoriteBtn.title = 'Login to ChubAI to add favorites';
         return;
     }
@@ -3436,8 +3316,8 @@ async function updateChubFavoriteButton(char) {
  * Toggle favorite for the currently selected ChubAI character
  */
 async function toggleChubCharFavorite() {
-    if (!chubSelectedChar || !chubToken) {
-        if (!chubToken) {
+    if (!chubSelectedChar || !savedChubToken()) {
+        if (!savedChubToken()) {
             showToast('Login to ChubAI to add favorites', 'info');
             openChubTokenModal();
         }
@@ -3468,8 +3348,8 @@ async function toggleChubCharFavorite() {
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'samwise': chubToken,
-                'CH-API-KEY': chubToken
+                'samwise': savedChubToken(),
+                'CH-API-KEY': savedChubToken()
             },
             body: '{}'  // ChubAI expects empty JSON body
         });
