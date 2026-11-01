@@ -16,6 +16,15 @@ export function mountAiConnectionBlock(...args) {
     return window.mountAiConnectionBlock?.(...args) ?? Promise.resolve(null);
 }
 
+/**
+ * Whether a surface paints its reply as it arrives: on unless its connection's Stream the reply was switched off
+ * @param {string} surface the connection block's surface ('creator', 'css', ...)
+ * @returns {boolean}
+ */
+export function aiConnectionStreams(surface) {
+    return !!window.aiConnectionStreams?.(surface);
+}
+
 export function callLLM(messages, opts) {
     return window.callLLM?.(messages, opts);
 }
@@ -939,11 +948,20 @@ export function formatRichText(...args) {
  * Format a chat message body (markdown plus the speech/narration registers)
  * @param {string} text - Raw message text
  * @param {string} charName - Character name for substitution
- * @param {object} [opts] - macros (false shows the text as stored), userName, pronouns (with macros false, the five pronoun macros alone answered from these forms), macroSpans, quoteFamilies, repairEmphasis, escapeStrings, streaming
+ * @param {object} [opts] - macros (false shows the text as stored), userName, pronouns (with macros false, the five pronoun macros alone answered from these forms), macroSpans, quoteFamilies, repairEmphasis, escapeStrings, streaming (true, or 'live' to shape blocks as they arrive), openIslands (false keeps an unclosed html block text)
  * @returns {string} Unsanitised HTML; pair it with safePurify(..., CHAT_PURIFY_CONFIG)
  */
 export function formatChatText(...args) {
     return window.formatChatText?.(...args) ?? '';
+}
+
+/**
+ * Whether Format as it streams applies to a surface's partial reply: its override, else the chat's switch
+ * @param {'chat'|'assistant'|'creator'} surface
+ * @returns {boolean} true to paint the partial with formatChatText's streaming: 'live'
+ */
+export function liveFormattingOn(surface) {
+    return window.liveFormattingOn?.(surface) ?? false;
 }
 
 /**
@@ -1883,6 +1901,7 @@ export default {
     getCharacterName,
     formatRichText,
     formatChatText,
+    liveFormattingOn,
     answerPronounMacros,
     renderLorebookEntriesHtml,
     
@@ -2007,6 +2026,7 @@ export default {
 
     getLlmSettings,
     mountAiConnectionBlock,
+    aiConnectionStreams,
     callLLM,
     callLLMStream,
     consumeLlmSse,

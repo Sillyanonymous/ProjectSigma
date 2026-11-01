@@ -342,6 +342,8 @@ function initCustomSelect(select) {
     }
 
     function syncVisuals() {
+        // a disabled button takes no click, so the menu and the phone's sheet both stay shut
+        trigger.disabled = select.disabled;
         const selectedOpt = select.options[select.selectedIndex];
         const triggerText = trigger.querySelector('.trigger-text');
         // a label names the trigger with the value after it, so the value stays in the name
@@ -977,6 +979,8 @@ const DEFAULT_SETTINGS = {
     assistantChatEdits: false,
     // OFF by default: this surface emits fenced blocks, and half a fence renders as broken markup until it closes.
     assistantStreaming: false,
+    // 'chat' follows the chat's Format as it streams; 'on' and 'off' decide for this panel alone.
+    assistantLiveFormatting: 'chat',
     // Whether the saved-prompt chips are showing above the assistant's composer. The
     // prompts themselves are a store document; this is only the row's open state.
     assistantPromptsOpen: false,
@@ -990,6 +994,7 @@ const DEFAULT_SETTINGS = {
     creatorStudioSystemPrompt: '',
     creatorStudioMaxContext: 0,
     creatorStudioPromptsOpen: false,
+    creatorStudioLiveFormatting: 'chat',
     // Per-request overrides on the assistant's connection; blank inherits the profile's own
     // params. Blank is the one inherit spelling, because 0 is a real temperature.
     assistantReasoningEffort: '',
@@ -1022,10 +1027,14 @@ const DEFAULT_SETTINGS = {
     // The plate behind each message. Off is the bare look: text straight on the backdrop.
     chatMessageFill: true,
     chatExpandActions: false,
-    // The streaming caret is the one looping animation in the product.
+    // On, a reply shows as it is written; off, it lands whole and its row says how long it has been on its way.
+    chatStreaming: true,
+    // The caret that breathes at the end of a reply being written.
     chatAmbientMotion: true,
     // Off, a reply shows as it arrives; on, a bursty connection's text is spread across its gaps, at most a second behind.
     chatSmoothStreaming: false,
+    // Off, code blocks, HTML blocks and tables take their shape when a reply finishes; on, as it arrives.
+    chatLiveFormatting: false,
     // Collapsed by default: a 2,000 word think block is many screens before the answer.
     chatReasoningDefaultOpen: false,
     // The in-chat gallery shows the character's pictures and the chat's own; added pictures go to the character's.
@@ -1244,13 +1253,23 @@ async function getLlmSettings() {
 // ========================================
 
 /**
+ * Whether a surface paints its reply as it arrives: on unless its connection's Stream the reply was switched off.
+ * @param {string} surface the aiProfile.<surface> the connection block persists under
+ * @returns {boolean}
+ */
+function aiConnectionStreams(surface) {
+    const stored = getSetting(`aiProfile.${surface}`);
+    return !(stored && typeof stored === 'object' && stored.streaming === false);
+}
+
+/**
  * One connection chooser for every AI surface: overrides ride requests as params and never write
  * the profile. Persists under aiProfile.<surface>.
  * @param {Element} host container to render into
- * @param {Object} opts surface (required), onChange(profile|null), showOverrides, showSelect (false = overrides only), layout ('column' | 'row'), panelHost
+ * @param {Object} opts surface (required), onChange(profile|null), onStreamingChange(on), showOverrides, showSelect (false = overrides only), layout ('column' | 'row'), panelHost
  * @returns {Object|null} { refresh, getProfile, getParams, getSettings, setProfile }
  */
-async function mountAiConnectionBlock(host, { surface, onChange = null, showOverrides = true, showSelect = true, layout = 'column', panelHost = null } = {}) {
+async function mountAiConnectionBlock(host, { surface, onChange = null, onStreamingChange = null, showOverrides = true, showSelect = true, layout = 'column', panelHost = null } = {}) {
     if (!host || !surface) return null;
     const KEY = `aiProfile.${surface}`;
     const stored = () => {
@@ -1278,7 +1297,7 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, showOver
                     <input type="number" min="1" step="256" data-ov="maxTokens" placeholder="profile">
                 </label>
                 <label class="cl-ai-conn-ov-row">Stream the reply
-                    <input type="checkbox" class="cl-ai-conn-stream" ${stored().streaming !== false ? 'checked' : ''}>
+                    <input type="checkbox" class="cl-ai-conn-stream" ${aiConnectionStreams(surface) ? 'checked' : ''}>
                 </label>
             </div>` : ''}
         </div>`;
@@ -1324,7 +1343,7 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, showOver
             const ovs = stored().overrides || {};
             ovScope.querySelectorAll('[data-ov]').forEach(el => { el.value = ovs[el.dataset.ov] ?? ''; });
             const st = ovScope.querySelector('.cl-ai-conn-stream');
-            if (st) st.checked = stored().streaming !== false;
+            if (st) st.checked = aiConnectionStreams(surface);
         }
         // A stored profile that vanished server-side changed the selection without any
         // user gesture; the consumer's onChange contract covers that change too.
@@ -1366,6 +1385,7 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, showOver
             if (e.target.checked) delete next.streaming;
             else next.streaming = false;
             setSetting(KEY, next);
+            try { onStreamingChange?.(e.target.checked); } catch { /* consumer's problem */ }
         });
     }
 
@@ -1389,14 +1409,12 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, showOver
         try { onChange?.(getProfile()); } catch { /* consumer's problem */ }
     };
 
-    const getStreaming = () => stored().streaming !== false;
-
     // until the list answers, the trigger says the stored connection's name (an empty select showed its chevron alone)
     const waiting = stored();
     select.innerHTML = `<option value="${escapeHtml(waiting.profileId || '')}" selected>${escapeHtml(waiting.profileName || 'Loading connections...')}</option>`;
     if (showSelect) initCustomSelect(select);
     await refresh();
-    return { refresh, getProfile, getParams, getStreaming, getSettings: () => settings, setProfile };
+    return { refresh, getProfile, getParams, getSettings: () => settings, setProfile };
 }
 
 // the finishes an adapter reports for a reply cut at its token cap, as the server's own set names them
@@ -13974,7 +13992,19 @@ const INLINE_HTML_RE = /<\/?(?:b|i|u|s|em|strong|del|mark|small|sub|sup|code|kbd
 const BLOCK_HTML_RE = /<(div|details|table|blockquote|h[1-6]|ul|ol|p|center|figure|section|article|aside)(?=[\s>])/gi;
 const VOID_BLOCK_HTML_RE = /<hr\b[^<>]*\/?>/gi;
 
-function extractChatHtmlIslands(src, add, blockTokens) {
+// An unclosed block opener that is surely markup: attributes, a tag right after it, or a line to itself.
+function looksLikeOpenMarkup(src, start) {
+    const close = src.indexOf('>', start);
+    if (close === -1) return false;
+    const tag = src.slice(start, close);
+    // a bare word is an attribute only when it is a boolean one, so a scene marker like "<section break>" stays prose
+    if (!/^<\w+(?:\s+(?:[\w:-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)|open|hidden|reversed|nowrap|inert))*\s*\/?$/i.test(tag)) return false;
+    const next = src.slice(close + 1, close + 2);
+    const ownLine = /^[ \t]*$/.test(src.slice(src.lastIndexOf('\n', start - 1) + 1, start));
+    return /^<\w+\s+\S/.test(tag) || next === '<' || (next === '\n' && ownLine);
+}
+
+function extractChatHtmlIslands(src, add, blockTokens, { live = false, openAtEnd = false } = {}) {
     let out = '';
     let pos = 0;
     BLOCK_HTML_RE.lastIndex = 0;
@@ -13982,6 +14012,8 @@ function extractChatHtmlIslands(src, add, blockTokens) {
     while ((m = BLOCK_HTML_RE.exec(src)) !== null) {
         const start = m.index;
         if (start < pos) continue;   // inside the island just taken
+        // inline code still waiting for its closing backtick keeps a tag inside it as code
+        if (live && (src.slice(src.lastIndexOf('\n', start - 1) + 1, start).match(/`/g) || []).length % 2) continue;
         const root = m[1].toLowerCase();
         const walker = new RegExp(`<(/?)${root}(?=[\\s>/])[^<>]*>`, 'gi');
         walker.lastIndex = start;
@@ -13992,8 +14024,12 @@ function extractChatHtmlIslands(src, add, blockTokens) {
             if (w[1]) { depth--; if (depth === 0) { end = walker.lastIndex; break; } }
             else depth++;
         }
+        // only what looks like markup runs to the end; a tag named in prose stays text, as it does on settle
+        const open = end === -1 && openAtEnd && root !== 'p' && looksLikeOpenMarkup(src, start);
+        if (open) end = src.length;
         if (end === -1) continue;    // unbalanced: stays literal
-        const token = add(src.slice(start, end));
+        // an open island's table row waits for its close, or its columns re-spaced on every token
+        const token = add(open ? src.slice(start, end).replace(/<tr\b(?:(?!<\/tr>)[\s\S])*$/i, '') : src.slice(start, end));
         blockTokens.add(token);
         // Own line either side, so the paragraphizer sees the token as a block and never
         // wraps it in a <p>.
@@ -14029,6 +14065,61 @@ function buildChatCodeBlock(lang, code) {
     return `<div class="cl-code-block"><div class="cl-code-head"><span class="cl-code-lang">${escapeHtml(label || 'code')}</span></div><pre><code${cls}>${escapeHtml(code)}</code></pre></div>`;
 }
 
+// a markdown table's lines, spelled once for the builder and the live hold that must agree with it
+const isChatTableRow = (s) => /^\s*\|.*\|\s*$/.test(s);
+const isChatTableSep = (s) => /^\s*\|[\s:|-]+\|\s*$/.test(s);
+const chatTableCells = (s) => s.trim().replace(/^\||\|$/g, '').split('|');
+
+// A table line still arriving (a row, or a separator under a header) waits until it holds its header's cells.
+function holdLiveTableLine(src) {
+    const lines = src.split('\n');
+    const last = lines.length - 1;
+    if (last < 1 || !/^\s*\|/.test(lines[last])) return src;
+    const cells = (s) => chatTableCells(s).length;
+    // the header of the table whose rows run down to just above the last line, or -1
+    let k = last - 1;
+    while (k >= 1 && isChatTableRow(lines[k]) && !isChatTableSep(lines[k])) k--;
+    const head = k >= 1 && isChatTableSep(lines[k]) && isChatTableRow(lines[k - 1]) && !isChatTableSep(lines[k - 1]) ? k - 1 : -1;
+    let whole = true;
+    if (head !== -1) whole = isChatTableRow(lines[last]) && !isChatTableSep(lines[last]) && cells(lines[last]) >= cells(lines[head]);
+    else if (isChatTableRow(lines[last - 1]) && /^\s*\|[\s:|-]*$/.test(lines[last])) whole = isChatTableSep(lines[last]) && cells(lines[last]) >= cells(lines[last - 1]);
+    return whole ? src : lines.slice(0, last).join('\n');
+}
+
+// A fence line still arriving waits; a bare ~~~ closing an open tilde fence closes it at once.
+function holdLiveFenceLine(src) {
+    const m = /(?:^|\n)[ \t]*(```[^\n`~]*|~~~[^\n`~]*|`{1,2}|~{1,2})$/.exec(src);
+    if (!m) return src;
+    if (/^~~~[ \t]*$/.test(m[1])) {
+        let open = false;
+        for (const line of src.slice(0, m.index).split('\n')) {
+            if (!open && /^[ \t]*~~~/.test(line)) open = true;
+            else if (open && /^[ \t]*~~~[ \t]*$/.test(line)) open = false;
+        }
+        if (open) return src;
+    }
+    return src.slice(0, m.index);
+}
+
+// Fences as the settled pattern pairs them, read by line from the left; the first opener never closed runs to the end.
+function boxLiveFences(src, box) {
+    const lines = src.split('\n');
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+        const open = /^[ \t]*(```|~~~)(.*)$/.exec(lines[i]);
+        if (!open) { out.push(lines[i]); continue; }
+        // the settled pattern needs a line between, so the closer is looked for from the second line on
+        const closer = new RegExp(`^[ \\t]*${open[1]}[ \\t]*$`);
+        let j = i + 2;
+        while (j < lines.length && !closer.test(lines[j])) j++;
+        // open, only backticks run on: tildes are a scene break as often, and a line closing its own backticks opens nothing
+        if (j >= lines.length && (open[1] === '~~~' || open[2].includes('`'))) { out.push(lines[i]); continue; }
+        out.push(box(open[2], lines.slice(i + 1, Math.min(j, lines.length)).join('\n')));
+        i = j;
+    }
+    return out.join('\n');
+}
+
 // Block markdown on escaped text, each block stored as a placeholder so the paragraph and inline
 // passes never re-enter it.
 function buildChatBlocks(html, add, blockTokens, { tables = true, emClass = '' } = {}) {
@@ -14040,8 +14131,6 @@ function buildChatBlocks(html, add, blockTokens, { tables = true, emClass = '' }
     };
     const BULLET = /^ {0,3}[-*+]\s+(.*)$/;
     const NUMBERED = /^ {0,3}\d+[.)]\s+(.*)$/;
-    const isRow = (s) => /^\s*\|.*\|\s*$/.test(s);
-    const isSep = (s) => /^\s*\|[\s:|-]+\|\s*$/.test(s);
 
     const lines = html.split('\n');
     const out = [];
@@ -14075,12 +14164,12 @@ function buildChatBlocks(html, add, blockTokens, { tables = true, emClass = '' }
             continue;
         }
 
-        if (tables && isRow(line) && !isSep(line) && i + 1 < lines.length && isSep(lines[i + 1])) {
-            const cells = (s) => s.trim().replace(/^\||\|$/g, '').split('|').map(c => inline(c.trim()));
+        if (tables && isChatTableRow(line) && !isChatTableSep(line) && i + 1 < lines.length && isChatTableSep(lines[i + 1])) {
+            const cells = (s) => chatTableCells(s).map(c => inline(c.trim()));
             const head = cells(line);
             i += 2;
             const rows = [];
-            while (i < lines.length && isRow(lines[i]) && !isSep(lines[i])) {
+            while (i < lines.length && isChatTableRow(lines[i]) && !isChatTableSep(lines[i])) {
                 rows.push(cells(lines[i]));
                 i++;
             }
@@ -14123,12 +14212,25 @@ function buildChatBlocks(html, add, blockTokens, { tables = true, emClass = '' }
     return out.join('\n');
 }
 
+// The surfaces outside the chat that paint a streaming reply, each with its own override key.
+const LIVE_FORMATTING_OVERRIDES = Object.freeze({ assistant: 'assistantLiveFormatting', creator: 'creatorStudioLiveFormatting' });
+
+/**
+ * Whether Format as it streams applies to a surface's partial reply: its override, else the chat's switch.
+ * @param {'chat'|'assistant'|'creator'} surface
+ * @returns {boolean}
+ */
+function liveFormattingOn(surface) {
+    const own = LIVE_FORMATTING_OVERRIDES[surface] ? getSetting(LIVE_FORMATTING_OVERRIDES[surface]) : 'chat';
+    return own === 'on' || (own !== 'off' && getSetting('chatLiveFormatting') === true);
+}
+
 /**
  * Formats a chat message: everything escaped first, then a known tag set re-emitted. UNSANITISED:
  * pair with safePurify(..., CHAT_PURIFY_CONFIG).
  * @param {string} text - Raw message text
  * @param {string} charName - Character name for {{char}}
- * @param {object} [opts] - macros (false shows the text as stored), userName, pronouns (with macros false, the five pronoun macros alone answered from these forms), macroSpans, quoteFamilies, repairEmphasis, escapeStrings, streaming
+ * @param {object} [opts] - macros (false shows the text as stored), userName, pronouns (with macros false, the five pronoun macros alone answered from these forms), macroSpans, quoteFamilies, repairEmphasis, escapeStrings, streaming, openIslands (false: with streaming 'live', an unclosed html block stays text)
  * @returns {string} Formatted HTML
  */
 function formatChatText(text, charName = '', opts = {}) {
@@ -14138,7 +14240,9 @@ function formatChatText(text, charName = '', opts = {}) {
     const families = opts.quoteFamilies || getSetting('chatQuoteFamilies') || 'default';
     const repair = opts.repairEmphasis !== undefined ? opts.repairEmphasis : getSetting('chatRepairEmphasis') !== false;
     const escapeStrings = opts.escapeStrings !== undefined ? opts.escapeStrings : (getSetting('chatEscapeStrings') || '');
-    const streaming = opts.streaming === true;
+    // 'live' shapes fences, islands and tables as they arrive, an open one running to the end of the partial
+    const live = opts.streaming === 'live';
+    const streaming = opts.streaming === true || live;
 
     // NUL is the placeholder sentinel, so an authored one would let a message forge a token
     let src = String(text).trim()
@@ -14150,17 +14254,25 @@ function formatChatText(text, charName = '', opts = {}) {
 
     // a tag or emphasis opener still arriving would draw as text, then vanish: a jolt per line
     if (streaming) src = src.replace(/<\/?(?:[A-Za-z][^<>]*)?$/, '').replace(/(^|\s)[*_]{1,3}$/, '$1');
+    // held for a frame: a fence line still arriving, half an entity, a bare block opener whose next character decides
+    if (live) {
+        src = holdLiveFenceLine(src).replace(/&[#A-Za-z0-9]{0,10}$/, '')
+            .replace(/<(?:div|details|table|blockquote|h[1-6]|ul|ol|center|figure|section|article|aside)>$/i, '');
+    }
 
     const ph = createPlaceholderStore(i => `\x00CLCHAT${i}\x00`);
     const blockTokens = new Set();
+    const boxCode = (lang, code) => {
+        const token = ph.add(buildChatCodeBlock(lang, code));
+        blockTokens.add(token);
+        return token;
+    };
 
-    // an unterminated fence never matches, so a half-streamed block stays plain by construction
+    // an unterminated fence never matches the settled pattern, so a half-streamed block stays plain by construction
     if (!streaming) {
-        src = src.replace(/(^|\n)[ \t]*(```|~~~)([^\n]*)\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/g, (m, lead, fence, lang, code) => {
-            const token = ph.add(buildChatCodeBlock(lang, code));
-            blockTokens.add(token);
-            return lead + token;
-        });
+        src = src.replace(/(^|\n)[ \t]*(```|~~~)([^\n]*)\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/g, (m, lead, fence, lang, code) => lead + boxCode(lang, code));
+    } else if (live) {
+        src = boxLiveFences(src, boxCode);
     }
     src = src.replace(/`([^`\n]+)`/g, (m, code) => ph.add(`<code class="cl-code-inline">${escapeHtml(code)}</code>`));
 
@@ -14175,7 +14287,7 @@ function formatChatText(text, charName = '', opts = {}) {
 
     // before repair so attr quotes arent counted, before media embeds so island srcs stay put
     const renderHtml = opts.renderHtml !== undefined ? opts.renderHtml : getSetting('chatRenderHtml') !== false;
-    if (!streaming && renderHtml) src = extractChatHtmlIslands(src, ph.add, blockTokens);
+    if ((!streaming || live) && renderHtml) src = extractChatHtmlIslands(src, ph.add, blockTokens, { live, openAtEnd: live && opts.openIslands !== false });
 
     // after code extraction so the counts ignore code, before escaping so it counts " not &quot;
     if (repair) src = src.split('\n').map(repairChatLine).join('\n');
@@ -14185,10 +14297,12 @@ function formatChatText(text, charName = '', opts = {}) {
     // Cards ship authored inline markup; only this fixed INLINE list lifts out, the sanitizer
     // re-validating each. Unbalanced block wrappers stay literal.
     src = src.replace(INLINE_HTML_RE, (tag) => ph.add(tag));
+    // a list or heading marker alone reads as a paragraph for a frame, then becomes its block
+    if (live) src = holdLiveTableLine(src).replace(/(?:^|\n) {0,3}(?:[-+]|\d{1,9}[.)]?|#{1,6})$/, '');
 
     let html = escapeHtml(src);
     html = wrapChatQuotes(html, families);
-    html = buildChatBlocks(html, ph.add, blockTokens, { tables: !streaming, emClass: 'cl-narration' });
+    html = buildChatBlocks(html, ph.add, blockTokens, { tables: !streaming || live, emClass: 'cl-narration' });
     html = applyInlineEmphasis(html, { strike: true, emClass: 'cl-narration' });
 
     // real <p> elements rather than <br> soup, and a block never ends up nested inside one
@@ -23754,6 +23868,7 @@ window.getDisplayTagline = getDisplayTagline;
 window.getCharacterName = getCharacterName;
 window.formatRichText = formatRichText;
 window.formatChatText = formatChatText;
+window.liveFormattingOn = liveFormattingOn;
 window.answerPronounMacros = answerPronounMacros;
 window.renderLorebookEntriesHtml = renderLorebookEntriesHtml;
 window.debugLog = debugLog;
@@ -23787,6 +23902,7 @@ window.computeLineDiff = computeLineDiff;
 window.computeWordDiff = computeWordDiff;
 window.getLlmSettings = getLlmSettings;
 window.mountAiConnectionBlock = mountAiConnectionBlock;
+window.aiConnectionStreams = aiConnectionStreams;
 
 // Runtime tokens: a module writes into the token LAYER, never inline styles, which would outrank
 // user Custom CSS.

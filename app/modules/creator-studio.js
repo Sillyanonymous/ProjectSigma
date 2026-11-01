@@ -3,8 +3,8 @@
 import CoreAPI from './core-api.js';
 import { CHAT_PURIFY_CONFIG } from './providers/provider-utils.js';
 import { cardValuesEqual } from './card-fields.js';
-import { syncRangeFill } from './chats/window.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
+import { syncRangeFill, syncFieldAvailability } from './chats/window.js';
+import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 const nf = (n) => Number(n || 0).toLocaleString();
@@ -18,6 +18,7 @@ let _sessionId = null;
 let _sessions = [];
 let _messages = [];
 let _busy = false;
+let _openStream = null;         // the reply whose stream is still open: { painting }, decided when it was sent
 let _posting = false;           // the author's turn on its way to the session its reply will be asked in
 let _abort = null;
 let _livePainter = null;        // the running reply's painter, so the panel reopening lands what streamed meanwhile
@@ -390,9 +391,9 @@ async function rebuildReferences() {
 // RENDERING
 // ========================================
 
-function renderText(text) {
+function renderText(text, opts = {}) {
     // a card under construction has no reader yet: {{user}} stays a placeholder, never the global persona's name
-    return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), deps?.readDraft?.().name || '', { userName: '{{user}}' }), CHAT_PURIFY_CONFIG);
+    return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), deps?.readDraft?.().name || '', { ...opts, userName: '{{user}}' }), CHAT_PURIFY_CONFIG);
 }
 
 /** What a card calls its target: the field, the tags, or the greeting by number. */
@@ -606,6 +607,12 @@ function settingsHtml() {
             </div>
         </section>
         <section class="cl-cwin-group">
+            <h4 class="cl-cwin-group-title"><i class="fa-solid fa-comment-dots"></i>Replies</h4>
+            <div class="cl-cwin-fields">
+                ${settingSelectHtml({ id: 'ccsSet_creatorStudioLiveFormatting', key: 'creatorStudioLiveFormatting', ...LIVE_FORMATTING_FIELD, value: String(CoreAPI.getSetting('creatorStudioLiveFormatting') || 'chat') })}
+            </div>
+        </section>
+        <section class="cl-cwin-group">
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-feather-pointed"></i>Prompt</h4>
             <div class="cl-cwin-fields">
                 <div class="cl-cwin-block">
@@ -656,7 +663,7 @@ async function mountConnection() {
     if (_connMounting) return _connMounting;
     const home = document.getElementById('ccsConnHome');
     if (!home) return null;
-    _connMounting = CoreAPI.mountAiConnectionBlock(home, { surface: 'creator', onChange: () => void syncSight() })
+    _connMounting = CoreAPI.mountAiConnectionBlock(home, { surface: 'creator', onChange: () => void syncSight(), onStreamingChange: syncLiveFormattingRow })
         .then((block) => { aiConn = block; _connMounting = null; placeConnection(); void syncSight(); return block; });
     return _connMounting;
 }
@@ -677,8 +684,18 @@ function paintBody(body, html) {
     body.innerHTML = html;
 }
 
+// whether a reply is painted as it arrives here: what the stream reads, and what Format as it streams waits on
+const studioStreams = () => CoreAPI.aiConnectionStreams('creator');
+
+function syncLiveFormattingRow() {
+    syncFieldAvailability(document.getElementById('ccsSet_creatorStudioLiveFormatting'), {
+        on: studioStreams(), hint: LIVE_FORMATTING_FIELD.hint, reason: 'Only applies while Stream the reply is on, under Overrides above.',
+    });
+}
+
 function onSettingInput(el) {
     const key = el.dataset.set;
+    if (key === 'creatorStudioLiveFormatting') { CoreAPI.setSetting(key, el.value); return; }
     if (key !== 'creatorStudioMaxContext') return;
     const n = parseInt(el.value, 10);
     // clamp AND reflect: the box shows what was stored, never a typed value the store rewrote
@@ -723,6 +740,10 @@ function render() {
     if (_view === 'settings') {
         paintBody(body, settingsHtml());
         placeConnection();
+        // by id: the seated connection block keeps its own plain selects
+        const live = document.getElementById('ccsSet_creatorStudioLiveFormatting');
+        if (live) CoreAPI.initCustomSelect(live);
+        syncLiveFormattingRow();
         return;
     }
     if (_view === 'context') {
@@ -734,8 +755,9 @@ function render() {
     if (!_messages.length) { paintBody(body, emptyHtml()); return; }
     paintBody(body, _messages.map((m, i) => messageHtml(m, i)).join(''));
     if (_lastFailure && !_busy) body.insertAdjacentHTML('beforeend', failedHtml());
-    if (_busy && !document.getElementById('ccsStreaming')) {
-        body.insertAdjacentHTML('beforeend', streamingHtml(aiConn?.getStreaming?.() !== false));
+    if (_openStream && !document.getElementById('ccsStreaming')) {
+        body.insertAdjacentHTML('beforeend', streamingHtml(_openStream.painting));
+        _livePainter?.paintNow();
     }
     body.scrollTop = body.scrollHeight;
 }
@@ -795,7 +817,7 @@ async function loadFields() {
     _defaultPrompt = d.systemPrompt || '';
 }
 
-async function loadSessions({ pick = null } = {}) {
+async function loadSessions({ pick = null, carry = null } = {}) {
     // a list answered after the author picked another session or the form moved on is late: their screen stands
     const was = _sessionId;
     const gen = _subjectGen;
@@ -804,7 +826,7 @@ async function loadSessions({ pick = null } = {}) {
     _sessions = list;
     const wanted = pick || _sessionId;
     const target = _sessions.find(s => s.id === wanted);
-    if (target) await openSession(target.id, { keepScroll: !!pick && pick === _sessionId });
+    if (target) await openSession(target.id, { keepScroll: !!pick && pick === _sessionId, carry });
     else { _sessionId = null; _tray.clear(); _messages = []; clearReview(); render(); }
 }
 
@@ -831,10 +853,7 @@ async function ensureSession() {
     return created.id;
 }
 
-async function openSession(id, { keepScroll = false } = {}) {
-    const scroller = keepScroll ? document.getElementById('ccsBody') : null;
-    const wasAtBottom = !!scroller && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 48;
-    const savedScroll = scroller ? scroller.scrollTop : null;
+async function openSession(id, { keepScroll = false, carry = null } = {}) {
     // waiting pictures are the session's they were stored in
     if (id !== _sessionId) _tray.clear();
     _sessionId = id;
@@ -859,11 +878,21 @@ async function openSession(id, { keepScroll = false } = {}) {
         const m = _messages[i];
         if (m.role !== 'assistant') continue;
         if (m.extra?.proposals?.length) refreshes.push(refreshProposals(i, { patch: false }));
-        else _proposals.set(i, { proposals: [], errors: m.extra?.proposalErrors || [] });
+        else markKnownEmpty(_proposals, i, m);
     }
     if (refreshes.length) await Promise.allSettled(refreshes);
     if (_sessionId !== id) return;
+    // a re-read in place leaves a Settings or Context view alone; the chat draws it on return
+    if (keepScroll && _view !== 'chat') return;
+    // read at the render, not the request: the reader scrolls and opens things while the session is read
+    const scroller = keepScroll ? document.getElementById('ccsBody') : null;
+    const wasAtBottom = !!scroller && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 48;
+    const savedScroll = scroller ? scroller.scrollTop : null;
+    const settledBody = () => document.querySelector(`#ccsBody .cas-msg[data-seq="${carry}"] .cas-msg-body`);
+    const kept = carry != null ? readerState(settledBody()) : null;
     render();
+    // the reply's state goes back before the scroll, or the scroll clamps on a reply redrawn shut
+    if (kept) restoreReaderState(settledBody(), kept);
     if (savedScroll != null) {
         const body = document.getElementById('ccsBody');
         if (body) body.scrollTop = wasAtBottom ? body.scrollHeight : savedScroll;
@@ -1017,7 +1046,8 @@ async function generate(sid = _sessionId) {
     void adoptSessionName(sid, deps.readDraft());
     setBusy(true);
     _abort = new AbortController();
-    const painting = aiConn?.getStreaming?.() !== false;
+    const painting = studioStreams();
+    _openStream = { painting };
     const body = document.getElementById('ccsBody');
     body?.insertAdjacentHTML('beforeend', streamingHtml(painting));
     if (body) body.scrollTop = body.scrollHeight;
@@ -1033,7 +1063,7 @@ async function generate(sid = _sessionId) {
     const paint = () => {
         const live = document.querySelector('#ccsStreaming .cas-msg-body');
         if (!live) return;
-        live.innerHTML = renderText(stripBlocks(acc));
+        paintPanelReply(live, 'creator', (opts) => renderText(stripBlocks(acc), opts));
         const host = document.getElementById('ccsBody');
         if (host) host.scrollTop = host.scrollHeight;
     };
@@ -1062,7 +1092,9 @@ async function generate(sid = _sessionId) {
             }
             if (ev.done?.message) { sawDone = true; _messages.push(ev.done.message); }
         });
-        document.getElementById('ccsStreaming')?.remove();
+        // closed before the settle's render, or it restores the placeholder for the whole proposal judging
+        _openStream = null;
+        const reader = closePanelStream('ccsStreaming', painter);
         if (_sessionId !== sid) return;
         if (acc && !sawDone) {
             await openSession(sid, { keepScroll: true });
@@ -1070,14 +1102,16 @@ async function generate(sid = _sessionId) {
             return;
         }
         const last = _messages.length - 1;
-        if (_messages[last]?.role === 'assistant' && !_messages[last]?.extra?.proposals?.length) {
-            _proposals.set(last, { proposals: [], errors: _messages[last]?.extra?.proposalErrors || [] });
-        }
-        render();
+        markKnownEmpty(_proposals, last, _messages[last]);
+        // a Settings or Context view the reader is in stays as it is (an open sheet, their typing); the chat draws it on return
+        if (_view === 'chat') render();
+        carryPanelReply('ccsBody', last, reader);
         if (_messages[last]?.extra?.proposals?.length) await refreshProposals(last);
         void refreshContext();
-        void loadSessions({ pick: sid });
+        // the reread renders the reply afresh, and carries what the reader has done to it by then
+        void loadSessions({ pick: sid, carry: last });
     } catch (e) {
+        _openStream = null;
         document.getElementById('ccsStreaming')?.remove();
         if (_sessionId !== sid) return;
         await openSession(sid, { keepScroll: true });
@@ -1088,7 +1122,6 @@ async function generate(sid = _sessionId) {
         if (_livePainter === painter) _livePainter = null;
         setBusy(false);
         _abort = null;
-        document.getElementById('ccsStreaming')?.remove();
         if (_lastFailure) render();
     }
 }

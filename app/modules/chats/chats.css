@@ -1602,12 +1602,14 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
 }
 
 /* an unseen copy as wide as the pill ends the last line, so a line running under it wraps; a same-length counter sizes it */
+/* a reply formatted as it streams keeps the same copy, so its settle wraps nothing */
 .chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
-.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
+.chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
     content: var(--swipe-count);
     display: inline-block;
     box-sizing: content-box;
-    height: 0;
     overflow: hidden;
     min-width: var(--swipe-count-min);
     padding-left: calc(2 * var(--swipe-btn) + 2 * var(--swipe-gap) + 2 * var(--space-2xs) + 2px + var(--swipe-combine, 0px));
@@ -1616,9 +1618,13 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
     letter-spacing: var(--tracking-wide);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    visibility: hidden;
     user-select: none;
     pointer-events: none;
+}
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+    height: 0;
+    visibility: hidden;
 }
 
 /* a last line keeps the room the pill needs beyond it; only the phone's touch-sized pill needs any */
@@ -1859,8 +1865,12 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
     white-space: pre-wrap;
 }
 
-/* Real markup once it has settled, so pre-wrap must not fight the paragraphs. */
-.cl-reasoning-body:has(p) { white-space: normal; }
+/* Real markup once settled or formatted as it streams, so pre-wrap must not fight its blocks (an island's newlines drew lines). */
+.cl-reasoning-body:has(> *) { white-space: normal; }
+
+/* a wide code line or table scrolls inside its own box; cut off at the row's edge it could not be reached */
+.cl-reasoning-body pre,
+.cl-reasoning-body .cl-table-scroll { overflow-x: auto; }
 
 /* list markers sit outside the box and the reset zeroes the padding, so they landed on the block's rule */
 .cl-reasoning-body ul,
@@ -1905,6 +1915,9 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
 /* The head is NOT dimmed by is-hidden (only the body is), so this label stays readable
    over the message it explains. */
 .chat-conv-msg-chip.is-hidden-flag { color: var(--cl-warning-pale); background: rgba(var(--cl-warning-rgb), 0.12); }
+/* a reply on its way with streaming off says how long; the live row's own time would stamp a reply not there yet */
+.chat-conv-msg-chip.is-status { font-variant-numeric: tabular-nums; }
+.chat-conv-msg-meta:has(> .is-status) > .is-time { display: none; }
 
 /* ---- Loading skeleton ---- */
 /* Same shimmer as the gallery tiles, in the card's anatomy, so the history arrives as a
@@ -2134,6 +2147,45 @@ html.cl-no-ambient .chat-conv-msg.streaming .chat-conv-msg-text:empty::after {
     opacity: 1;
 }
 
+/* the caret is streaming's: with the reply not shown as it is written, the row's status chip is the only sign */
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming .chat-conv-msg-text > :last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming .chat-conv-msg-text:empty::after { content: none; }
+
+/* formatted as it streams, the caret trails text alone; after a box it rides the room line the pill keeps below */
+.chat-conv-msg.streaming.is-live-format .chat-conv-msg-text > :last-child:not(p, blockquote, h1, h2, h3, h4, h5, h6)::after { content: none; }
+/* on a heading or a quote it takes no room on the line, which it wrapped onto a line of its own at the edge */
+.chat-conv-msg.streaming.is-live-format .chat-conv-msg-text > :is(blockquote, h1, h2, h3, h4, h5, h6):last-child::after { margin-right: -1ch; }
+.chat-conv-msg.streaming.is-live-format .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+    content: '';
+    display: inline-block;
+    width: 1ch;
+    height: 1em;
+    vertical-align: -0.1em;
+    background: var(--accent-muted);
+    animation: chatCaretBreathe var(--dur-expand) ease-in-out infinite;
+}
+.chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text:where(:has(> :last-child:not(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)))::after {
+    background: linear-gradient(var(--accent-muted), var(--accent-muted)) left top / 1ch 1em no-repeat;
+    animation: chatCaretBreathe var(--dur-expand) ease-in-out infinite;
+}
+/* and the last line keeps the pill's copy a settled row ends it with (above), the caret drawn at its start */
+.chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+    width: auto;
+    /* the caret drawn the size of the plain one (1ch by 1em of the prose), though the box takes the counter's small type */
+    height: var(--font-pre-base);
+    vertical-align: calc(-0.1 * var(--font-pre-base));
+    color: transparent;
+    /* the transcript's halo would draw the unseen counter as a smudge beside the caret */
+    text-shadow: none;
+    background: linear-gradient(var(--accent-muted), var(--accent-muted)) left bottom / calc(0.57 * var(--font-pre-base)) var(--font-pre-base) no-repeat;
+}
+html.cl-no-ambient .chat-conv-msg.streaming.is-live-format .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
+html.cl-no-ambient .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text:where(:has(> :last-child:not(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)))::after {
+    animation: none;
+    opacity: 1;
+}
 .chat-conv-msg.gen-error { border-color: rgba(var(--cl-error-rgb), 0.4); }
 
 /* header icons grouped by hairlines (people | media | reading | prompt | settings) so the row is learnable */
@@ -3523,9 +3575,9 @@ html.cl-mobile .chat-conv-msg-actions {
 }
 
 html.cl-mobile .chat-conv-msg-text img { max-height: 50vh; }
-/* A wide table or code block should pan horizontally without stealing the page scroll. */
+/* A wide table or code block pans sideways in itself, and a vertical drag starting on it still scrolls the chat. */
 html.cl-mobile .chat-conv-msg-text .cl-table-scroll,
-html.cl-mobile .chat-conv-msg-text pre { touch-action: pan-x; }
+html.cl-mobile .chat-conv-msg-text pre { touch-action: pan-x pan-y; }
 
 /* No hover on touch, so the copy affordance rests visible and takes a real hit area. */
 html.cl-mobile .chat-conv-msg-text .cl-code-copy {
@@ -3533,6 +3585,8 @@ html.cl-mobile .chat-conv-msg-text .cl-code-copy {
     min-width: var(--touch-target-min);
     min-height: var(--touch-target-min);
 }
+/* so the head is that tall before its copy arrives, as a reply formatted while it streams shows it */
+html.cl-mobile .chat-conv-msg-text .cl-code-head { min-height: var(--touch-target-min); }
 
 /* the strip lines up with the docked composer; its buttons are an icon cluster, so the slim tier */
 html.cl-mobile .chat-conv-ext-strip { padding: var(--space-2xs) var(--space-lg); }
@@ -3984,6 +4038,11 @@ html.cl-mobile .chats-view .chats-loading { padding: 40px; font-size: var(--font
     flex: 0 1 55%;
     min-width: 0;
 }
+
+/* a field another setting switches off dims; the hint under it stays readable, as it carries the reason */
+.cl-cwin-field.is-off { opacity: var(--op-disabled); cursor: not-allowed; }
+/* its trigger takes no pointer at all: a tap on a touch screen left the button's hover lit on the dimmed control */
+.cl-cwin-field.is-off .custom-select-trigger { pointer-events: none; }
 
 .cl-cwin-label {
     font-size: var(--font-sm);

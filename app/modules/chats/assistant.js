@@ -2,9 +2,9 @@
 
 import CoreAPI from '../core-api.js';
 import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
-import { mountChatWindow, syncRangeFill, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
+import { mountChatWindow, syncRangeFill, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
+import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -30,6 +30,7 @@ let _sees = null;           // its sight: only true offers attaching
 const _tray = createPictureTray({ strip: () => document.getElementById('casPics'), removeTitle: 'Not with this message', onChange: () => syncPickMarks() });
 let _profilesNote = '';     // why the list is empty, when it is
 let _busy = false;
+let _openStream = null;     // the reply whose stream is still open: { painting }, decided when it was sent
 let _posting = false;       // the reader's turn on its way to the session its reply will be asked in
 let _abort = null;
 let _livePainter = null;    // the running reply's painter: back in sight, it lands what streamed meanwhile
@@ -282,8 +283,8 @@ function contextViewHtml() {
 }
 
 /** The reply body through the conversation's producer and gate, as stored (no macro expanded); never formatRichText. */
-function renderText(text) {
-    return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), _char?.name || '', STORED_TEXT), CHAT_PURIFY_CONFIG);
+function renderText(text, opts = {}) {
+    return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), _char?.name || '', { ...opts, ...STORED_TEXT }), CHAT_PURIFY_CONFIG);
 }
 
 function proposalCardHtml(p, { inGroup = false, seq } = {}) {
@@ -585,7 +586,7 @@ const SETTING_FIELDS = [
         key: 'assistantReasoningEffort',
         label: 'Reasoning effort',
         kind: 'select',
-        options: ['', 'low', 'medium', 'high'],
+        options: [['', 'Connection Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']],
         hint: 'Only reasoning models read this. Lower thinks less and answers sooner; the roleplay keeps the connection\'s own setting.',
     },
     {
@@ -620,8 +621,9 @@ const SETTING_FIELDS = [
         key: 'assistantStreaming',
         label: 'Show the reply as it is written',
         kind: 'toggle',
-        hint: 'Off by default. This assistant emits fenced blocks, and watching one arrive half-written looks like broken formatting until it finishes.',
+        hint: 'Off, the whole reply appears at once when it is done. On, it is shown as it arrives, and a code block reads as raw text until it closes unless Format as it streams, below, is on.',
     },
+    { key: 'assistantLiveFormatting', kind: 'select', ...LIVE_FORMATTING_FIELD },
     {
         key: 'assistantLoreEdits',
         label: 'Let it propose lorebook edits',
@@ -639,6 +641,15 @@ const SETTING_FIELDS = [
 // The chat-settings window's form language, defined once in settings-panel.css. Module
 // level because the settings AND the context views both build from it.
 const settingField = (key) => SETTING_FIELDS.find(f => f.key === key);
+
+// whether a reply is painted as it arrives here: what the stream reads, and what Format as it streams waits on
+const assistantStreams = () => CoreAPI.getSetting('assistantStreaming') === true;
+
+function syncLiveFormattingRow() {
+    syncFieldAvailability(document.getElementById('casSet_assistantLiveFormatting'), {
+        on: assistantStreams(), hint: LIVE_FORMATTING_FIELD.hint, reason: 'Only applies while Show the reply as it is written is on.',
+    });
+}
 
 function togBlock(key) {
     const f = settingField(key);
@@ -669,17 +680,10 @@ function settingsHtml() {
     };
     const selBlock = (key) => {
         const f = settingField(key);
-        const cur = String(CoreAPI.getSetting(f.key) || '');
-        return `
-        <div class="cl-cwin-block">
-            <div class="cl-cwin-field">
-                <label class="cl-cwin-field-label" for="casSet_${f.key}">${esc(f.label)}</label>
-                <select id="casSet_${f.key}" class="cl-select-fluid cl-cwin-field-control" data-set="${f.key}">
-                    ${f.options.map(o => `<option value="${o}"${o === cur ? ' selected' : ''}>${o || 'connection default'}</option>`).join('')}
-                </select>
-            </div>
-            <p class="cl-cwin-hint">${esc(f.hint)}</p>
-        </div>`;
+        return settingSelectHtml({
+            id: `casSet_${f.key}`, key: f.key, label: f.label, hint: f.hint, value: String(CoreAPI.getSetting(f.key) || ''),
+            options: f.options,
+        });
     };
     return `
     <div class="cas-settings">
@@ -740,6 +744,7 @@ function settingsHtml() {
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-comment-dots"></i>Replies</h4>
             <div class="cl-cwin-fields">
                 ${togBlock('assistantStreaming')}
+                ${selBlock('assistantLiveFormatting')}
             </div>
         </section>
         <section class="cl-cwin-group">
@@ -757,8 +762,12 @@ function settingsHtml() {
 function onSettingInput(el) {
     const key = el.dataset.set;
     if (!key) return;
-    if (el.type === 'checkbox') { CoreAPI.setSetting(key, el.checked); return; }
-    if (key === 'assistantReasoningEffort') { CoreAPI.setSetting(key, el.value); return; }
+    if (el.type === 'checkbox') {
+        CoreAPI.setSetting(key, el.checked);
+        if (key === 'assistantStreaming') syncLiveFormattingRow();
+        return;
+    }
+    if (key === 'assistantReasoningEffort' || key === 'assistantLiveFormatting') { CoreAPI.setSetting(key, el.value); return; }
     // The connection overrides are three-state: a value overrides the profile, blank ('')
     // inherits. Blank is the one inherit spelling, because 0 is a real temperature.
     if (key === 'assistantTemperature') {
@@ -829,6 +838,7 @@ function render() {
         body.innerHTML = settingsHtml();
         syncRangeFill(body);
         body.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
+        syncLiveFormattingRow();
         return;
     }
     // a slider's fill is a style only an input or this sets, so a view drawn without it shows the stylesheet's default
@@ -840,8 +850,9 @@ function render() {
     if (!_messages.length) { body.innerHTML = emptyHtml(); return; }
     body.innerHTML = _messages.map((m, i) => messageHtml(m, i)).join('');
     // the streaming placeholder lives outside _messages and the paint loop finds its node per frame, so restore the shell here
-    if (_busy && !document.getElementById('casStreaming')) {
-        body.insertAdjacentHTML('beforeend', casStreamingHtml(CoreAPI.getSetting('assistantStreaming') === true));
+    if (_openStream && !document.getElementById('casStreaming')) {
+        body.insertAdjacentHTML('beforeend', casStreamingHtml(_openStream.painting));
+        _livePainter?.paintNow();
     }
     syncRangeFill(body);
     body.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
@@ -952,11 +963,13 @@ async function openSession(id, { keepScroll = false } = {}) {
         const m = _messages[i];
         if (m.role !== 'assistant') continue;
         if (m.extra?.proposals?.length) refreshes.push(refreshProposals(i, { patch: false }));
-        else _proposals.set(i, { proposals: [], errors: m.extra?.proposalErrors || [] });
+        else markKnownEmpty(_proposals, i, m);
     }
     // verdicts settle before the paint, so nothing shifts under the restored scroll
     if (refreshes.length) await Promise.allSettled(refreshes);
     if (_sessionId !== id) return;
+    // a re-read in place leaves a Settings or Context view alone; the chat draws it on return
+    if (keepScroll && _view !== 'chat') return;
     render();
     restoreScroll();
 }
@@ -1262,7 +1275,8 @@ async function generate(sid = _sessionId) {
     _abort = new AbortController();
 
     // the placeholder is NOT in _messages (the stored row arrives on done); token painting is opt-in here
-    const live_ = CoreAPI.getSetting('assistantStreaming') === true;
+    const live_ = assistantStreams();
+    _openStream = { painting: live_ };
     const body = document.getElementById('casBody');
     body?.insertAdjacentHTML('beforeend', casStreamingHtml(live_));
     if (body) body.scrollTop = body.scrollHeight;
@@ -1280,7 +1294,7 @@ async function generate(sid = _sessionId) {
         // placeholder node, and painting into the detached one showed nothing.
         const live = document.querySelector('#casStreaming .cas-msg-body');
         if (!live) return;
-        live.innerHTML = renderText(stripBlocks(acc));
+        paintPanelReply(live, 'assistant', (opts) => renderText(stripBlocks(acc), opts));
         const host = document.getElementById('casBody');
         if (host) host.scrollTop = host.scrollHeight;
     };
@@ -1309,7 +1323,9 @@ async function generate(sid = _sessionId) {
                 _messages.push(ev.done.message);
             }
         });
-        document.getElementById('casStreaming')?.remove();
+        // closed before the settle's render, or it restores the placeholder for the whole proposal judging
+        _openStream = null;
+        const reader = closePanelStream('casStreaming', painter);
         if (_sessionId !== sid) return;
         // a stream that just STOPS (no done, no error: a proxy idle-cut) is a failure; re-read, only the server knows what was stored
         if (acc && !sawDone) {
@@ -1318,14 +1334,13 @@ async function generate(sid = _sessionId) {
             return;
         }
         const last = _messages.length - 1;
-        // Same known-empty marking as openSession, so a reply with no block offers the nudge
-        // rather than nothing.
-        if (_messages[last]?.role === 'assistant' && !_messages[last]?.extra?.proposals?.length) {
-            _proposals.set(last, { proposals: [], errors: _messages[last]?.extra?.proposalErrors || [] });
-        }
-        render();
+        markKnownEmpty(_proposals, last, _messages[last]);
+        // a Settings or Context view the reader is in stays as it is (an open sheet, their typing); the chat draws it on return
+        if (_view === 'chat') render();
+        carryPanelReply('casBody', last, reader);
         if (_messages[last]?.extra?.proposals?.length) await refreshProposals(last);
     } catch (e) {
+        _openStream = null;
         document.getElementById('casStreaming')?.remove();
         // the subject moved on: re-reading or toasting about this session is noise about a chat not shown
         if (_sessionId !== sid) return;
@@ -1339,8 +1354,6 @@ async function generate(sid = _sessionId) {
         if (_livePainter === painter) _livePainter = null;
         setBusy(false);
         _abort = null;
-        // a placeholder still standing is stray: render() re-appended it while _busy was still true
-        document.getElementById('casStreaming')?.remove();
     }
 }
 

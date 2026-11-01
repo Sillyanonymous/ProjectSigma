@@ -18,7 +18,7 @@ import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActi
 import { hasHook, runFilter, runFilterAsync, runActions, watchHooks, fireEvent } from '../ext-registry.js';
 import { registerFeedPatcher } from '../feed.js';
 import Keymap from '../keymap.js';
-import { createLivePainter, createLiveReveal, createPictureTray, picturesHtml, openPictures, wirePictureInputs, attachToChat, followPictureRemovals } from '../ai-panel.js';
+import { createLivePainter, createLiveReveal, repaintLive, readerState, restoreReaderState, createPictureTray, picturesHtml, openPictures, wirePictureInputs, attachToChat, followPictureRemovals } from '../ai-panel.js';
 import { readinessOf, seesPictures } from '../connection-editor.js';
 
 // ========================================
@@ -1553,6 +1553,30 @@ function convApplyAmbientMotion() {
         'cl-no-ambient', CoreAPI.getSetting('chatAmbientMotion') === false);
 }
 
+// whether the chat paints a reply as it is written; off, the row waits with its status and the reply lands whole
+const convStreams = () => convSwitchOn('chatStreaming');
+
+// switched off mid-reply what is shown stays and the row waits; switched on, everything arrived shows in one paint
+function convApplyStreaming() {
+    const pane = convEls().pane;
+    if (pane) pane.dataset.streaming = String(convStreams());
+    if (!_convLiveEl?.isConnected) return;
+    if (convStreams()) {
+        _convReplyReveal.arrive(_convLiveText.length);
+        _convThinkReveal.arrive(_convLiveReasoning.length);
+        _convReplyReveal.all();
+        _convThinkReveal.all();
+        _convLiveDirty = true;
+        _convLiveReasoningDirty = !!_convLiveReasoning;
+        convMarkLive();
+    } else {
+        _convLivePainter?.stop();
+        _convLivePainter = null;
+        _convLiveEnd?.();
+    }
+    convSyncLiveStatus();
+}
+
 // smooth streaming paces the live reply's reveal; switched off mid-reply, what arrived shows at once
 function convApplySmoothStreaming() {
     _convPaced = convSwitchOn('chatSmoothStreaming');
@@ -1756,6 +1780,7 @@ async function openConversation(chat) {
     convApplyMeasure();
     convApplyAmbientMotion();
     convApplySmoothStreaming();
+    convApplyStreaming();
     convApplyDisplayOptions();
     convNoteApplied();
     convStartClock();
@@ -2194,6 +2219,21 @@ function convScrollToEnd({ force = false, quiet = false, now = false } = {}) {
     else _convScrollRaf = requestAnimationFrame(pin);
 }
 
+// a reply that landed whole opens at its top, or at the end when all of it fits; a reader scrolled away keeps their place
+function convLandReplyStart(seq) {
+    const { list } = convEls();
+    const row = Number.isInteger(seq) ? convRowEl(seq) : null;
+    if (!list || !row || !_convPinned) { convScrollToEnd(); return; }
+    cancelAnimationFrame(_convScrollRaf);
+    _convScrollRaf = requestAnimationFrame(() => {
+        const end = list.scrollHeight - list.clientHeight;
+        const top = Math.max(0, row.offsetTop - (parseFloat(getComputedStyle(list).paddingTop) || 0));
+        _convAutoScroll = true;
+        list.scrollTop = Math.min(top, end);
+        if (top < end - PIN_EPSILON) { _convPinned = false; convSyncJumpPill(); }
+    });
+}
+
 function convResetPin() {
     _convPinned = true;
     _convMissedWhileAway = false;
@@ -2386,7 +2426,7 @@ async function convFollowChatMeta({ followWindow = true } = {}) {
 }
 
 // settings the open conversation applies on the spot; the panel, the menu's switches and another tab run the same applier
-const CONV_SETTING_KEYS = Object.freeze(['chatAmbientMotion', 'chatSmoothStreaming', 'chatBodyLayout', 'chatMessageFill', 'chatDisplayMode', 'chatShowAvatars', 'chatShowTimestamps', 'chatShowMeta', 'chatExpandActions', 'chatReasoningDefaultOpen', 'chatMeasureCh', 'chatMaxContext', 'chatReserveForReply', ...SETTINGS_RERENDER]);
+const CONV_SETTING_KEYS = Object.freeze(['chatStreaming', 'chatAmbientMotion', 'chatSmoothStreaming', 'chatBodyLayout', 'chatMessageFill', 'chatDisplayMode', 'chatShowAvatars', 'chatShowTimestamps', 'chatShowMeta', 'chatExpandActions', 'chatReasoningDefaultOpen', 'chatMeasureCh', 'chatMaxContext', 'chatReserveForReply', ...SETTINGS_RERENDER]);
 // each key's value as the open conversation last applied it (set at the open and by every apply)
 let _convApplied = new Map();
 const convSettingValue = (key) => JSON.stringify(CoreAPI.getSetting(key) ?? null);
@@ -2404,6 +2444,7 @@ function convApplySettingKeys(keys, { written = false } = {}) {
     const has = (...ks) => ks.some(k => keys.includes(k));
     if (has('chatAmbientMotion')) convApplyAmbientMotion();
     if (has('chatSmoothStreaming')) convApplySmoothStreaming();
+    if (has('chatStreaming')) convApplyStreaming();
     if (has('chatBodyLayout', 'chatMessageFill', 'chatDisplayMode', 'chatShowAvatars', 'chatShowTimestamps', 'chatShowMeta', 'chatExpandActions')) convApplyDisplayOptions();
     // after the stamp, since a patch reads it (the clock skips a pane whose stamps are off)
     for (const key of keys) TOGGLE_PATCHES[key]?.(convSwitchOn(key));
@@ -3120,7 +3161,7 @@ function convRebuildDethroned(at) {
 }
 
 /** Swap one row in place, anchored on the row's own offset so a height change above the view doesnt yank it. */
-function convReplaceMessage(entry) {
+function convReplaceMessage(entry, { carry = null } = {}) {
     const { list } = convEls();
     const old = convRowEl(entry.seq);
     if (!list || !old) return false;
@@ -3133,6 +3174,8 @@ function convReplaceMessage(entry) {
     if (!next) return false;
     old.replaceWith(next);
     convEnhanceRows(next);
+    // before the anchor: a row redrawn with its disclosures shut is shorter, and the scroll clamps short of the reader
+    carry?.(next);
     list.scrollTop = next.offsetTop - beforeTop;
     return true;
 }
@@ -3522,6 +3565,8 @@ function convSwipeClusterHtml(entry, { isLast }) {
 // live state: text accumulates per chunk, the DOM is written on the painter's cadence, nothing while parked or hidden
 let _convLiveText = '';
 let _convLiveReasoning = '';
+// the thinking the live disclosure shows, kept so opening it can format exactly that
+let _convShownThought = '';
 let _convLiveEl = null;
 let _convLivePainter = null;
 // which partial the next paint writes: the reply, its thinking, or both inside one cadence
@@ -3538,16 +3583,48 @@ let _convLiveEnd = null;
 
 // thinking arrives first, so the bubble grows its own disclosure, on the reply's cadence (per-event writes went quadratic)
 function convPaintLiveReasoning() {
-    _convThinkReveal.arrive(_convLiveReasoning.length);
     _convLiveReasoningDirty = true;
+    if (!convStreams()) return;
+    _convThinkReveal.arrive(_convLiveReasoning.length);
     convMarkLive();
 }
 
 // the reply's partial grew; the next paint writes what its reveal shows
 function convPaintLive() {
-    _convReplyReveal.arrive(_convLiveText.length);
     _convLiveDirty = true;
+    if (!convStreams()) {
+        if (!_convWriting) { _convWriting = true; convSyncLiveStatus(); }
+        return;
+    }
+    _convReplyReveal.arrive(_convLiveText.length);
     convMarkLive();
+}
+
+// with streaming off the row says how long the reply has been on its way: thinking, then writing once text arrives
+let _convStatusTimer = 0;
+let _convStatusSince = 0;
+let _convWriting = false;
+function convSyncLiveStatus() {
+    const row = _convLiveEl?.isConnected ? _convLiveEl.closest('.chat-conv-msg') : null;
+    let chip = row?.querySelector('.chat-conv-msg-chip.is-status');
+    if (!row || convStreams()) {
+        chip?.remove();
+        clearInterval(_convStatusTimer);
+        _convStatusTimer = 0;
+        return;
+    }
+    if (!chip) {
+        chip = document.createElement('span');
+        chip.className = 'chat-conv-msg-chip is-status';
+        row.querySelector('.chat-conv-msg-meta')?.appendChild(chip);
+    }
+    const tick = () => {
+        if (!chip.isConnected) { clearInterval(_convStatusTimer); _convStatusTimer = 0; return; }
+        if (_convSuspended || document.hidden) return;
+        chip.textContent = `${_convWriting ? 'writing' : 'thinking'} · ${Math.round((Date.now() - _convStatusSince) / 1000)}s`;
+    };
+    tick();
+    if (!_convStatusTimer) _convStatusTimer = setInterval(tick, 500);
 }
 
 // one paint per cadence for what is dirty, none parked or hidden; the painter lives from first mark to stop
@@ -3590,7 +3667,7 @@ function convRevealLiveAll() {
 
 // the stream ended with arrived text unshown: it lands within the catch-up, then the stored row replaces the live one
 function convLiveCatchUp() {
-    if (_convSuspended || document.hidden || !_convLiveEl?.isConnected) return null;
+    if (_convSuspended || document.hidden || !_convLiveEl?.isConnected || !convStreams()) return null;
     const ms = Math.max(_convReplyReveal.finish(), _convThinkReveal.finish());
     if (ms <= 0) return null;
     _convLivePainter?.mark();
@@ -3602,6 +3679,7 @@ function convLiveCatchUp() {
 
 /** Render what the reveal shows through the settled row's producer and gate; streaming keeps a half-arrived fence literal. */
 function convPaintLiveNow() {
+    if (!convStreams()) return;
     const text = _convLiveDirty || _convReplyReveal.behind();
     const reasoning = _convLiveReasoningDirty || _convThinkReveal.behind();
     _convLiveDirty = false;
@@ -3611,7 +3689,14 @@ function convPaintLiveNow() {
     const thought = reasoning ? _convThinkReveal.cut(_convLiveReasoning) : null;
     const shown = text ? _convReplyReveal.cut(_convLiveText) : null;
     if (thought !== null) convWriteLiveReasoning(thought);
-    if (shown !== null) _convLiveEl.innerHTML = convRenderText(shown, _convChar?.name || '', { streaming: true });
+    if (shown !== null) {
+        const live = CoreAPI.liveFormattingOn('chat');
+        // the row's class moves the caret off a box's own line, where it took a line the settled box does not have
+        _convLiveEl.closest('.chat-conv-msg')?.classList.toggle('is-live-format', live);
+        const html = convRenderText(shown, _convChar?.name || '', { streaming: live ? 'live' : true });
+        if (live) repaintLive(_convLiveEl, html);
+        else _convLiveEl.innerHTML = html;
+    }
     if (thought !== null || shown !== null) convScrollToEnd({ now: true });
 }
 
@@ -3627,20 +3712,37 @@ function convWriteLiveReasoning(thought) {
             `<details class="cl-reasoning"${open}><summary>Thinking</summary><div class="cl-reasoning-body"></div></details>`);
         box = body.querySelector('.cl-reasoning');
     }
-    // textContent while it streams: this is half-formed markup by definition, and it is
-    // re-rendered through the gate with the settled row a moment later.
-    const target = box.querySelector('.cl-reasoning-body');
-    if (target) target.textContent = thought;
+    // once per disclosure, not per paint: opening it formats what it shows
+    if (box && !box._liveToggle) {
+        box._liveToggle = true;
+        // the summary's click comes before the disclosure opens, so the formatting lands in the frame it opens in
+        box.querySelector('summary')?.addEventListener('click', () => { if (!box.open && body.contains(_convLiveEl)) convShowLiveThought(box, true); });
+        box.addEventListener('toggle', () => { if (body.contains(_convLiveEl)) convShowLiveThought(box); });
+    }
+    _convShownThought = thought;
+    convShowLiveThought(box);
+}
+
+// formatted only while open, since hidden text cost the reply paint time; a thought plans markup, so no island opens early
+function convShowLiveThought(box, opening = false) {
+    const target = box?.querySelector('.cl-reasoning-body');
+    if (!target) return;
+    if ((box.open || opening) && CoreAPI.liveFormattingOn('chat')) repaintLive(target, convRenderText(_convShownThought, _convChar?.name || '', { streaming: 'live', openIslands: false }));
+    else target.textContent = _convShownThought;
 }
 
 function convStopLive() {
     _convLivePainter?.stop();
     _convLivePainter = null;
+    clearInterval(_convStatusTimer);
+    _convStatusTimer = 0;
+    _convWriting = false;
     _convLiveDirty = false;
     _convLiveReasoningDirty = false;
     _convLiveEl = null;
     _convLiveText = '';
     _convLiveReasoning = '';
+    _convShownThought = '';
     _convReplyReveal.reset();
     _convThinkReveal.reset();
     _convLiveEnd?.();
@@ -3665,8 +3767,12 @@ function convOpenLiveBubble(inPlaceSeq = null) {
             convScrollToEnd();
             _convLiveText = '';
             _convLiveReasoning = '';
+            _convShownThought = '';
             convResetLiveReveal();
             _convLiveEl = text;
+            _convStatusSince = Date.now();
+            _convWriting = false;
+            convSyncLiveStatus();
             return _convLiveEl;
         }
     }
@@ -3686,17 +3792,26 @@ function convOpenLiveBubble(inPlaceSeq = null) {
     row?.setAttribute('data-turn', 'new');
     convScrollToEnd();
     _convLiveText = '';
+    // a stream left mid-thought (the reader switched chats) never ran its stop, so its thinking would lead this one
+    _convLiveReasoning = '';
+    _convShownThought = '';
     convResetLiveReveal();
     _convLiveEl = row?.querySelector('.chat-conv-msg-text') || null;
+    _convStatusSince = Date.now();
+    _convWriting = false;
+    convSyncLiveStatus();
     return _convLiveEl;
 }
 
 /** Retire the streaming bubble for the stored row; a done with no seq falls back to a full render. */
 function convSettleLiveBubble() {
     const { list } = convEls();
+    // the last tokens land before what the reader did is read, or the carry compares a reply short of its tail
+    if (!_convSuspended && !document.hidden) convPaintLiveNow();
     convStopLive();
     if (!list) return;
     const live = list.querySelector('[data-live="1"]');
+    const opened = convOpenState(live);
     const newTurn = live?.getAttribute('data-turn') === 'new';
     // an in-place stream took over a real row: unmark and swap it, or its seq leaves the page and the result duplicates
     if (live?.dataset.seq !== undefined && convIndexOfSeq(Number(live.dataset.seq)) !== -1) {
@@ -3710,11 +3825,34 @@ function convSettleLiveBubble() {
     if (i < 0 || !Number.isInteger(entry?.seq)) { renderConversation(_convMessages); return; }
     // a swipe replaces its row, a new turn appends; a bubble already in its seq's slot is replaced and the dethroned row rebuilt
     if (convRowEl(entry.seq)) {
-        convReplaceMessage(entry);
+        convReplaceMessage(entry, { carry: (row) => convRestoreOpenState(row, opened) });
         if (newTurn && i > 0) convRebuildDethroned(i - 1);
     } else {
         convAppendMessage(entry);
+        convRestoreOpenState(convRowEl(entry.seq), opened);
     }
+}
+
+// what the reader opened while a reply streamed stays open on the stored row: the thinking, and a disclosure by position
+function convOpenState(row) {
+    if (!row) return null;
+    const thinking = row.querySelector('.cl-reasoning');
+    return {
+        thinking: thinking?.open ?? null,
+        thinkingFocused: !!thinking && thinking.querySelector('summary') === document.activeElement,
+        inThinking: readerState(thinking?.querySelector('.cl-reasoning-body')),
+        inText: readerState(row.querySelector('.chat-conv-msg-text')),
+    };
+}
+
+function convRestoreOpenState(row, state) {
+    if (!row || !state) return;
+    const thinking = row.querySelector('.cl-reasoning');
+    if (thinking && state.thinking !== null) thinking.open = state.thinking;
+    if (thinking && state.thinkingFocused) thinking.querySelector('summary')?.focus({ preventScroll: true });
+    // after its open state: a box in a shut thinking has no layout to scroll
+    restoreReaderState(thinking?.querySelector('.cl-reasoning-body'), state.inThinking);
+    restoreReaderState(row.querySelector('.chat-conv-msg-text'), state.inText);
 }
 
 // ========================================
@@ -4357,7 +4495,14 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
     // Continue EXTENDS: the live buffer starts as the existing text, so nothing vanishes and snaps back
     if (mode === 'continue' && bubble && Number.isInteger(inPlaceSeq)) {
         const seedFrom = convEntryAtSeq(inPlaceSeq);
-        if (seedFrom) { _convLiveText = getMessageDisplayText(seedFrom.raw) || ''; _convReplyReveal.seed(_convLiveText.length); convPaintLive(); }
+        if (seedFrom) {
+            const stored = getMessageDisplayText(seedFrom.raw) || '';
+            _convLiveText = stored;
+            _convReplyReveal.seed(stored.length);
+            // nothing streams with the switch off, so the stored text is written once and waits there
+            if (convStreams()) convPaintLive();
+            else bubble.innerHTML = convRenderText(stored, _convChar?.name || '');
+        }
     }
     let sawText = false;
     let sawDone = false;
@@ -4425,9 +4570,11 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
             if (_convChatId !== chatId) { tellEnded(); return; }
         }
         // the stored row replaces the live bubble so the finished turn goes through the gate; the rest stays untouched
+        const streamed = convStreams();
         convSettleLiveBubble();
         convApplyContextMarker();
-        convScrollToEnd();
+        if (streamed) convScrollToEnd();
+        else convLandReplyStart(Number.isInteger(doneSeq) ? doneSeq : _convMessages[_convMessages.length - 1]?.seq);
         convSignalComplete();
         tellEnded();
     } catch (e) {

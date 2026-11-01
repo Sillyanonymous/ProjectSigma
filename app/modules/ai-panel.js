@@ -2,7 +2,7 @@
 
 import CoreAPI from './core-api.js';
 import { seesPictures } from './connection-editor.js';
-import { wireCwinInputGrow } from './chats/window.js';
+import { wireCwinInputGrow, selectFieldHtml } from './chats/window.js';
 import { registerFeedPatcher } from './feed.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
@@ -93,7 +93,7 @@ const LIVE_PAINT_SHARE = 0.25;
 /**
  * A streaming reply's painter: one paint a frame at most, spaced by its cost, none while `held()`; a later mark or flush lands it.
  * @param {{ paint: Function, held?: () => boolean, behind?: () => boolean }} opts `behind`: the paint left arrived text unshown
- * @returns {{ mark: Function, flush: Function, stop: Function, dirty: () => boolean }}
+ * @returns {{ mark: Function, flush: Function, paintNow: Function, stop: Function, dirty: () => boolean }}
  */
 export function createLivePainter({ paint, held = () => false, behind = () => false }) {
     let timer = 0;
@@ -128,6 +128,14 @@ export function createLivePainter({ paint, held = () => false, behind = () => fa
     return {
         mark,
         flush: () => { if (dirty) mark(); },
+        // a placeholder drawn afresh shows what arrived in this frame, never one empty frame first
+        paintNow: () => {
+            if (stopped || held()) return;
+            clearTimeout(timer);
+            timer = 0;
+            cancelAnimationFrame(raf);
+            run();
+        },
         stop: () => {
             stopped = true;
             dirty = false;
@@ -243,6 +251,173 @@ export function createLiveReveal({ paced = () => false } = {}) {
             sq = sum = 0;
         },
     };
+}
+
+// what repaintLive last wrote into an element: its markup, each top-level block's, and the nodes themselves
+const liveWrites = new WeakMap();
+const markOf = (n) => (n.nodeType === 1 ? n.outerHTML : n.textContent);
+
+// a node the stream is still writing is updated in place, so a box under a finger is never swapped mid-drag
+function morphLive(from, to) {
+    if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) { from.replaceWith(to); return; }
+    if (from.nodeType !== 1) {
+        // text that only grew is appended, so a selection ending inside it keeps its end
+        if (from.nodeValue === to.nodeValue) return;
+        if (to.nodeValue.startsWith(from.nodeValue)) from.appendData(to.nodeValue.slice(from.nodeValue.length));
+        else from.nodeValue = to.nodeValue;
+        return;
+    }
+    // open is the reader's: the gate strips it from every write
+    for (const { name } of Array.from(from.attributes)) if (name !== 'open' && !to.hasAttribute(name)) from.removeAttribute(name);
+    for (const { name, value } of Array.from(to.attributes)) if (from.getAttribute(name) !== value) from.setAttribute(name, value);
+    const now = Array.from(from.childNodes);
+    const next = Array.from(to.childNodes);
+    next.forEach((n, i) => { if (i < now.length) morphLive(now[i], n); else from.appendChild(n); });
+    for (const n of now.slice(next.length)) n.remove();
+}
+
+/**
+ * Repaint a reply formatted as it streams from its first changed block, in place, keeping the reader's disclosures, selection and scroll.
+ * @param {Element} el
+ * @param {string} html the sanitized markup
+ */
+export function repaintLive(el, html) {
+    const was = liveWrites.get(el);
+    const ours = !!was && was.nodes.length === el.childNodes.length && was.nodes.every((n, i) => n === el.childNodes[i]);
+    if (ours && was.html === html) return;
+    let keep = 0;
+    let from = 0;
+    if (ours && was.exact) {
+        // the last write was its blocks end to end, so whole blocks in the common prefix stand without a parse
+        const n = Math.min(was.html.length, html.length);
+        let same = 0;
+        while (same < n && was.html.charCodeAt(same) === html.charCodeAt(same)) same++;
+        while (keep < was.marks.length && from + was.marks[keep].length <= same) from += was.marks[keep++].length;
+    }
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html.slice(from);
+    let added = Array.from(tpl.content.childNodes);
+    const marks = [...(ours ? was.marks.slice(0, keep) : []), ...added.map(markOf)];
+    if (ours && !was.exact) {
+        while (keep < was.marks.length && keep < marks.length && was.marks[keep] === marks[keep]) keep++;
+        added = added.slice(keep);
+    }
+    const tail = Array.from(el.childNodes).slice(keep);
+    added.forEach((n, i) => { if (i < tail.length) morphLive(tail[i], n); else el.appendChild(n); });
+    for (const n of tail.slice(added.length)) n.remove();
+    liveWrites.set(el, { html, marks, exact: marks.join('') === html, nodes: Array.from(el.childNodes) });
+}
+
+/**
+ * Paint a panel's streaming reply, formatted as it streams when the surface's setting says so.
+ * @param {Element} el
+ * @param {'assistant'|'creator'} surface
+ * @param {(opts: object) => string} render the reply's sanitized markup for formatChatText's opts
+ */
+export function paintPanelReply(el, surface, render) {
+    // markup is talked about in a panel rather than drawn, so an unclosed tag stays text until it closes
+    if (CoreAPI.liveFormattingOn(surface)) repaintLive(el, render({ streaming: 'live', openIslands: false }));
+    else el.innerHTML = render({});
+}
+
+// what a reader can focus in a reply, and what scrolls in one: a code box, a wide table, a board's own scroll box
+const READER_FOCUS = 'summary, a[href]';
+const READER_SCROLL = 'pre, .cl-table-scroll, [style*="overflow"]';
+
+// a point in a reply as its offset into the reply's text, so it survives a rewrite of the same text
+function textOffset(root, node, offset) {
+    if (!node || !root.contains(node)) return -1;
+    // a range from the reply's start reads an element's boundary too (a triple click ends at the next paragraph's start)
+    const range = document.createRange();
+    range.setStart(root, 0);
+    range.setEnd(node, offset);
+    return range.toString().length;
+}
+
+// forward, an offset at a text node's end is the next node's start: a selection opening a paragraph stays inside it
+function textPoint(root, at, forward) {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let last = null;
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (at < n.nodeValue.length || (at === n.nodeValue.length && !forward)) return [n, at];
+        at -= n.nodeValue.length;
+        last = n;
+    }
+    return last && at === 0 ? [last, last.nodeValue.length] : null;
+}
+
+/** What the reader did to a live reply (disclosures opened, boxes scrolled, the focus, a selection), for restoreReaderState. */
+export function readerState(el) {
+    if (!el) return null;
+    const focusable = Array.from(el.querySelectorAll(READER_FOCUS));
+    const sel = document.getSelection?.();
+    let selection = null;
+    if (sel?.rangeCount && !sel.isCollapsed) {
+        const anchor = textOffset(el, sel.anchorNode, sel.anchorOffset);
+        const focus = textOffset(el, sel.focusNode, sel.focusOffset);
+        if (anchor >= 0 && focus >= 0) selection = { text: el.textContent, anchor, focus };
+    }
+    return {
+        open: Array.from(el.querySelectorAll('details'), d => d.open),
+        scroll: Array.from(el.querySelectorAll(READER_SCROLL), b => [b.scrollLeft, b.scrollTop]),
+        focus: focusable.indexOf(document.activeElement),
+        focusable: focusable.length,
+        selection,
+    };
+}
+
+/**
+ * Close a panel's streaming reply: its pending tail painted, what the reader did read off it, its placeholder gone.
+ * @param {string} rowId the placeholder's id
+ * @param {{ paintNow: Function }|null} painter the reply's painter, null when it did not paint as it arrived
+ * @returns {object|null} readerState's answer, for carryPanelReply
+ */
+export function closePanelStream(rowId, painter) {
+    // the last tokens land before what the reader did is read, or the carry compares a reply short of its tail
+    painter?.paintNow();
+    const reader = readerState(document.querySelector(`#${rowId} .cas-msg-body`));
+    document.getElementById(rowId)?.remove();
+    return reader;
+}
+
+/**
+ * Carry what the reader did onto a panel's settled reply; a view with no settled reply (settings, context) is left alone.
+ * @param {string} hostId the panel body's id
+ * @param {number} seq the settled reply's seq
+ * @param {object|null} state readerState's answer
+ */
+export function carryPanelReply(hostId, seq, state) {
+    const host = document.getElementById(hostId);
+    const settled = host?.querySelector(`.cas-msg[data-seq="${seq}"] .cas-msg-body`);
+    if (!settled) return;
+    restoreReaderState(settled, state);
+    // pinned again as render pinned it: a disclosure reopened under that pin grows the reply past it
+    host.scrollTop = host.scrollHeight;
+}
+
+/** The settled message given the live reply's reader state by position, each part only where both hold as many. */
+export function restoreReaderState(el, state) {
+    if (!el || !state) return;
+    const details = el.querySelectorAll('details');
+    // opened first: a box inside a shut disclosure has no layout to scroll
+    if (details.length === state.open.length) details.forEach((d, i) => { d.open = state.open[i]; });
+    const boxes = el.querySelectorAll(READER_SCROLL);
+    if (boxes.length === state.scroll.length) {
+        boxes.forEach((b, i) => {
+            const [left, top] = state.scroll[i];
+            if (left) b.scrollLeft = left;
+            if (top) b.scrollTop = top;
+        });
+    }
+    const focusable = el.querySelectorAll(READER_FOCUS);
+    if (state.focus >= 0 && focusable.length === state.focusable) focusable[state.focus].focus({ preventScroll: true });
+    // a selection rides only onto the same text, where its offsets still name the same words
+    const s = state.selection;
+    if (s && el.textContent === s.text) {
+        const anchor = textPoint(el, s.anchor, s.anchor <= s.focus);
+        const focus = textPoint(el, s.focus, s.focus < s.anchor);
+        if (anchor && focus) document.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], focus[0], focus[1]);
+    }
 }
 
 // ========================================
@@ -375,6 +550,25 @@ export function promptsEditorHtml(prompts, { hint }) {
 }
 
 // ========================================
+// SETTINGS FIELDS
+// ========================================
+
+/**
+ * A settings dropdown in the chat-window form, for either panel's settings view.
+ * @param {{ id: string, key: string, label: string, options: Array<[string, string]>, value: string, hint: string }} f
+ */
+export function settingSelectHtml({ id, key, label, options, value, hint }) {
+    return `<div class="cl-cwin-block">${selectFieldHtml({ id, key, label, options, value })}<p class="cl-cwin-hint">${esc(hint)}</p></div>`;
+}
+
+// Format as it streams, as both panels offer it: an override of the chat's switch
+export const LIVE_FORMATTING_FIELD = Object.freeze({
+    label: 'Format as it streams',
+    options: [['chat', 'Same as Chat'], ['on', 'On'], ['off', 'Off']],
+    hint: 'An unfinished code block shows as a box while the reply arrives, not as text until it closes. Same as Chat follows the switch in Chat settings.',
+});
+
+// ========================================
 // THE REVIEW SURFACE
 // ========================================
 //
@@ -384,6 +578,12 @@ export function promptsEditorHtml(prompts, { hint }) {
 // What differs between the panels is the CONTENT of a card (an entry's name and book, a
 // field's label, the flags each engine can raise); the chrome, the vocabulary and the
 // mechanics are one thing and live here.
+
+/** Mark a reply that carried no proposals known-empty, so it offers the nudge rather than nothing. */
+export function markKnownEmpty(proposals, seq, message) {
+    if (message?.role !== 'assistant' || message.extra?.proposals?.length) return;
+    proposals.set(seq, { proposals: [], errors: message.extra?.proposalErrors || [] });
+}
 
 /** The reviewer's per-card state, keyed by propKey; session-local, never written to the server. */
 export function createReviewState() {

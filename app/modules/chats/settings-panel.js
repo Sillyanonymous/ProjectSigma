@@ -2,7 +2,7 @@
 // settings modal.
 
 import CoreAPI from '../core-api.js';
-import { mountChatWindow, syncRangeFill, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
+import { mountChatWindow, syncRangeFill, selectFieldHtml, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
 import ExtensionWindows, { isHidden, liveSpecs, onDoorsSynced, HIDE_SETTING } from './extension-windows.js';
 
@@ -196,18 +196,36 @@ const FIELDS = [
         icon: 'fa-eye',
         items: [
             {
+                key: 'chatStreaming',
+                label: 'Show the reply as it is written',
+                kind: 'toggle',
+                hint: 'On, the reply and its thinking appear as they arrive. Off, the reply appears whole when it is done, '
+                    + 'and its row says how long it has been thinking or writing.',
+            },
+            {
                 key: 'chatAmbientMotion',
                 label: 'Streaming caret',
                 kind: 'toggle',
-                hint: 'The blinking caret while a reply is arriving. It is the only looping animation in the app, '
-                    + 'so this is the one switch that stops it.',
+                hint: 'The caret at the end of a reply being written breathes slowly. Off, it holds still.',
+                needs: 'chatStreaming', reason: 'Only applies while Show the reply as it is written is on.',
             },
             {
                 key: 'chatSmoothStreaming',
                 label: 'Smooth streaming',
                 kind: 'toggle',
+                needs: 'chatStreaming', reason: 'Only applies while Show the reply as it is written is on.',
                 hint: 'A reply that arrives in bursts is shown word by word across the pauses, so the text can '
                     + 'trail what has arrived by up to a second. Off while your system asks for reduced motion.',
+            },
+            {
+                key: 'chatLiveFormatting',
+                label: 'Format as it streams',
+                kind: 'toggle',
+                needs: 'chatStreaming',
+                reason: 'In the chat, only applies while Show the reply as it is written is on. The assistant and the studio still follow it where set to Same as Chat.',
+                hint: 'Code blocks, HTML blocks and tables take their shape while the reply is still arriving, and the '
+                    + 'thinking is formatted as it comes in. Off, they appear when the reply finishes. A block the model '
+                    + 'never closes goes back to plain text at the end.',
             },
             {
                 key: 'chatNotifyOnComplete',
@@ -307,14 +325,7 @@ function controlHtml(f) {
             </span>
         </div>`;
     }
-    if (f.kind === 'select') {
-        return `<div class="cl-cwin-field">
-            <label class="cl-cwin-field-label" for="cstSet_${esc(f.key)}">${esc(f.label)}</label>
-            <select id="cstSet_${esc(f.key)}" class="cl-select-fluid cl-cwin-field-control" data-set="${esc(f.key)}">
-                ${f.options.map(([val, lab]) => `<option value="${esc(val)}"${String(v ?? '') === val ? ' selected' : ''}>${esc(lab)}</option>`).join('')}
-            </select>
-        </div>`;
-    }
+    if (f.kind === 'select') return selectFieldHtml({ id: `cstSet_${f.key}`, key: f.key, label: f.label, options: f.options, value: v });
     if (f.kind === 'number') {
         return `<div class="cl-cwin-field">
             <label class="cl-cwin-field-label" for="cstSet_${esc(f.key)}">${esc(f.label)}</label>
@@ -422,6 +433,18 @@ function render() {
     // Every select is the canonical custom control; the raw element stays hidden inside
     // as the value holder the delegated data-set listener still hears change from.
     content.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
+    syncFieldNeeds(content);
+}
+
+// a field another switch decides is greyed, its reason in the hint and the tooltip, while that switch is off
+function syncFieldNeeds(content = document.getElementById('cstContent')) {
+    if (!content) return;
+    for (const f of FIELDS.flatMap(g => g.items)) {
+        if (!f.needs) continue;
+        const v = CoreAPI.getSetting(f.needs);
+        const on = CoreAPI.getDefaultSetting(f.needs) === true ? v !== false : v === true;
+        syncFieldAvailability(content.querySelector(`[data-set="${f.key}"]`), { on, hint: f.hint, reason: f.reason });
+    }
 }
 
 /** Persist one control. Everything here is app-wide, which the header says out loud. */
@@ -438,6 +461,7 @@ function onSettingInput(el) {
         CoreAPI.setSetting(key, next);
         el.value = String(next);
     } else { CoreAPI.setSetting(key, el.value); }
+    if (FIELDS.some(g => g.items.some(f => f.needs === key))) syncFieldNeeds();
     // The conversation decides what a change means; that knowledge lives beside the renderer.
     _onChange?.(key);
 }

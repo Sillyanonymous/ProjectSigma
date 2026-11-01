@@ -20,6 +20,38 @@ export function syncRangeFill(scope = document) {
     scope.querySelectorAll?.('.cl-range').forEach(rangeFillOf);
 }
 
+const esc = (s) => CoreAPI.escapeHtml(s);
+
+/**
+ * A settings dropdown: its label and the select, the stored value picked.
+ * @param {{ id: string, key: string, label: string, options: Array<[string, string]>, value: * }} field
+ */
+export function selectFieldHtml({ id, key, label, options, value }) {
+    return `<div class="cl-cwin-field">
+            <label class="cl-cwin-field-label" for="${esc(id)}">${esc(label)}</label>
+            <select id="${esc(id)}" class="cl-select-fluid cl-cwin-field-control" data-set="${esc(key)}">
+                ${options.map(([v, text]) => `<option value="${esc(v)}"${String(value ?? '') === v ? ' selected' : ''}>${esc(text)}</option>`).join('')}
+            </select>
+        </div>`;
+}
+
+/**
+ * A control another setting switches off (a dropdown, a switch): greyed and shut, its reason in the hint and the field's tooltip.
+ * @param {HTMLSelectElement|HTMLInputElement|null} select
+ * @param {{ on: boolean, hint: string, reason: string }} state
+ */
+export function syncFieldAvailability(select, { on, hint, reason }) {
+    if (!select) return;
+    select.disabled = !on;
+    select._customSelect?.update();
+    const field = select.closest('.cl-cwin-field');
+    field?.classList.toggle('is-off', !on);
+    if (on) field?.removeAttribute('title');
+    else if (field) field.title = reason;
+    const note = select.closest('.cl-cwin-block')?.querySelector('.cl-cwin-hint');
+    if (note) note.textContent = on ? hint : reason;
+}
+
 // every .cl-cwin shares one z-index, so without this stacking falls back to DOM order
 let topZ = 5; // matches the shared .cl-cwin z-index in chats.css
 
