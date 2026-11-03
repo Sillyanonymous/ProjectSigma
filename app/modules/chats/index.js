@@ -18,7 +18,7 @@ import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActi
 import { hasHook, runFilter, runFilterAsync, runActions, watchHooks, fireEvent } from '../ext-registry.js';
 import { registerFeedPatcher } from '../feed.js';
 import Keymap from '../keymap.js';
-import { createLivePainter, createLiveReveal, repaintLive, readerState, restoreReaderState, createPictureTray, picturesHtml, openPictures, wirePictureInputs, attachToChat, followPictureRemovals } from '../ai-panel.js';
+import { createLivePainter, createLiveReveal, repaintLive, readerState, restoreReaderState, scrollPin, createPictureTray, picturesHtml, openPictures, wirePictureInputs, attachToChat, followPictureRemovals } from '../ai-panel.js';
 import { readinessOf, seesPictures } from '../connection-editor.js';
 
 // ========================================
@@ -178,16 +178,22 @@ async function deleteChatVerb(chat, { after } = {}) {
 
 // a transcript written elsewhere waits while a stream or an open editor holds the rows; their end runs the re-read
 let _convStaleWhileBusy = false;
+// a reply's end owed behind an open editor: paid at its close, the reply this tab asked for still comes first
+let _convOwedBehindOwn = false;
 
 function convEditorOpen() {
     return !!convEls().list?.querySelector('.chat-conv-edit');
 }
 
 // the owed rebuild is paid once no stream runs and no editor is open (closing one of two wiped the other)
-function convPayOwedRebuild() {
+function convPayOwedRebuild({ behindOwn = false } = {}) {
+    if (_convStaleWhileBusy && behindOwn) _convOwedBehindOwn = true;
     if (_convStaleWhileBusy && !_convAbort && !convEditorOpen() && isConversationOpen()) {
         _convStaleWhileBusy = false;
-        void convReloadMessages();
+        const own = _convOwedBehindOwn;
+        _convOwedBehindOwn = false;
+        // turns another tab wrote meanwhile open at the first of them, as the feed opens them; behind this tab's own, below it
+        void convRereadNewTurns({ behindOwn: own });
     }
 }
 
@@ -311,7 +317,7 @@ async function patchChatsFromFeed(records) {
     // reads the conversation finds it current
     if (transcript && isConversationOpen()) {
         if (_convAbort || convEditorOpen()) _convStaleWhileBusy = true;
-        else await convReloadMessages();
+        else await convRereadNewTurns();
     }
     // the re-read closes a chat it finds deleted
     if (rowFields.size && isConversationOpen()) await convFollowChatRow(rowFields);
@@ -324,6 +330,50 @@ async function patchChatsFromFeed(records) {
     if (modalChatsTabShowing() && (everything || touchedChars.has(_modalChatsChar.id) || _modalChatsList.some(c => touched.has(c.id) || worldsMoved.has(c.id)))) {
         await fetchCharacterChats(_modalChatsChar, { background: true });
     }
+}
+
+// turns another tab wrote open at the first of them, as a finished reply does; a turn changed in place follows the end
+async function convRereadNewTurns({ behindOwn = false } = {}) {
+    const chatId = _convChatId;
+    const shown = _convMessages;
+    // where this tab's reply stands in the view as the re-read paints, after any landing of its own: held there through a turn read above
+    const mine = shown[shown.length - 1];
+    let stood = null;
+    await convReloadMessages({ beforeRender: () => {
+        const { list } = convEls();
+        const row = mine && list ? convRowEl(mine.seq) : null;
+        stood = row ? row.offsetTop - list.scrollTop : null;
+    } });
+    // a chat opened while it read is another transcript, whose rows past this one's last seq are not new
+    if (_convChatId !== chatId) return;
+    // the rows not shown before, by id (a delete elsewhere renumbers the seqs); a whole rewrite renews every id, so then by seq
+    const ids = new Set(shown.map(m => m.id));
+    const first = _convMessages.some(m => m.id != null && ids.has(m.id))
+        ? _convMessages.find(m => !ids.has(m.id))
+        : _convMessages.find(m => m.seq > (shown[shown.length - 1]?.seq ?? -1));
+    if (!first) return;
+    // this tab's own reply comes first (landing, parked, or as its stream ended): turns below it are news, above it the end stays
+    if (behindOwn || _convLandRaf || _convLandOnResume?.chatId === chatId) {
+        // a sent reply is stored after the turns written meanwhile, so they sit above it
+        if (!ids.has(_convMessages[_convMessages.length - 1].id)) {
+            const now = stood === null ? null : _convMessages.find(m => m.id === mine.id);
+            const row = now ? convRowEl(now.seq) : null;
+            convNewsBelow(row ? row.offsetTop - stood : null);
+        }
+        return;
+    }
+    convLandReplyStart(first.seq);
+}
+
+// turns another tab wrote below the reply this tab lands: told by the pill, a follower held where they read (`top`, or here)
+function convNewsBelow(top = null) {
+    _convMissedWhileAway = true;
+    const { list } = convEls();
+    // a landing still to run places the reader itself; all of it in view, nothing is missed
+    if (_convLandRaf || _convSuspended || !list || !_convPin.pinned()) { convSyncJumpPill(); return; }
+    const at = top ?? list.scrollTop;
+    if (convRestFits(list, at)) { _convMissedWhileAway = false; return; }
+    convLandAt(list, at);
 }
 
 // these chats' loaded rows read again through their characters' lists, then repainted
@@ -1573,6 +1623,9 @@ function convApplyStreaming() {
         _convLivePainter?.stop();
         _convLivePainter = null;
         _convLiveEnd?.();
+        // a formatted row's caret rules outrank the switch's, so the row stops being formatted live
+        _convLiveEl.closest('.chat-conv-msg')?.classList.remove('is-live-format');
+        _convSightGap = true;
     }
     convSyncLiveStatus();
 }
@@ -1712,6 +1765,7 @@ async function openConversation(chat) {
     if (_convChatId && _convChatId !== chat.id) {
         convAbortGeneration();
         _convStaleWhileBusy = false;
+        _convOwedBehindOwn = false;
         convSetBusy(false);
         if (input) { input.value = ''; convAutosize(input); }
     }
@@ -1720,7 +1774,12 @@ async function openConversation(chat) {
     invalidateBudget();
 
     // the last chat's waiting pictures are that chat's; the same chat opened again keeps them, as it keeps its draft
-    if (_convChatId !== chat.id) _convTray.clear();
+    if (_convChatId !== chat.id) {
+        _convTray.clear();
+        // a place parked in the last chat says nothing of this one
+        _convSuspendScroll = null;
+        _convLandOnResume = null;
+    }
     _convChatId = chat.id;
     // The server answers "what chat is open" (GET /chats/active) from this setting, for the
     // ComfyUI gallery's send-to-Sigma; cleared on close so "nothing open" is honest.
@@ -1729,6 +1788,7 @@ async function openConversation(chat) {
     _convMessages = [];
     _convPickPending.clear();
     _convEditKept.clear();
+    _convEditBack = null;
     // Cleared before the first render, or the previous character's map rewrites this
     // character's URLs to media that belongs to someone else.
     _convMediaMap = null;
@@ -1741,7 +1801,7 @@ async function openConversation(chat) {
     _convOwnPreset = false;
     _convPresetId = undefined;
     convPaintOwnMarks();
-    convResetHold();
+    _convPin.reset();
     announceConvSubject();
 
     // a list row may not carry its character yet: fetch this ONE and re-announce when it lands
@@ -1811,7 +1871,6 @@ async function openConversation(chat) {
         if (_convChatId !== chat.id) return;
         renderConversation(_convMessages);
         convResetPin();
-        convScrollToEnd({ force: true });
         // not awaited: the history is on screen, and the media pass and the budget seed paint when they land
         convLoadMediaMap(chat.id, _convChar?.id || chat.charId);
         convSeedBudget(chat.id);
@@ -1934,6 +1993,7 @@ function closeConversation() {
     if (!isConversationOpen()) return;
     convAbortGeneration();
     _convStaleWhileBusy = false;
+    _convOwedBehindOwn = false;
     // Leaving takes the dropdown and its capture listener with it, rather than parking
     // them in the hidden composer until the next document click cleans up.
     convCloseOptions();
@@ -1943,6 +2003,7 @@ function closeConversation() {
     _convMessages = [];
     _convPickPending.clear();
     _convEditKept.clear();
+    _convEditBack = null;
     // the closed chat's row elements leave with it rather than staying reachable through the cache
     _convRowCache = new Map();
     _convMediaMap = null;
@@ -1955,10 +2016,11 @@ function closeConversation() {
     _convOwnPreset = false;
     _convPresetId = undefined;
     convPaintOwnMarks();
-    convResetHold();
+    _convPin.reset();
     _convSuspended = false;
     _convUnseen = false;
     _convSuspendScroll = null;
+    _convLandOnResume = null;
     convSyncViewBadge();
     BackgroundPanel.clearWallpaper();
     document.getElementById('chatConvLore')?.classList.remove('has-embedded-lore');
@@ -1982,6 +2044,8 @@ function closeConversation() {
 let _convSuspended = false;
 let _convUnseen = false;
 let _convSuspendScroll = null;
+// a reply that landed while parked, landed on the return
+let _convLandOnResume = null;
 
 function suspendConversation() {
     if (!isConversationOpen() || _convSuspended) return;
@@ -1990,8 +2054,8 @@ function suspendConversation() {
     // park in the hidden composer until the next document click.
     convCloseOptions();
     // display:none drops scrollTop: capture an unpinned reader's place; a pinned one re-pins on resume
-    const { list } = convEls();
-    _convSuspendScroll = _convPinned ? null : (list?.scrollTop ?? null);
+    _convSuspendScroll = _convPin.pinned() ? null : _convPin.place();
+    if (_convLiveEl?.isConnected) _convSightGap = true;
     document.documentElement.classList.remove('cl-chat-open');
     convSyncViewBadge();
 }
@@ -2007,8 +2071,13 @@ function resumeConversation() {
     convTickClock();
     requestAnimationFrame(() => {
         if (_convSuspended || !isConversationOpen()) return;
-        if (_convSuspendScroll == null) convScrollToEnd({ force: true });
-        else { const { list } = convEls(); if (list) list.scrollTop = _convSuspendScroll; }
+        const land = _convLandOnResume?.chatId === _convChatId ? _convLandOnResume : null;
+        _convLandOnResume = null;
+        if (_convSuspendScroll == null) {
+            if (land) convLandReplyStart(land.seq, land.seen, { now: true });
+            // a reply still under way opened past what the reader saw (its paint did it) is left there
+            else if (_convPin.pinned()) convScrollToEnd();
+        } else _convPin.follow(_convSuspendScroll);
         _convSuspendScroll = null;
     });
 }
@@ -2056,198 +2125,214 @@ function convClearError() {
     err.classList.add('hidden');
 }
 
-// the pin follows INTENT, not distance alone: a stream's per-frame scroll kept the distance from ever accumulating
-const PIN_EPSILON = 48;
-const TOUCH_INTENT_PX = 8;
-// a lifted finger can leave the list flinging; the hold ends once its scroll events go quiet this long
-const TOUCH_SETTLE_MS = 150;
-
-let _convPinned = true;
+// the shared scroll pin (ai-panel.js); the chat adds its jump pill and a writer coalescing a stream's paints to one a frame
+const _convPin = scrollPin('chatConvMessages', { rows: '.chat-conv-msg' });
 let _convScrollRaf = 0;
-let _convScrollForce = false;
 let _convScrollNews = false;
 let _convMissedWhileAway = false;
-let _convAutoScroll = false;
-let _convLastScrollTop = 0;
-let _convHold = false;
-let _convHoldTimer = 0;
-let _convHoldAtEnd = false;
-// the furthest toward the end the held list has been since the hold began or last reached the end
-let _convHoldTop = 0;
-// the touches that went down on the list, by identifier to where each went down, and the elements they went down on
-const _convFingers = new Map();
-const _convTouchWatch = [];
-
-function convDistanceFromEnd(list) {
-    return list.scrollHeight - list.scrollTop - list.clientHeight;
-}
-
-// wheel and touch call this pre-vetted, so one upward gesture unpins on the FIRST event
-function convUnpinIntent() {
-    const { list } = convEls();
-    // A list that barely scrolls has nothing above to read; releasing the pin there would
-    // only strand the next reply below the fold.
-    if (!list || list.scrollHeight - list.clientHeight <= PIN_EPSILON) return;
-    // leaving mid-hold (an editor opened by a tap at the end) outlasts the lift
-    _convHoldAtEnd = false;
-    if (!_convPinned) return;
-    _convPinned = false;
-    convSyncJumpPill();
-}
-
-// a finger on the list owns the scroll: the pin writes nothing and nearness re-pins nothing until it lifts and settles
-function convHoldScroll() {
-    if (!_convHold) {
-        const { list } = convEls();
-        _convHoldAtEnd = !!list && convDistanceFromEnd(list) <= PIN_EPSILON;
-        _convHoldTop = list?.scrollTop ?? 0;
-    }
-    _convHold = true;
-    clearTimeout(_convHoldTimer);
-}
-
-// a touch's events go to the element it went down on, which a paint can take out of the list, so listen there too
-function convWatchTouch(el, handlers) {
-    if (!el?.addEventListener || el === convEls().list || _convTouchWatch.some(w => w.el === el)) return;
-    for (const [type, fn] of Object.entries(handlers)) el.addEventListener(type, fn, { passive: true });
-    _convTouchWatch.push({ el, handlers });
-}
-
-function convUnwatchTouch() {
-    for (const { el, handlers } of _convTouchWatch.splice(0)) {
-        for (const [type, fn] of Object.entries(handlers)) el.removeEventListener(type, fn);
-    }
-}
-
-// a chat opened or closed starts with no finger down and nothing held
-function convResetHold() {
-    convUnwatchTouch();
-    _convFingers.clear();
-    clearTimeout(_convHoldTimer);
-    _convHold = false;
-    _convHoldAtEnd = false;
-}
-
-function convSettleScroll() {
-    clearTimeout(_convHoldTimer);
-    _convHoldTimer = setTimeout(convReleaseHold, TOUCH_SETTLE_MS);
-}
-
-function convReleaseHold() {
-    _convHold = false;
-    const { list } = convEls();
-    if (!list) return;
-    // let go at the end, the view follows again; the reply grew under the still finger, so the end its scroll reached counts
-    if (_convHoldAtEnd) {
-        _convPinned = true;
-        _convMissedWhileAway = false;
-        convSyncJumpPill();
-        convScrollToEnd({ quiet: true });
-    }
-}
-
-function convOnScroll() {
-    const { list } = convEls();
-    if (!list) return;
-    const prev = _convLastScrollTop;
-    _convLastScrollTop = list.scrollTop;
-    // Our own scrollTop write fires this too; counting it as the reader moving would
-    // re-pin over their intent one frame after they expressed it.
-    if (_convAutoScroll) { _convAutoScroll = false; return; }
-    if (_convHold) {
-        // a fling after the finger lifted keeps the hold until it goes quiet
-        if (!_convFingers.size) convSettleScroll();
-        // the reply grows under a still finger, so only the reader's own move away from where they were says they left
-        _convHoldTop = Math.max(_convHoldTop, list.scrollTop);
-        if (convDistanceFromEnd(list) <= PIN_EPSILON) {
-            _convHoldAtEnd = true;
-            _convHoldTop = list.scrollTop;
-        } else if (list.scrollTop < _convHoldTop - TOUCH_INTENT_PX) {
-            _convHoldAtEnd = false;
-            _convPinned = false;
-        }
-        convSyncJumpPill();
-        return;
-    }
-    if (convDistanceFromEnd(list) <= PIN_EPSILON) {
-        _convPinned = true;
-        _convMissedWhileAway = false;
-    } else if (list.scrollTop < prev - 1) {
-        // scrollbar drags and keyboard paging send no wheel: a real scroll UP unpins (anchoring never retreats)
-        _convPinned = false;
-    }
-    convSyncJumpPill();
-}
+// the pin's own band: a reader let go closer to the end than this sees it already, news and all
+const CONV_PILL_BELOW_PX = 48;
 
 function convSyncJumpPill() {
     const pill = document.getElementById('chatConvJump');
     if (!pill) return;
-    pill.classList.toggle('hidden', _convPinned);
-    pill.classList.toggle('has-new', !_convPinned && _convMissedWhileAway);
+    const list = document.getElementById('chatConvMessages');
+    // on a phone the pill sits over the last reply's controls and an editor's Save: never inside the band, never while one is open
+    const away = !_convPin.pinned() && !convEditorHolds() && (!list || list.scrollHeight - list.scrollTop - list.clientHeight > CONV_PILL_BELOW_PX);
+    pill.classList.toggle('hidden', !away);
+    pill.classList.toggle('has-new', away && _convMissedWhileAway);
 }
 
-// one scroll per frame; a pending FORCE survives the coalescing, and a QUIET call re-pins without news
-function convScrollToEnd({ force = false, quiet = false, now = false } = {}) {
-    const { list } = convEls();
-    if (!list) return;
-    if (force) _convScrollForce = true;
-    if (!_convScrollForce && !_convPinned) {
-        if (!quiet) { _convMissedWhileAway = true; convSyncJumpPill(); }
+// one scroll per frame, the pin asked again when it runs; a QUIET call follows without news for the pill
+function convScrollToEnd({ quiet = false, now = false } = {}) {
+    if (!_convPin.pinned()) {
+        if (!quiet) _convMissedWhileAway = true;
+        // a quiet re-read or a picture loading moves the end the pill reads too
+        convSyncJumpPill();
         return;
     }
     if (!quiet) _convScrollNews = true;
     cancelAnimationFrame(_convScrollRaf);
     const pin = () => {
-        const wasForce = _convScrollForce;
         const news = _convScrollNews;
-        _convScrollForce = false;
         _convScrollNews = false;
-        const el = convEls().list;
-        if (!el) return;
-        // re-checked: intent can land between scheduling and running; a deliberate jump is never traded for a gap
-        if (!wasForce && !_convPinned) {
-            if (news) { _convMissedWhileAway = true; convSyncJumpPill(); }
+        // the reader's intent can land between scheduling and running
+        if (!_convPin.pinned()) {
+            if (news) _convMissedWhileAway = true;
+            convSyncJumpPill();
             return;
         }
-        // the reader's finger holds the list; letting go catches up (convReleaseHold)
-        if (!wasForce && _convHold) return;
-        _convAutoScroll = true;
-        el.scrollTop = el.scrollHeight;
+        // a finger on the list holds it; its lift catches up
+        _convPin.follow();
     };
     // a paint already in its frame pins in it: a frame later drew every new line past the bottom first
     if (now) pin();
     else _convScrollRaf = requestAnimationFrame(pin);
 }
 
-// a reply that landed whole opens at its top, or at the end when all of it fits; a reader scrolled away keeps their place
-function convLandReplyStart(seq) {
+// the landing's own frame, never the pin's: a quiet pin after a re-read cancelled the shared one and pinned the end
+let _convLandRaf = 0;
+
+// a finished reply opens at its top or the last line the reader saw, or at the end when the rest fits
+function convLandReplyStart(seq, seen = '', { now = false } = {}) {
+    // a reader scrolled away keeps their place, told by the jump pill
+    if (!_convPin.pinned()) { convScrollToEnd(); return; }
+    // a parked list has no layout to measure: the landing waits for the return
+    if (_convSuspended) { _convLandOnResume = { chatId: _convChatId, seq, seen }; return; }
     const { list } = convEls();
-    const row = Number.isInteger(seq) ? convRowEl(seq) : null;
-    if (!list || !row || !_convPinned) { convScrollToEnd(); return; }
-    cancelAnimationFrame(_convScrollRaf);
-    _convScrollRaf = requestAnimationFrame(() => {
-        const end = list.scrollHeight - list.clientHeight;
-        const top = Math.max(0, row.offsetTop - (parseFloat(getComputedStyle(list).paddingTop) || 0));
-        _convAutoScroll = true;
-        list.scrollTop = Math.min(top, end);
-        if (top < end - PIN_EPSILON) { _convPinned = false; convSyncJumpPill(); }
-    });
+    if (!list || !Number.isInteger(seq) || !convRowEl(seq)) { convScrollToEnd(); return; }
+    cancelAnimationFrame(_convLandRaf);
+    const chatId = _convChatId;
+    const land = () => {
+        _convLandRaf = 0;
+        // found again by its seq: a re-read before the frame rebuilt the row; a chat opened meanwhile is another transcript
+        const row = _convChatId === chatId ? convRowEl(seq) : null;
+        if (!row) return;
+        const text = seen ? row.querySelector('.chat-conv-msg-text') : null;
+        convLandAt(list, text ? convRowTop(row, text, convSeenAtSettled(text, seen, seq)) : convRowTop(row));
+    };
+    if (now) land();
+    else _convLandRaf = requestAnimationFrame(land);
 }
 
+// the reply under way, back in sight, opened past the last line the reader saw before they looked away (its top when none)
+function convLandLive(seenAt) {
+    const { list } = convEls();
+    const row = _convLiveEl?.closest('.chat-conv-msg');
+    if (!list || !row) return;
+    if (!_convPin.pinned()) { convScrollToEnd({ now: true }); return; }
+    convLandAt(list, seenAt === null ? convRowTop(row) : convRowTop(row, _convLiveEl, seenAt));
+}
+
+// the list opened at top unless the rest fits; the reader unpinned so the rest waits below the jump pill
+function convLandAt(list, top) {
+    // the rest fits: the end, which a finger resting on the list catches up to when it lifts; following there, nothing is missed
+    if (convRestFits(list, top)) {
+        if (_convPin.pinned()) _convMissedWhileAway = false;
+        convScrollToEnd({ quiet: true, now: true });
+        return;
+    }
+    // a pin queued before (a return's) would pull the reader past what they are about to read
+    cancelAnimationFrame(_convScrollRaf);
+    // a finger on the list keeps it where held, the lift kept off the end
+    _convPin.land(top);
+}
+
+// the rest of the list from `top` fits the view: landing there is landing at the end
+function convRestFits(list, top) {
+    return top >= list.scrollHeight - list.clientHeight - 1;
+}
+
+// an alternate shown in place (paged or added) opens as a finished reply does: at its first line, or the end when the rest fits
+function convLandAlternate(seq) {
+    const { list } = convEls();
+    const row = convRowEl(seq);
+    if (!list || !row) return;
+    const top = Math.min(list.scrollTop, convRowTop(row));
+    // the reader's own verb: at the end they follow again, however they had left (a long alternate paged back to a short one)
+    if (convRestFits(list, top)) convResetPin();
+    else convLandAt(list, top);
+}
+
+// the scroll putting a row's top (its own margin above it), or a line `at` down its text, at the top of the view
+function convRowTop(row, text = null, at = 0) {
+    if (!text) return Math.max(0, row.offsetTop - (parseFloat(getComputedStyle(row).marginTop) || 0));
+    // the measures are the zoomed screen's, the scroll is the layout's
+    const zoom = parseFloat(document.body.style.zoom) || 1;
+    return Math.max(0, row.offsetTop + (text.getBoundingClientRect().top - row.getBoundingClientRect().top + at) / zoom);
+}
+
+// the top of an element's last line of shown text, from its own top; the pill copy is a pseudo-element, never counted
+function convLastLineTop(el) {
+    let last = null;
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.nodeValue.trim()) last = n;
+    if (!last) return 0;
+    // text folded in a shut disclosure shows as its summary, and a range still gives it line boxes, so the summary is read
+    let shown = last;
+    for (let p = last.parentElement; p && p !== el; p = p.parentElement) {
+        if (p.tagName !== 'DETAILS' || p.open) continue;
+        const summary = p.querySelector(':scope > summary');
+        if (!summary?.contains(last)) shown = summary || p;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(shown);
+    const lines = range.getClientRects();
+    return lines.length ? lines[lines.length - 1].top - el.getBoundingClientRect().top : 0;
+}
+
+// the least scroll bringing `el` whole into view (scrollIntoView's 'nearest'), written through the pin
+function convRevealNearest(el) {
+    const { list } = convEls();
+    if (!list) return;
+    // the measures are the zoomed screen's, the scroll is the layout's
+    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const view = list.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    const above = (box.top - view.top) / zoom;
+    const below = (box.bottom - view.bottom) / zoom;
+    if (above < 0) _convPin.put(list.scrollTop + above);
+    else if (below > 0) _convPin.put(list.scrollTop + Math.min(above, below));
+}
+
+// the last line the reader saw, before the paint that writes past it; null when none of the reply was shown
+function convLiveSeenAt() {
+    return _convLiveShownText.trim() && _convLiveEl?.isConnected ? convLastLineTop(_convLiveEl) : null;
+}
+
+// where the text the reader saw ends in a settled row: laid out as the row lays it out, since the live row's markup differed
+function convSeenAtSettled(text, seen, seq) {
+    const probe = text.cloneNode(false);
+    // formatted as it streams: a code box or an island the reader left mid-way is laid out as the settled row shows it
+    probe.innerHTML = convRenderText(convLocalizeText(seen), _convChar?.name || '', { ...convRowRenderOpts(seq), streaming: 'live' });
+    probe.style.cssText = `position: absolute; visibility: hidden; box-sizing: border-box; width: ${text.getBoundingClientRect().width}px`;
+    text.after(probe);
+    // the copy keeps its first block's top margin, which the row collapses: measured from that block, both agree
+    const lead = (el) => (el.firstElementChild ? el.firstElementChild.getBoundingClientRect().top - el.getBoundingClientRect().top : 0);
+    const at = convLastLineTop(probe) - lead(probe) + lead(text);
+    probe.remove();
+    return at;
+}
+
+// after a re-read a kept turn lands as a finished reply would, a reader away kept where they were (`away`, read before it)
+function convLandReread(seen, kept, away) {
+    if (Number.isFinite(away)) {
+        // given back, or held until the list can reach it again (the re-read without the kept turn clamped it)
+        _convPin.follow(away);
+        convScrollToEnd();
+        return;
+    }
+    const last = _convMessages[_convMessages.length - 1];
+    if (kept && seen !== null && last && !last.raw?.is_user) convLandReplyStart(last.seq, seen);
+    else convScrollToEnd({ quiet: true });
+}
+
+// the place of a reader away from the end, held before a re-read can clamp it; null for one at the end
+function convPlaceAway() {
+    _convPin.keep();
+    return _convPin.pinned() ? null : _convPin.place();
+}
+
+// back to the end and following: a send, a generation, a chat opened, the jump to the latest
 function convResetPin() {
-    _convPinned = true;
     _convMissedWhileAway = false;
+    // a landing queued for its frame would pull the reader back off the end they asked for
+    cancelAnimationFrame(_convLandRaf);
+    _convLandRaf = 0;
+    _convPin.pin();
     convSyncJumpPill();
+    // and again once what the verb renders this frame is laid out
+    convScrollToEnd({ quiet: true });
 }
 
 // bring one message into view and mark it, after the frame where the open queued its own scroll to the end
 async function convRevealMessage(seq) {
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const row = convRowEl(seq);
-    if (!row) return false;
-    _convPinned = false;
-    convSyncJumpPill();
-    row.scrollIntoView({ block: 'center' });
+    const { list } = convEls();
+    if (!row || !list) return false;
+    // centred, and let go so a stream does not pull the reader past it
+    _convPin.land(Math.max(0, row.offsetTop - (list.clientHeight - row.offsetHeight) / 2));
     row.classList.remove('is-revealed');
     void row.offsetWidth;
     row.classList.add('is-revealed');
@@ -2550,6 +2635,33 @@ async function convStoredAnswer(resp, chatId, unwritten) {
 
 // an editor's typing a stale Save refused, per message id: it comes back when the editor reopens there; emptied on open and close
 const _convEditKept = new Map();
+// the follow the first open editor took, given back when the last one closes (the pin's leave answers it)
+let _convEditBack = null;
+
+// an open editor holds the reader's place; one a rebuild took without its close (a stream that failed) is gone as a saved one is
+function convEditorHolds() {
+    if (_convEditBack !== null && !convEditorOpen()) {
+        const back = _convEditBack;
+        _convEditBack = null;
+        back();
+    }
+    return _convEditBack !== null;
+}
+
+// an editor closed or taken by its row's swap (a hide, a stored copy): the last one gives back the first one's follow
+function convEditorGone(editor, restore = () => {}, { undone = false } = {}) {
+    const last = ![...(convEls().list?.querySelectorAll('.chat-conv-edit') || [])].some(e => e !== editor);
+    const back = last ? _convEditBack : null;
+    if (last) _convEditBack = null;
+    // asked before the text comes back and after: a box shorter than the text clamped the reader onto the end, a taller held it off
+    back?.(undone);
+    restore();
+    back?.(undone);
+    // a follower given the end back catches up with what came back below
+    if (_convPin.pinned()) convScrollToEnd({ quiet: true, now: true });
+    convSyncJumpPill();
+    convPayOwedRebuild();
+}
 
 function convBeginEdit(seq, messageId = null) {
     const i = convIndexOfShown(seq, messageId);
@@ -2562,6 +2674,10 @@ function convBeginEdit(seq, messageId = null) {
     const shownId = _convMessages[i].id;
     const shown = convShownOf(_convMessages[i].raw);
     const original = getMessageDisplayText(_convMessages[i].raw) || '';
+    // editing IS holding your place: unpin, or a pinned transcript keeps yanking to the end under the editor
+    const back = _convPin.leave();
+    // the last editor to close gives back the first one's follow, taken before any place was held
+    if (!convEditorOpen()) _convEditBack = back;
     holder.insertAdjacentHTML('beforeend', `
         <div class="chat-conv-edit">
             <textarea class="chat-conv-edit-input" spellcheck="true"></textarea>
@@ -2571,8 +2687,6 @@ function convBeginEdit(seq, messageId = null) {
             </div>
         </div>`);
     row.classList.add('editing');
-    // editing IS holding your place: unpin, or a pinned transcript keeps yanking to the end under the editor
-    convUnpinIntent();
     const box = holder.querySelector('.chat-conv-edit-input');
     const wrap = holder.querySelector('.chat-conv-edit');
     box.value = original;
@@ -2582,14 +2696,20 @@ function convBeginEdit(seq, messageId = null) {
     const fit = () => CoreAPI.fitTextarea(box, { freeze: wrap });
     requestAnimationFrame(() => {
         fit();
+        // a focus that keeps the list still keeps the box still too: it is scrolled to its caret at the end here
+        box.scrollTop = box.scrollHeight;
         // once, at open: on a long message the box bottom and save row can land below the fold
-        wrap.scrollIntoView({ block: 'nearest' });
+        convRevealNearest(wrap);
     });
     box.addEventListener('input', fit);
-    box.focus();
+    box.focus({ preventScroll: true });
     box.setSelectionRange(box.value.length, box.value.length);
 
-    const close = () => { row.classList.remove('editing'); holder.querySelector('.chat-conv-edit')?.remove(); convPayOwedRebuild(); };
+    // a Cancel, a Save of nothing changed or one refused: the message stands as it was, so the close undoes the edit
+    const close = () => convEditorGone(holder.querySelector('.chat-conv-edit'), () => {
+        row.classList.remove('editing');
+        holder.querySelector('.chat-conv-edit')?.remove();
+    }, { undone: true });
     holder.querySelector('[data-edit="cancel"]').addEventListener('click', close);
     holder.querySelector('[data-edit="save"]').addEventListener('click', async () => {
         const text = box.value;
@@ -2766,11 +2886,13 @@ async function convSelectSwipe(seq, i, target) {
         }
         if (_convPickPending.get(key) !== pick) return;
         _convPickPending.delete(key);
-        convAdoptStored(entry.seq, stored ?? next, entry);
+        // a pick answered after the reader left the chat paints nothing, and lands nowhere
+        if (convAdoptStored(entry.seq, stored ?? next, entry) !== entry) convLandAlternate(entry.seq);
         return;
     }
     _convMessages[i] = next;
     convReplaceMessage(next);
+    convLandAlternate(entry.seq);
     convAdoptStored(entry.seq, await convPersistMessage(entry.seq, { swipe_id: target }, entry.id), next);
 }
 
@@ -2833,7 +2955,7 @@ async function convAddSwipe(seq, text, messageId = null) {
             { text, count, messageId: entry.id });
         const stored = await convStoredAnswer(resp, chatId, 'nothing was added');
         if (stored === null) await convRereadOrOwe();
-        else convAdoptStored(entry.seq, stored, entry);
+        else if (convAdoptStored(entry.seq, stored, entry) !== entry) convLandAlternate(entry.seq);
         return stored !== CONV_LEFT;
     } catch (err) {
         CoreAPI.showToast(`Could not add the swipe: ${err.message}`, 'error');
@@ -2870,7 +2992,7 @@ function convFlashSwipe(seq) {
 
 // Re-reads the history from the server. Used after any write that renumbers rows, so the
 // client's seqs can never drift from the server's.
-async function convReloadMessages() {
+async function convReloadMessages({ beforeRender = null } = {}) {
     invalidateBudget();
     const chatId = _convChatId;
     try {
@@ -2893,14 +3015,17 @@ async function convReloadMessages() {
             const was = held.get(entry.id);
             return was && JSON.stringify(was) === JSON.stringify(entry) ? was : entry;
         });
+        beforeRender?.();
         renderConversation(_convMessages);
+        // a re-read can grow the turn under a reader at the end (a stop's kept text, read late): they stay there
+        convScrollToEnd({ quiet: true });
     } catch (e) {
         convShowError(`Could not refresh this chat: ${e.message}`);
     }
 }
 
 // one root attribute swaps send for stop and hides the last row's bar at once; the composer stays enabled for drafting
-function convSetBusy(busy) {
+function convSetBusy(busy, { replied = false } = {}) {
     const { pane, send, stop } = convEls();
     if (pane) {
         if (busy) pane.setAttribute('data-generating', 'true');
@@ -2908,7 +3033,8 @@ function convSetBusy(busy) {
     }
     send?.classList.toggle('hidden', busy);
     stop?.classList.toggle('hidden', !busy);
-    if (!busy) convPayOwedRebuild();
+    // a reply's end: the reply this tab asked for comes before what another tab wrote meanwhile (an impersonation adds none)
+    if (!busy) convPayOwedRebuild({ behindOwn: replied });
     // A stream ending while the conversation is parked is the one completion nobody
     // saw; the toggle's dot is what says so.
     if (_convSuspended) {
@@ -3176,7 +3302,10 @@ function convReplaceMessage(entry, { carry = null } = {}) {
     convEnhanceRows(next);
     // before the anchor: a row redrawn with its disclosures shut is shorter, and the scroll clamps short of the reader
     carry?.(next);
-    list.scrollTop = next.offsetTop - beforeTop;
+    _convPin.put(next.offsetTop - beforeTop);
+    // an editor the swap took is gone as a closed one is; a row grown or shrunk moves the end the pill reads, unscrolled
+    if (old.querySelector('.chat-conv-edit')) convEditorGone(null);
+    else convSyncJumpPill();
     return true;
 }
 
@@ -3568,6 +3697,10 @@ let _convLiveReasoning = '';
 // the thinking the live disclosure shows, kept so opening it can format exactly that
 let _convShownThought = '';
 let _convLiveEl = null;
+// the reply under way as written on screen (a continue's stored text, what showed before a flip to off or a park)
+let _convLiveShownText = '';
+// the reader looked away from it (parked, a hidden tab, streaming off): the next paint opens past what they saw
+let _convSightGap = false;
 let _convLivePainter = null;
 // which partial the next paint writes: the reply, its thinking, or both inside one cadence
 let _convLiveDirty = false;
@@ -3592,10 +3725,9 @@ function convPaintLiveReasoning() {
 // the reply's partial grew; the next paint writes what its reveal shows
 function convPaintLive() {
     _convLiveDirty = true;
-    if (!convStreams()) {
-        if (!_convWriting) { _convWriting = true; convSyncLiveStatus(); }
-        return;
-    }
+    // writing once the model sends text: a flip to off mid-reply says so without counting a continue's stored text
+    if (!_convWriting) { _convWriting = true; if (!convStreams()) convSyncLiveStatus(); }
+    if (!convStreams()) return;
     _convReplyReveal.arrive(_convLiveText.length);
     convMarkLive();
 }
@@ -3636,6 +3768,12 @@ function convMarkLive() {
 // a paced reveal still holds arrived text back from the row it streams into
 function convLiveBehind() {
     return !!_convLiveEl?.isConnected && (_convReplyReveal.behind() || _convThinkReveal.behind());
+}
+
+// what of a finished reply the reader saw: null when they watched it stream (it follows the end), else the text shown
+function convLandFrom() {
+    const seen = _convLiveShownText.trim() ? _convLiveShownText : '';
+    return seen && convStreams() && !_convSightGap ? null : seen;
 }
 
 // back in sight: whatever streamed in meanwhile lands whole in one paint, and pacing goes on from there
@@ -3688,6 +3826,8 @@ function convPaintLiveNow() {
     // a cut that shows nothing new (paced, between two words) writes nothing
     const thought = reasoning ? _convThinkReveal.cut(_convLiveReasoning) : null;
     const shown = text ? _convReplyReveal.cut(_convLiveText) : null;
+    // the first paint since the reader looked away opens past what they saw, measured before it writes
+    const seenAt = _convSightGap && shown !== null ? convLiveSeenAt() : undefined;
     if (thought !== null) convWriteLiveReasoning(thought);
     if (shown !== null) {
         const live = CoreAPI.liveFormattingOn('chat');
@@ -3696,8 +3836,16 @@ function convPaintLiveNow() {
         const html = convRenderText(shown, _convChar?.name || '', { streaming: live ? 'live' : true });
         if (live) repaintLive(_convLiveEl, html);
         else _convLiveEl.innerHTML = html;
+        _convLiveShownText = shown;
     }
-    if (thought !== null || shown !== null) convScrollToEnd({ now: true });
+    if (seenAt !== undefined) {
+        _convSightGap = false;
+        convLandLive(seenAt);
+    } else if (thought !== null || shown !== null) {
+        // the thought painted back in sight: the reader follows it, so the reply's first words open nothing above it
+        if (thought !== null) _convSightGap = false;
+        convScrollToEnd({ now: true });
+    }
 }
 
 // The live row's disclosure, found from the element the reply streams into.
@@ -3740,6 +3888,8 @@ function convStopLive() {
     _convLiveDirty = false;
     _convLiveReasoningDirty = false;
     _convLiveEl = null;
+    _convLiveShownText = '';
+    _convSightGap = false;
     _convLiveText = '';
     _convLiveReasoning = '';
     _convShownThought = '';
@@ -3770,6 +3920,8 @@ function convOpenLiveBubble(inPlaceSeq = null) {
             _convShownThought = '';
             convResetLiveReveal();
             _convLiveEl = text;
+            _convLiveShownText = '';
+            _convSightGap = !convStreams() || _convSuspended || document.hidden;
             _convStatusSince = Date.now();
             _convWriting = false;
             convSyncLiveStatus();
@@ -3797,6 +3949,8 @@ function convOpenLiveBubble(inPlaceSeq = null) {
     _convShownThought = '';
     convResetLiveReveal();
     _convLiveEl = row?.querySelector('.chat-conv-msg-text') || null;
+    _convLiveShownText = '';
+    _convSightGap = !convStreams() || _convSuspended || document.hidden;
     _convStatusSince = Date.now();
     _convWriting = false;
     convSyncLiveStatus();
@@ -4338,7 +4492,6 @@ async function convSend() {
         if (stored?.message) {
             // Sending is deliberate, so it re-pins even if the reader had scrolled up.
             convResetPin();
-            convScrollToEnd({ force: true });
         }
         clearDraft(chatId);
     } catch (e) {
@@ -4482,7 +4635,6 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
     }
 
     convResetPin();
-    convScrollToEnd({ force: true });
     convClearError();
     convEls().list?.querySelectorAll('.chat-conv-msg.gen-error').forEach(el => el.classList.remove('gen-error'));
     convSetBusy(true);
@@ -4500,8 +4652,13 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
             _convLiveText = stored;
             _convReplyReveal.seed(stored.length);
             // nothing streams with the switch off, so the stored text is written once and waits there
-            if (convStreams()) convPaintLive();
-            else bubble.innerHTML = convRenderText(stored, _convChar?.name || '');
+            if (convStreams()) {
+                _convLiveDirty = true;
+                convMarkLive();
+            } else {
+                bubble.innerHTML = convRenderText(stored, _convChar?.name || '');
+                _convLiveShownText = stored;
+            }
         }
     }
     let sawText = false;
@@ -4556,11 +4713,14 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
         if (_convChatId !== chatId) { tellEnded(); return; }
         // a stream that just STOPS (no final frame, a proxy idle-cut) is a failure: ask the server what survived and say so
         if (sawText && !sawDone) {
+            const seen = convLandFrom();
+            const away = convPlaceAway();
             convStopLive();
             document.querySelector('[data-live="1"]')?.removeAttribute('data-live');
             convShowError('The connection dropped before the reply finished. Showing what the server kept.');
             tellEnded();
             await convReloadMessages();
+            if (_convChatId === chatId) convLandReread(seen, true, away);
             return;
         }
         // a paced reveal shows the rest first; Stop or switching pacing off ends that wait at once
@@ -4569,15 +4729,19 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
             await caughtUp;
             if (_convChatId !== chatId) { tellEnded(); return; }
         }
+        // where the reader picks the reply up, read before the settle replaces what they saw
+        const seen = convLandFrom();
         // the stored row replaces the live bubble so the finished turn goes through the gate; the rest stays untouched
-        const streamed = convStreams();
         convSettleLiveBubble();
         convApplyContextMarker();
-        if (streamed) convScrollToEnd();
-        else convLandReplyStart(Number.isInteger(doneSeq) ? doneSeq : _convMessages[_convMessages.length - 1]?.seq);
+        if (seen === null) convScrollToEnd();
+        else convLandReplyStart(Number.isInteger(doneSeq) ? doneSeq : _convMessages[_convMessages.length - 1]?.seq, seen);
         convSignalComplete();
         tellEnded();
     } catch (e) {
+        // read before the stop below drops what the reader saw, and before a re-read can clamp the reader's place
+        const seen = convLandFrom();
+        const away = convPlaceAway();
         fireEvent('generation.failed', { chatId, mode: wireMode, cancelled: !!e?.isCancelled, error: e?.isCancelled ? null : (e?.message || 'Generation failed') });
         // the server may still store the reply once the hang-up reaches it, as this tab's write: its echo is heard
         if (e?.isCancelled && !sawDone) _convStopEcho = chatId;
@@ -4614,11 +4778,15 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
             await new Promise(r => setTimeout(r, 400));
             await convReloadMessages();
         }
+        // the re-reads waited: a chat opened meanwhile owns the list
+        if (_convChatId !== chatId) return;
+        // the re-read rebuilt the turn; a kept one lands as a finished reply would, never left below the fold
+        convLandReread(seen, sawText && (!e?.isCancelled || CoreAPI.getSetting('chatKeepInterrupted') === true), away);
         // marked after the re-read, which rebuilds the row a rewrite streamed into
         if (!e?.isCancelled) convRowEl(_convMessages[_convMessages.length - 1]?.seq)?.classList.add('gen-error');
     } finally {
         _convAbort = null;
-        convSetBusy(false);
+        convSetBusy(false, { replied: true });
     }
 }
 
@@ -4646,7 +4814,6 @@ function convOnKeydown(e) {
     if (Keymap.is(e, 'conversation.latest')) {
         e.preventDefault();
         convResetPin();
-        convScrollToEnd({ force: true });
         return;
     }
     if (Keymap.is(e, 'conversation.regenerate')) { e.preventDefault(); return void convRunOption('regenerate'); }
@@ -4670,7 +4837,8 @@ function convOnKeydown(e) {
 }
 
 function convAutosize(el) {
-    CoreAPI.fitTextarea(el);
+    // held through the measure, whose collapse would grow the list and clamp the reader's scroll
+    CoreAPI.fitTextarea(el, { freeze: el.closest('.chat-conv-composer') });
 }
 
 function initConversation() {
@@ -4775,41 +4943,25 @@ function initConversation() {
 
     document.addEventListener('keydown', convOnKeydown);
     input?.addEventListener('input', () => convFollowInput(input));
-    convEls().list?.addEventListener('scroll', convOnScroll, { passive: true });
     // a backgrounded tab paints and ticks nothing; the partial and the stamps land in one pass when it returns
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden) return;
+        if (document.hidden) {
+            if (_convLiveEl?.isConnected) _convSightGap = true;
+            return;
+        }
         convScheduleLivePaint();
         convTickClock();
     });
-    // an upward wheel tick or touch drag unpins at once, the only ordering that beats the per-frame stream scroll
-    convEls().list?.addEventListener('wheel', (e) => {
-        if (e.deltaY < 0) convUnpinIntent();
-    }, { passive: true });
-    // Dragging the finger DOWN scrolls toward older messages; thats the leaving gesture, measured from where it went down.
-    const convMoveFinger = (e) => {
-        if ([...(e.touches || [])].some(t => _convFingers.has(t.identifier) && t.clientY - _convFingers.get(t.identifier) > TOUCH_INTENT_PX)) convUnpinIntent();
-    };
-    // the hold lasts while a finger that went down on the list is still down; one elsewhere on the screen never holds it
-    const convLiftFinger = (e) => {
-        for (const t of e.changedTouches || []) _convFingers.delete(t.identifier);
-        if (_convFingers.size) return;
-        convUnwatchTouch();
-        convSettleScroll();
-    };
-    // heard at the list and at the element the finger went down on; hearing one event twice changes nothing
-    const touchHandlers = { touchmove: convMoveFinger, touchend: convLiftFinger, touchcancel: convLiftFinger };
-    convEls().list?.addEventListener('touchstart', (e) => {
-        // a finger the browser stopped reporting lifted where nothing heard it
-        const live = new Set([...(e.touches || [])].map(t => t.identifier));
-        for (const id of [..._convFingers.keys()]) if (!live.has(id)) _convFingers.delete(id);
-        for (const t of e.changedTouches || []) {
-            _convFingers.set(t.identifier, t.clientY);
-            convWatchTouch(t.target, touchHandlers);
-        }
-        convHoldScroll();
-    }, { passive: true });
-    for (const [type, fn] of Object.entries(touchHandlers)) convEls().list?.addEventListener(type, fn, { passive: true });
+    // the pin hears the list's scroll, wheel and touch itself; told when it is taken or let go, the pill follows
+    _convPin.watch((pinned) => {
+        if (pinned) _convMissedWhileAway = false;
+        convSyncJumpPill();
+    });
+    _convPin.reset();
+    // away, the pill follows how far there is to jump: the list's scroll, and its own resizes (a growing composer, the window)
+    const list = convEls().list;
+    list?.addEventListener('scroll', convSyncJumpPill, { passive: true });
+    if (list) new ResizeObserver(convSyncJumpPill).observe(list);
     // One delegated listener for every row action; per-row listeners would need re-attaching on each replacement.
     convEls().list?.addEventListener('click', convOnRowAction);
     // a row's first touch builds its overflow ahead of the hover or tap that opens it
@@ -4817,7 +4969,6 @@ function initConversation() {
     convEls().list?.addEventListener('focusin', (e) => convEnsureRowActions(e.target.closest('.chat-conv-msg')));
     document.getElementById('chatConvJump')?.addEventListener('click', () => {
         convResetPin();
-        convScrollToEnd({ force: true });
     });
     input?.addEventListener('keydown', (e) => {
         // Enter sends, Shift+Enter breaks the line. Mobile keeps Enter as newline

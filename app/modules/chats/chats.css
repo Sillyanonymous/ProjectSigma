@@ -1605,12 +1605,15 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
 /* a reply formatted as it streams keeps the same copy, so its settle wraps nothing */
 .chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
 .chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
 .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
 .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
     content: var(--swipe-count);
     display: inline-block;
     box-sizing: content-box;
     overflow: hidden;
+    width: auto;
     min-width: var(--swipe-count-min);
     padding-left: calc(2 * var(--swipe-btn) + 2 * var(--swipe-gap) + 2 * var(--space-2xs) + 2px + var(--swipe-combine, 0px));
     font-size: var(--font-2xs);
@@ -1621,10 +1624,16 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
     user-select: none;
     pointer-events: none;
 }
+/* a waiting row with text (a continue, a reply frozen by switching streaming off) keeps that room too, unseen */
 .chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
-.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
+.chat-conv-msg:not(.streaming):has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
+.chat-conv[data-streaming="false"] .chat-conv-msg.streaming:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
     height: 0;
     visibility: hidden;
+    /* the caret's own paint, which an unseen copy would keep running */
+    background: none;
+    animation: none;
 }
 
 /* a last line keeps the room the pill needs beyond it; only the phone's touch-sized pill needs any */
@@ -2172,7 +2181,6 @@ html.cl-no-ambient .chat-conv-msg.streaming .chat-conv-msg-text:empty::after {
 /* and the last line keeps the pill's copy a settled row ends it with (above), the caret drawn at its start */
 .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > p:last-child::after,
 .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swipes) .chat-conv-msg-text > :is(ul, ol):last-child > li:last-child::after {
-    width: auto;
     /* the caret drawn the size of the plain one (1ch by 1em of the prose), though the box takes the counter's small type */
     height: var(--font-pre-base);
     vertical-align: calc(-0.1 * var(--font-pre-base));

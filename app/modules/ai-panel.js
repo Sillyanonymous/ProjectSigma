@@ -1,4 +1,4 @@
-// What the two review panels share: the review helpers, saved prompts, and a turn's pictures (the chat composer's too)
+// What the two review panels and the chat share: the review helpers, saved prompts, a turn's pictures, the live paint and the scroll pin
 
 import CoreAPI from './core-api.js';
 import { seesPictures } from './connection-editor.js';
@@ -105,6 +105,8 @@ export function createLivePainter({ paint, held = () => false, behind = () => fa
     const run = () => {
         raf = 0;
         if (stopped) return;
+        // a frame asked before the hold paints nothing out of sight; the flush at the return paints what waits
+        if (held()) return;
         dirty = false;
         paintedAt = performance.now();
         paint();
@@ -322,7 +324,7 @@ export function paintPanelReply(el, surface, render) {
 
 // what a reader can focus in a reply, and what scrolls in one: a code box, a wide table, a board's own scroll box
 const READER_FOCUS = 'summary, a[href]';
-const READER_SCROLL = 'pre, .cl-table-scroll, [style*="overflow"]';
+const READER_SCROLL = 'pre, table, .cl-table-scroll, [style*="overflow"]';
 
 // a point in a reply as its offset into the reply's text, so it survives a rewrite of the same text
 function textOffset(root, node, offset) {
@@ -391,16 +393,60 @@ export function carryPanelReply(hostId, seq, state) {
     const settled = host?.querySelector(`.cas-msg[data-seq="${seq}"] .cas-msg-body`);
     if (!settled) return;
     restoreReaderState(settled, state);
-    // pinned again as render pinned it: a disclosure reopened under that pin grows the reply past it
-    host.scrollTop = host.scrollHeight;
+    // followed again as render followed it, the place given back: a reopened disclosure gave room to a place render could not reach
+    const pin = scrollPin(hostId);
+    pin.follow(pin.place());
+}
+
+// a stored turn's stamp names it alone: a delete renumbers the seqs after it, and words repeat
+const TRANSCRIPT_ROW = '.cas-msg[data-at]';
+
+/**
+ * A transcript redrawn by `draw`, each older reply keeping what the reader opened in it: its Reasoning, its disclosures, their boxes' scroll.
+ * @param {HTMLElement} body the panel body
+ * @param {Function} draw the redraw
+ */
+export function redrawTranscript(body, draw) {
+    const kept = new Map();
+    for (const row of body.querySelectorAll(TRANSCRIPT_ROW)) {
+        const think = row.querySelector('.cas-think');
+        const text = row.querySelector('.cas-msg-body');
+        const touched = !!text && (Array.from(text.querySelectorAll('details')).some(d => d.open)
+            || Array.from(text.querySelectorAll(READER_SCROLL)).some(b => b.scrollLeft || b.scrollTop));
+        if (!think?.open && !touched) continue;
+        kept.set(row.getAttribute('data-at'), {
+            think: think?.open ? (row.querySelector('.cas-think-body')?.scrollTop || 0) : null,
+            state: touched ? readerState(text) : null,
+        });
+    }
+    draw();
+    if (!kept.size) return;
+    const found = Array.from(body.querySelectorAll(TRANSCRIPT_ROW), row => [row, kept.get(row.getAttribute('data-at'))]).filter(([, k]) => k);
+    // every box opened before any scroll is written, so layout settles once rather than once a reply
+    for (const [row, k] of found) {
+        const think = row.querySelector('.cas-think');
+        if (think && k.think !== null) think.open = true;
+        const text = row.querySelector('.cas-msg-body');
+        if (text && k.state) openAsRead(text, k.state);
+    }
+    for (const [row, k] of found) {
+        const box = row.querySelector('.cas-think-body');
+        if (box && k.think) box.scrollTop = k.think;
+        if (k.state) restoreReaderState(row.querySelector('.cas-msg-body'), k.state);
+    }
+}
+
+// a reply's disclosures as the reader left them, written only where they differ
+function openAsRead(el, state) {
+    const details = el.querySelectorAll('details');
+    if (details.length === state.open.length) details.forEach((d, i) => { if (d.open !== state.open[i]) d.open = state.open[i]; });
 }
 
 /** The settled message given the live reply's reader state by position, each part only where both hold as many. */
 export function restoreReaderState(el, state) {
     if (!el || !state) return;
-    const details = el.querySelectorAll('details');
     // opened first: a box inside a shut disclosure has no layout to scroll
-    if (details.length === state.open.length) details.forEach((d, i) => { d.open = state.open[i]; });
+    openAsRead(el, state);
     const boxes = el.querySelectorAll(READER_SCROLL);
     if (boxes.length === state.scroll.length) {
         boxes.forEach((b, i) => {
@@ -418,6 +464,279 @@ export function restoreReaderState(el, state) {
         const focus = textPoint(el, s.focus, s.focus < s.anchor);
         if (anchor && focus) document.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], focus[0], focus[1]);
     }
+}
+
+// ========================================
+// THE SCROLL PIN
+// ========================================
+
+// within 48px of the end is at it, a finger 8px toward older text is leaving, a fling settles in 150ms
+const SCROLL_PIN_EPSILON = 48;
+const SCROLL_TOUCH_INTENT_PX = 8;
+const SCROLL_TOUCH_SETTLE_MS = 150;
+// the very end, with room for a zoomed page's fractional scroll
+const SCROLL_PIN_END_PX = 3;
+const scrollPins = new Map();
+
+/**
+ * A transcript's pin to its end, for the chat and both panels: a scroll toward older text lets go, the end takes it back.
+ * @param {string} hostId the scrolling body's id
+ * @param {{ rows?: string }} [opts] rows: the transcript's rows; a view without them (Settings, Context) keeps its own scroll
+ * @returns {{ follow: (kept?: number) => void, pin: () => void, keep: () => void, land: (top: number) => void, put: (top: number) => void, leave: () => (undone?: boolean) => void, reset: () => void, watch: (fn: (pinned: boolean) => void) => void, pinned: () => boolean, place: () => number }}
+ */
+export function scrollPin(hostId, { rows = '.cas-msg' } = {}) {
+    if (scrollPins.has(hostId)) return scrollPins.get(hostId);
+    let pinned = true;
+    let watcher = null;
+    let hold = false;
+    let holdAtEnd = false;
+    // where the held body was when the finger last said where it is; a move within the intent band says nothing
+    let holdMark = 0;
+    // the finger let go during this hold: only the very end takes it back, unless the finger is heading back toward newer text
+    let leftInHold = false;
+    let headingNewer = false;
+    // the reader left without a scroll (an editor open): layout never takes the pin back until the leave is answered
+    let leaving = false;
+    // places the reader chose or was given since: a move of the body soon after they worked it, and the app's landings
+    let placed = 0;
+    // when the reader last worked the body (a wheel, a touch, a press, a key outside a field); a typed caret's scroll is none
+    let worked = -Infinity;
+    // a press held on the body (its scrollbar dragged): every move until its release is the reader's
+    let pressing = false;
+    let last = 0;
+    // a place the body could not reach when given back (a re-read without the kept turn yet): the reader's, for the next redraw
+    let want = null;
+    // the body's size at its last scroll or write, so a move that layout made (a removed row, a turned phone) is told apart
+    let seenHeight = 0;
+    let seenClient = 0;
+    let settle = 0;
+    let bound = null;
+    // the fingers on the body by identifier (where each is, last moved toward newer, went down across) and the elements they went down on
+    const fingers = new Map();
+    const watched = [];
+    const fromEnd = (el) => el.scrollHeight - el.scrollTop - el.clientHeight;
+    const setPinned = (on) => {
+        if (pinned === on) return;
+        pinned = on;
+        watcher?.(on);
+    };
+    // its own writes move the place a scroll is read against, and the size, before their scroll event arrives
+    const place = (el, top, kept = false) => {
+        el.scrollTop = top;
+        last = el.scrollTop;
+        seenHeight = el.scrollHeight;
+        seenClient = el.clientHeight;
+        want = kept && last < top - SCROLL_PIN_END_PX ? top : null;
+        // under a finger its own write is no move of the finger's
+        if (hold) holdMark = last;
+    };
+    // a body that barely scrolls has nothing above to read: letting go there strands the next reply below the fold
+    const letGo = () => {
+        if (!bound || bound.scrollHeight - bound.clientHeight <= SCROLL_PIN_EPSILON) return;
+        holdAtEnd = false;
+        setPinned(false);
+        if (hold) leftInHold = true;
+    };
+    // let go at the end, it follows again; the reply grew under the still finger, so the end its scroll reached counts
+    const release = () => {
+        hold = false;
+        // a view that is not the transcript (Settings, Context) keeps its own scroll
+        const el = bound.querySelector(rows) ? bound : null;
+        if (holdAtEnd) {
+            setPinned(true);
+            if (el) place(el, el.scrollHeight);
+        } else if (want !== null && el) place(el, want, true);
+    };
+    const settleSoon = () => {
+        clearTimeout(settle);
+        settle = setTimeout(release, SCROLL_TOUCH_SETTLE_MS);
+    };
+    const onScroll = () => {
+        const prev = last;
+        last = bound.scrollTop;
+        const layout = bound.scrollHeight < seenHeight || bound.clientHeight !== seenClient;
+        seenHeight = bound.scrollHeight;
+        seenClient = bound.clientHeight;
+        // a move layout made (a removed row, a turned phone) is no reader's: one clamped onto the very end, no place held, is at it
+        if (layout) {
+            if (!hold && want === null && !leaving && fromEnd(bound) <= SCROLL_PIN_END_PX) setPinned(true);
+            return;
+        }
+        // the body itself moved by the reader's hand: a wheel or a drag inside an edit box moves only the box
+        if (last !== prev && (pressing || Date.now() - worked < SCROLL_TOUCH_SETTLE_MS)) placed++;
+        // off the body's own end, the reader is where they chose: a place held for a redraw is dropped
+        if (want !== null && fromEnd(bound) > SCROLL_PIN_END_PX) want = null;
+        if (hold) {
+            // a fling after the lift keeps the hold until it goes quiet
+            if (!fingers.size) settleSoon();
+            // heading back toward newer text the band is the end, as the reply grows past the push; heading away, only the very end
+            const atEnd = fromEnd(bound) <= (leftInHold && !headingNewer ? SCROLL_PIN_END_PX : SCROLL_PIN_EPSILON);
+            const step = bound.scrollTop - holdMark;
+            // a jitter says nothing, but a step that reaches the end counts however small (the pin's own writes moved the mark)
+            if (Math.abs(step) <= SCROLL_TOUCH_INTENT_PX && !(atEnd && step > 0)) return;
+            holdMark = bound.scrollTop;
+            // a finger that moved is where it moved to: at the end, or short of it (dragged on past a clamped end)
+            holdAtEnd = atEnd;
+            // reaching the end takes the pin back at once, though its writes wait for the lift (a pill blinked as each line arrived)
+            if (atEnd && step > 0) setPinned(true);
+            else if (!atEnd && step < 0) letGo();
+            return;
+        }
+        // any move toward older text lets go; nearness re-pins only on a move toward the end (an arrow's last 1px frame read as none)
+        if (bound.scrollTop < prev - 0.5) letGo();
+        else if (bound.scrollTop > prev && fromEnd(bound) <= SCROLL_PIN_EPSILON) setPinned(true);
+    };
+    // dragging the finger down scrolls toward older text, the leaving gesture, measured from where it last moved toward newer
+    const move = (e) => {
+        for (const t of e.touches || []) {
+            const f = fingers.get(t.identifier);
+            if (!f) continue;
+            // back at the end after the touch slop the finger is still below where it went down: a move toward newer carries the mark
+            if (t.clientY < f.at) { f.mark = t.clientY; headingNewer = true; } else if (t.clientY > f.at) headingNewer = false;
+            f.at = t.clientY;
+            // a drag mostly sideways (a wide code box scrolled) is no leaving, whatever it drifts down
+            worked = Date.now();
+            const older = t.clientY - f.mark;
+            if (older > SCROLL_TOUCH_INTENT_PX && older > Math.abs((t.clientX || 0) - f.x)) letGo();
+        }
+    };
+    const unwatch = () => {
+        for (const el of watched.splice(0)) for (const [type, fn] of Object.entries(touch)) el.removeEventListener(type, fn);
+    };
+    const lift = (e) => {
+        for (const t of e.changedTouches || []) fingers.delete(t.identifier);
+        if (fingers.size) return;
+        unwatch();
+        settleSoon();
+    };
+    const touch = { touchmove: move, touchend: lift, touchcancel: lift };
+    // a touch's events go to the element it went down on, which a paint can take out of the body: heard there too
+    const watch = (el) => {
+        if (!el?.addEventListener || el === bound || watched.includes(el)) return;
+        for (const [type, fn] of Object.entries(touch)) el.addEventListener(type, fn, { passive: true });
+        watched.push(el);
+    };
+    const down = (e) => {
+        // a finger the browser stopped reporting lifted where nothing heard it
+        const live = new Set([...(e.touches || [])].map(t => t.identifier));
+        for (const id of [...fingers.keys()]) if (!live.has(id)) fingers.delete(id);
+        for (const t of e.changedTouches || []) {
+            fingers.set(t.identifier, { at: t.clientY, mark: t.clientY, x: t.clientX || 0 });
+            watch(t.target);
+        }
+        if (!hold) {
+            // only a follower is held at the end: a tap near it never pulls back one who left, nor one short of a held place
+            holdAtEnd = pinned && want === null && fromEnd(bound) <= SCROLL_PIN_EPSILON;
+            holdMark = bound.scrollTop;
+            leftInHold = headingNewer = false;
+        }
+        hold = true;
+        clearTimeout(settle);
+    };
+    // the body outlives its renders, so it is heard once
+    const bind = () => {
+        const el = document.getElementById(hostId);
+        if (!el || el === bound) return el;
+        bound = el;
+        last = el.scrollTop;
+        seenHeight = el.scrollHeight;
+        seenClient = el.clientHeight;
+        el.addEventListener('scroll', onScroll, { passive: true });
+        // a tick up lets go before its scroll lands; a sideways swipe's slight drift (a wide code box) is no leaving
+        el.addEventListener('wheel', (e) => {
+            worked = Date.now();
+            if (e.deltaY < 0 && -e.deltaY > Math.abs(e.deltaX || 0)) letGo();
+        }, { passive: true });
+        el.addEventListener('pointerdown', () => { worked = Date.now(); pressing = true; }, { passive: true });
+        el.addEventListener('touchstart', down, { passive: true });
+        for (const [type, fn] of Object.entries(touch)) el.addEventListener(type, fn, { passive: true });
+        // a pinned body keeps its end through a resize of its own (the phone's keyboard, a growing composer, a turned phone)
+        new ResizeObserver(() => { if (el === bound && pinned && !hold && el.querySelector(rows)) place(el, el.scrollHeight); }).observe(el);
+        return el;
+    };
+    const pin = {
+        /** A paint or a redraw: a pinned reader stays at the end, one who left keeps `kept`, the place read before a redraw. */
+        follow(kept) {
+            const el = bind();
+            if (!el?.querySelector(rows)) return;
+            // under a finger the end waits for the lift; the place a redraw displaced is given back at once, being layout
+            if (pinned && !hold) place(el, el.scrollHeight);
+            else if (Number.isFinite(kept)) place(el, kept, true);
+        },
+        /** The reader's own send, a transcript opened, the jump to the latest: back to the end, following again. */
+        pin() {
+            const el = bind();
+            leaving = false;
+            setPinned(true);
+            // a finger still down catches up on its lift; a fling settling after one is ended by the jump
+            if (hold && fingers.size) { holdAtEnd = true; return; }
+            hold = false;
+            clearTimeout(settle);
+            if (el?.querySelector(rows)) place(el, el.scrollHeight);
+        },
+        /** Before the live row is taken out: a reader away keeps their place until a redraw can reach it again. */
+        keep() {
+            if (!pinned && want === null) want = last;
+        },
+        /** The app placing the reader away from the end (a reply opened at its top): written unless a finger holds the body. */
+        land(top) {
+            const el = bind();
+            holdAtEnd = false;
+            setPinned(false);
+            placed++;
+            // a finger still down keeps the body where held; the settle after a lift (the tap that asked for it) is ended
+            if (hold && fingers.size) return;
+            hold = false;
+            clearTimeout(settle);
+            if (el) place(el, top);
+        },
+        /** A write that leaves the pin as it is (a row swapped in place, held where it stood). */
+        put(top) {
+            const el = bind();
+            if (el) place(el, top);
+        },
+        /** The reader's own leaving without a scroll (an editor opened); its answer re-pins a follower near the end, or, undone, one given no place since. */
+        leave() {
+            const el = bind();
+            const was = pinned;
+            const since = placed;
+            letGo();
+            leaving = true;
+            return (undone = false) => {
+                leaving = false;
+                if (!was || pinned || !el || el !== bound || want !== null) return;
+                if ((undone && placed === since) || fromEnd(el) <= SCROLL_PIN_EPSILON) pin.pin();
+            };
+        },
+        /** A transcript opened or closed: no finger, nothing held, following. */
+        reset() {
+            const el = bind();
+            unwatch();
+            fingers.clear();
+            clearTimeout(settle);
+            hold = holdAtEnd = leftInHold = headingNewer = leaving = false;
+            want = null;
+            if (el) {
+                last = el.scrollTop;
+                seenHeight = el.scrollHeight;
+                seenClient = el.clientHeight;
+            }
+            setPinned(true);
+        },
+        /** Told each time the pin is taken or let go (a jump-to-latest control). */
+        watch(fn) {
+            watcher = fn;
+        },
+        pinned: () => pinned,
+        /** Where the reader is, or the place held for a redraw to give back. */
+        place: () => want ?? last,
+    };
+    // a key aimed at the page still scrolls the body, and a held press ends wherever the pointer is let go
+    document.addEventListener('keydown', (e) => { if (!e.target?.closest?.('textarea, input, select, [contenteditable]')) worked = Date.now(); }, { passive: true });
+    document.addEventListener('pointerup', () => { if (pressing) { pressing = false; worked = Date.now(); } }, { passive: true });
+    document.addEventListener('pointercancel', () => { pressing = false; }, { passive: true });
+    scrollPins.set(hostId, pin);
+    return pin;
 }
 
 // ========================================

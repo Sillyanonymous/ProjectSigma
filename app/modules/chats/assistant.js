@@ -4,7 +4,7 @@ import CoreAPI from '../core-api.js';
 import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
 import { mountChatWindow, syncRangeFill, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
+import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -453,7 +453,7 @@ function messageHtml(m, seq) {
         </div>`;
     }
     return `
-    <div class="cas-msg ${mine ? 'is-user' : 'is-assistant'}" data-seq="${seq}">
+    <div class="cas-msg ${mine ? 'is-user' : 'is-assistant'}" data-seq="${seq}"${m.at ? ` data-at="${esc(String(m.at))}"` : ''}>
         <div class="cas-msg-head">
             <span class="cas-msg-who">
                 <i class="fa-solid ${mine ? 'fa-user' : 'fa-robot'}"></i>${mine ? 'You' : 'Assistant'}
@@ -807,6 +807,8 @@ function onSettingInput(el) {
 function render() {
     const body = document.getElementById('casBody');
     if (!body) return;
+    // the transcript's place, kept for a reader who scrolled away from its end; another view redrawn returns to the end
+    const kept = body.querySelector('.cas-msg') ? scrollPin('casBody').place() : null;
     const meta = document.getElementById('casMeta');
     // Never the session name: the toolbar directly under this header already says it.
     if (meta) meta.textContent = _view === 'settings' ? 'Settings' : (_view === 'context' ? 'Context' : '');
@@ -848,7 +850,8 @@ function render() {
         return;
     }
     if (!_messages.length) { body.innerHTML = emptyHtml(); return; }
-    body.innerHTML = _messages.map((m, i) => messageHtml(m, i)).join('');
+    // the older replies keep what the reader opened: a reader scrolled up through a redraw read on in a box shut under them
+    redrawTranscript(body, () => { body.innerHTML = _messages.map((m, i) => messageHtml(m, i)).join(''); });
     // the streaming placeholder lives outside _messages and the paint loop finds its node per frame, so restore the shell here
     if (_openStream && !document.getElementById('casStreaming')) {
         body.insertAdjacentHTML('beforeend', casStreamingHtml(_openStream.painting));
@@ -856,7 +859,8 @@ function render() {
     }
     syncRangeFill(body);
     body.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
-    body.scrollTop = body.scrollHeight;
+    if (kept == null) scrollPin('casBody').pin();
+    else scrollPin('casBody').follow(kept);
 }
 
 // One source for the placeholder row: generate() births it, render() restores it.
@@ -893,7 +897,7 @@ function ownsSession() {
 }
 
 // create: false is the feed's read, which never writes; the reader's first line makes the next session (ensureSession)
-async function loadSessions({ pick = null, create = true } = {}) {
+async function loadSessions({ pick = null, create = true, inPlace = false } = {}) {
     if (!_chatId) { _sessions = []; _sessionId = null; _messages = []; return; }
     // a list answered after the reader picked another session or the chat moved is late: their screen stands
     const chatId = _chatId;
@@ -916,20 +920,13 @@ async function loadSessions({ pick = null, create = true } = {}) {
     }
     const wanted = pick || _sessionId;
     const target = _sessions.find(s => s.id === wanted) || _sessions[0];
-    await openSession(target.id);
+    // a re-read of the session already shown keeps the reader where they are; only an arrival goes to its end
+    await openSession(target.id, { keepScroll: inPlace && target.id === was });
 }
 
 // keepScroll: recovery re-reads keep the reader's place (at-bottom re-pins to the NEW
 // bottom, since the transcript may have shrunk); the end-jump is for arrivals only.
 async function openSession(id, { keepScroll = false } = {}) {
-    const scroller = keepScroll ? document.getElementById('casBody') : null;
-    const wasAtBottom = !!scroller && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 48;
-    const savedScroll = scroller ? scroller.scrollTop : null;
-    const restoreScroll = () => {
-        if (savedScroll == null) return;
-        const body = document.getElementById('casBody');
-        if (body) body.scrollTop = wasAtBottom ? body.scrollHeight : savedScroll;
-    };
     _sessionId = id;
     _proposals.clear();
     review.clear();
@@ -956,7 +953,11 @@ async function openSession(id, { keepScroll = false } = {}) {
     // the session remembers who answered it; an id missing from the list keeps the current one
     if (full.profileId && _profiles.some(p => p.id === full.profileId)) { _profileId = full.profileId; void syncSight(); } // its sight too
     // recovery re-reads skip this paint: it flashes every proposal card as a skeleton
-    if (!keepScroll) render();
+    if (!keepScroll) {
+        // a session opened is an arrival: its end, followed, once it is read; a re-read in place keeps the reader where they are
+        scrollPin('casBody').pin();
+        render();
+    }
     // verdicts judge the world as it is NOW, so fetched per open; a reply with none is marked known-empty; patch: false
     const refreshes = [];
     for (let i = 0; i < _messages.length; i++) {
@@ -970,8 +971,8 @@ async function openSession(id, { keepScroll = false } = {}) {
     if (_sessionId !== id) return;
     // a re-read in place leaves a Settings or Context view alone; the chat draws it on return
     if (keepScroll && _view !== 'chat') return;
+    // the pin's own account, not the body's: a stream's live row, removed before this re-read, clamped the body
     render();
-    restoreScroll();
 }
 
 // another tab wrote this chat's sessions: re-read in place, unless a stream, review work or Settings holds it (then owed)
@@ -987,7 +988,7 @@ async function patchSessionsFromFeed(records) {
     }
     _staleFromFeed = false;
     try {
-        if (!records || records.some(r => r.op !== 'updated')) await loadSessions({ create: false });
+        if (!records || records.some(r => r.op !== 'updated')) await loadSessions({ create: false, inPlace: true });
         else if (records.some(r => (r.ids || []).includes(_sessionId))) await openSession(_sessionId, { keepScroll: true });
     } catch (e) {
         console.warn('[Assistant] could not follow a change made elsewhere:', e.message);
@@ -1279,7 +1280,7 @@ async function generate(sid = _sessionId) {
     _openStream = { painting: live_ };
     const body = document.getElementById('casBody');
     body?.insertAdjacentHTML('beforeend', casStreamingHtml(live_));
-    if (body) body.scrollTop = body.scrollHeight;
+    scrollPin('casBody').pin();
 
     const t0 = Date.now();
     const liveTimer = setInterval(() => {
@@ -1295,8 +1296,8 @@ async function generate(sid = _sessionId) {
         const live = document.querySelector('#casStreaming .cas-msg-body');
         if (!live) return;
         paintPanelReply(live, 'assistant', (opts) => renderText(stripBlocks(acc), opts));
-        const host = document.getElementById('casBody');
-        if (host) host.scrollTop = host.scrollHeight;
+        // the reader's own scroll toward older text lets go; a finger on the body holds it
+        scrollPin('casBody').follow();
     };
     // the conversation's cadence, nothing painted out of sight; no painter at all when painting is off
     const painter = live_ ? createLivePainter({
@@ -1325,6 +1326,8 @@ async function generate(sid = _sessionId) {
         });
         // closed before the settle's render, or it restores the placeholder for the whole proposal judging
         _openStream = null;
+        // the live row goes, and the body clamps: a reader away keeps their place for the redraw
+        scrollPin('casBody').keep();
         const reader = closePanelStream('casStreaming', painter);
         if (_sessionId !== sid) return;
         // a stream that just STOPS (no done, no error: a proxy idle-cut) is a failure; re-read, only the server knows what was stored
@@ -1341,6 +1344,7 @@ async function generate(sid = _sessionId) {
         if (_messages[last]?.extra?.proposals?.length) await refreshProposals(last);
     } catch (e) {
         _openStream = null;
+        scrollPin('casBody').keep();
         document.getElementById('casStreaming')?.remove();
         // the subject moved on: re-reading or toasting about this session is noise about a chat not shown
         if (_sessionId !== sid) return;
@@ -1537,7 +1541,7 @@ async function renameSession() {
     if (typeof name !== 'string' || !name.trim() || name === current?.name) return;
     try {
         await api(`/assistant/sessions/${encodeURIComponent(_sessionId)}`, 'PATCH', { name: name.trim() });
-        await loadSessions({ pick: _sessionId });
+        await loadSessions({ pick: _sessionId, inPlace: true });
     } catch (e) { CoreAPI.showToast(`Could not rename: ${e.message}`, 'error'); }
 }
 
@@ -1869,14 +1873,9 @@ function beginEdit(seq) {
 }
 
 function cancelEdit() {
-    // backing out of an edit keeps the reader's place
-    const saved = document.getElementById('casBody')?.scrollTop ?? null;
     _editing = null;
+    // the redraw keeps the reader's place through the pin, or the end for one who follows
     render();
-    if (saved != null) {
-        const body = document.getElementById('casBody');
-        if (body) body.scrollTop = saved;
-    }
     followOwed();
 }
 

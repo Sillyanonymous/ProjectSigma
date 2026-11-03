@@ -4,7 +4,7 @@ import CoreAPI from './core-api.js';
 import { CHAT_PURIFY_CONFIG } from './providers/provider-utils.js';
 import { cardValuesEqual } from './card-fields.js';
 import { syncRangeFill, syncFieldAvailability } from './chats/window.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
+import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 const nf = (n) => Number(n || 0).toLocaleString();
@@ -488,7 +488,7 @@ function messageHtml(m, seq) {
         </div>`;
     }
     return `
-    <div class="cas-msg ${mine ? 'is-user' : 'is-assistant'}" data-seq="${seq}">
+    <div class="cas-msg ${mine ? 'is-user' : 'is-assistant'}" data-seq="${seq}"${m.at ? ` data-at="${esc(String(m.at))}"` : ''}>
         <div class="cas-msg-head">
             <span class="cas-msg-who">
                 <i class="fa-solid ${mine ? 'fa-user' : 'fa-wand-magic-sparkles'}"></i>${mine ? 'You' : 'Studio'}
@@ -708,9 +708,23 @@ function onSettingInput(el) {
 // RENDER
 // ========================================
 
+// the line under the transcript: the messages so far and the next send's size
+function paintStatus() {
+    const statusEl = document.getElementById('ccsStatus');
+    if (!statusEl) return;
+    const tok = _context?.budget?.tokens;
+    const bits = [];
+    if (_messages.length) bits.push(`${_messages.length} msg${_messages.length === 1 ? '' : 's'}`);
+    if (tok) bits.push(`~${nf(tok)} tok next`);
+    statusEl.textContent = bits.join(' · ');
+    statusEl.classList.toggle('hidden', !bits.length);
+}
+
 function render() {
     const body = document.getElementById('ccsBody');
     if (!body) return;
+    // the transcript's place, kept for a reader who scrolled away from its end; another view redrawn returns to the end
+    const kept = body.querySelector('.cas-msg') ? scrollPin('ccsBody').place() : null;
     const meta = document.getElementById('ccsMeta');
     if (meta) meta.textContent = _view === 'settings' ? 'Settings' : (_view === 'context' ? 'Context' : '');
     const panel = document.getElementById('creatorStudio');
@@ -725,15 +739,7 @@ function render() {
         if (sel) CoreAPI.initCustomSelect(sel);
     }
 
-    const statusEl = document.getElementById('ccsStatus');
-    if (statusEl) {
-        const tok = _context?.budget?.tokens;
-        const bits = [];
-        if (_messages.length) bits.push(`${_messages.length} msg${_messages.length === 1 ? '' : 's'}`);
-        if (tok) bits.push(`~${nf(tok)} tok next`);
-        statusEl.textContent = bits.join(' · ');
-        statusEl.classList.toggle('hidden', !bits.length);
-    }
+    paintStatus();
     renderScopeRow();
 
     // the connection block moves into the settings view's seat and back to its home
@@ -753,13 +759,15 @@ function render() {
         return;
     }
     if (!_messages.length) { paintBody(body, emptyHtml()); return; }
-    paintBody(body, _messages.map((m, i) => messageHtml(m, i)).join(''));
+    // the older replies keep what the reader opened: a reader scrolled up through a redraw read on in a box shut under them
+    redrawTranscript(body, () => paintBody(body, _messages.map((m, i) => messageHtml(m, i)).join('')));
     if (_lastFailure && !_busy) body.insertAdjacentHTML('beforeend', failedHtml());
     if (_openStream && !document.getElementById('ccsStreaming')) {
         body.insertAdjacentHTML('beforeend', streamingHtml(_openStream.painting));
         _livePainter?.paintNow();
     }
-    body.scrollTop = body.scrollHeight;
+    if (kept == null) scrollPin('ccsBody').pin();
+    else scrollPin('ccsBody').follow(kept);
 }
 
 // the turn that got no reply stays in the transcript with a resend; a toast is gone before the reader looks up
@@ -784,6 +792,8 @@ function markFailed(message) {
     // drawn by generate's finally, once busy is down: a render here would paint the row
     // and a phantom thinking bubble beside it
     _lastFailure = { seq, message: String(message || 'The studio could not answer.') };
+    // the row is the only notice the ask failed, so a reader scrolled up while it thought is taken to it
+    scrollPin('ccsBody').pin();
 }
 
 function streamingHtml(painting) {
@@ -872,7 +882,11 @@ async function openSession(id, { keepScroll = false, carry = null } = {}) {
     }
     if (_sessionId !== id) return;
     _messages = full.messages || [];
-    if (!keepScroll) render();
+    if (!keepScroll) {
+        // a session opened is an arrival: its end, followed, once it is read; a re-read in place keeps the reader where they are
+        scrollPin('ccsBody').pin();
+        render();
+    }
     const refreshes = [];
     for (let i = 0; i < _messages.length; i++) {
         const m = _messages[i];
@@ -885,18 +899,14 @@ async function openSession(id, { keepScroll = false, carry = null } = {}) {
     // a re-read in place leaves a Settings or Context view alone; the chat draws it on return
     if (keepScroll && _view !== 'chat') return;
     // read at the render, not the request: the reader scrolls and opens things while the session is read
-    const scroller = keepScroll ? document.getElementById('ccsBody') : null;
-    const wasAtBottom = !!scroller && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 48;
-    const savedScroll = scroller ? scroller.scrollTop : null;
     const settledBody = () => document.querySelector(`#ccsBody .cas-msg[data-seq="${carry}"] .cas-msg-body`);
     const kept = carry != null ? readerState(settledBody()) : null;
     render();
     // the reply's state goes back before the scroll, or the scroll clamps on a reply redrawn shut
     if (kept) restoreReaderState(settledBody(), kept);
-    if (savedScroll != null) {
-        const body = document.getElementById('ccsBody');
-        if (body) body.scrollTop = wasAtBottom ? body.scrollHeight : savedScroll;
-    }
+    // the pin's own account, not the body's: a stream's live row, removed before this re-read, clamped the body
+    const pin = scrollPin('ccsBody');
+    pin.follow(pin.place());
 }
 
 /** Pick a stored conversation; its draft is offered back when the form holds something else. */
@@ -985,18 +995,9 @@ async function refreshContext() {
         _context = null;
         console.error('[Studio] Could not read the context:', e.message);
     }
-    if (_view !== 'chat') render();
-    else {
-        const statusEl = document.getElementById('ccsStatus');
-        const tok = _context?.budget?.tokens;
-        if (statusEl && tok) {
-            const bits = [];
-            if (_messages.length) bits.push(`${_messages.length} msg${_messages.length === 1 ? '' : 's'}`);
-            bits.push(`~${nf(tok)} tok next`);
-            statusEl.textContent = bits.join(' · ');
-            statusEl.classList.remove('hidden');
-        }
-    }
+    // only the Context view shows it; a Settings view redrawn here lost the prompt's typing and an open sheet's pick
+    if (_view === 'context') render();
+    else paintStatus();
 }
 
 // ========================================
@@ -1050,7 +1051,7 @@ async function generate(sid = _sessionId) {
     _openStream = { painting };
     const body = document.getElementById('ccsBody');
     body?.insertAdjacentHTML('beforeend', streamingHtml(painting));
-    if (body) body.scrollTop = body.scrollHeight;
+    scrollPin('ccsBody').pin();
 
     const t0 = Date.now();
     const liveTimer = setInterval(() => {
@@ -1064,8 +1065,8 @@ async function generate(sid = _sessionId) {
         const live = document.querySelector('#ccsStreaming .cas-msg-body');
         if (!live) return;
         paintPanelReply(live, 'creator', (opts) => renderText(stripBlocks(acc), opts));
-        const host = document.getElementById('ccsBody');
-        if (host) host.scrollTop = host.scrollHeight;
+        // the reader's own scroll toward older text lets go; a finger on the body holds it
+        scrollPin('ccsBody').follow();
     };
     // the assistant's cadence, and nothing painted while the studio or the tab is out of sight
     const painter = painting ? createLivePainter({ paint, held: () => !open || document.hidden }) : null;
@@ -1094,6 +1095,8 @@ async function generate(sid = _sessionId) {
         });
         // closed before the settle's render, or it restores the placeholder for the whole proposal judging
         _openStream = null;
+        // the live row goes, and the body clamps: a reader away keeps their place for the redraw
+        scrollPin('ccsBody').keep();
         const reader = closePanelStream('ccsStreaming', painter);
         if (_sessionId !== sid) return;
         if (acc && !sawDone) {
@@ -1112,6 +1115,7 @@ async function generate(sid = _sessionId) {
         void loadSessions({ pick: sid, carry: last });
     } catch (e) {
         _openStream = null;
+        scrollPin('ccsBody').keep();
         document.getElementById('ccsStreaming')?.remove();
         if (_sessionId !== sid) return;
         await openSession(sid, { keepScroll: true });
@@ -1397,7 +1401,6 @@ function beginEdit(seq) {
 }
 
 function cancelEdit() {
-    const saved = document.getElementById('ccsBody')?.scrollTop ?? null;
     _editing = null;
     // an edit the server refused was made over a transcript that changed: leaving it reads it again
     if (_rereadOnCancel) {
@@ -1405,11 +1408,8 @@ function cancelEdit() {
         void openSession(_sessionId, { keepScroll: true });
         return;
     }
+    // the redraw keeps the reader's place through the pin, or the end for one who follows
     render();
-    if (saved != null) {
-        const body = document.getElementById('ccsBody');
-        if (body) body.scrollTop = saved;
-    }
 }
 
 async function saveEdit(seq) {
