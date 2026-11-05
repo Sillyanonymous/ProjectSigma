@@ -791,6 +791,15 @@ export function initCustomSelect(...args) {
 }
 
 /**
+ * Hold an element at the widest state measure() lays out, its border and rounding counted.
+ * @param {HTMLElement} el
+ * @param {() => number} measure lays out each state and returns the widest scrollWidth
+ */
+export function lockMinWidth(...args) {
+    window.lockMinWidth?.(...args);
+}
+
+/**
  * Keep a bar's entries to what fits, the rest behind its More (listed, labelled, on press).
  * @param {HTMLElement} row - The box the entries share, sized by its container
  * @param {{ entries: () => HTMLElement[], more: HTMLElement, always?: Function, current?: string, marked?: string, working?: string, separators?: string, watch?: boolean, label?: Function }} spec
@@ -1871,6 +1880,7 @@ export default {
     onElement,
     fitTextarea,
     initCustomSelect,
+    lockMinWidth,
     fitRow,
     refitRow,
 

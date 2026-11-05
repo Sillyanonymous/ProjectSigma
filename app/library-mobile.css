@@ -707,6 +707,14 @@ html.cl-mobile .mobile-filter-chip.active {
     border-color: var(--accent);
     color: var(--accent-text);
 }
+/* a chip mirroring a control that cannot be used now greys as the bar's does (.browse-option-disabled) and says why on a tap */
+html.cl-mobile .mobile-filter-chip.is-unavailable,
+html.cl-mobile .mobile-settings-select.is-unavailable {
+    opacity: 0.45;
+}
+html.cl-mobile .mobile-filter-chip.is-unavailable:active,
+html.cl-mobile .mobile-settings-select.is-unavailable:active { transform: none; }
+html.cl-mobile .mobile-settings-select.is-unavailable .mobile-settings-select-arrow { visibility: hidden; }
 html.cl-mobile .mobile-settings-checks {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1536,7 +1544,9 @@ html.cl-mobile .toast-container {
     left: 12px !important;
     flex-direction: column !important;
 }
+/* a toast holds nothing to press, so a tap lands on what lies under it: the sheet's backdrop, the nav */
 html.cl-mobile .toast {
+    pointer-events: none;
     min-width: unset !important;
     max-width: 100% !important;
     font-size: var(--font-md);

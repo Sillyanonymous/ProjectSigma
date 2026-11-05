@@ -97,20 +97,6 @@
     max-width: 22ch;
 }
 
-/* In-flow display-toggle, not the shared absolute overlay, so the active sort sizes to content and pushes neighbors instead of overflowing onto the visible Tags button. */
-#botbooruSortPreset.browse-filter-hidden,
-[data-select-id="botbooruSortPreset"].browse-filter-hidden,
-#botbooruTimelineSortHeader.browse-filter-hidden,
-[data-select-id="botbooruTimelineSortHeader"].browse-filter-hidden {
-    display: none;
-}
-
-[data-select-id="botbooruTimelineSortHeader"] {
-    position: static;
-    width: auto;
-    max-width: none;
-}
-
 /* ---------------------------------------------------
    CARD NAME UPLOADER BUTTON
    --------------------------------------------------- */
@@ -156,12 +142,6 @@ html.cl-mobile .botbooru-uploader-btn {
     margin: -8px -8px -8px auto;
 }
 
-
-/* display:none, not the shared visibility hide, or the curated select reserves its width in every other sort */
-#botbooruCuratedSort.browse-filter-hidden,
-[data-select-id="botbooruCuratedSort"].browse-filter-hidden {
-    display: none;
-}
 
 /* NSFL reads distinctly from NSFW: inverted treatment on the same badge
    shell, existing error tokens only */

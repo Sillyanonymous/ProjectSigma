@@ -22,7 +22,7 @@ export function assertHandle(handle) {
 
 const SERVER_YAML_TEMPLATE = `# project-sigma server settings. Everything here is SERVER-level; per-user state
 # lives in the sibling user folders (data/<handle>/). Env vars win over this file
-# when set: CL_PORT, CL_HOST, CL_CORS, CL_MULTI_USER, CL_HOSTS.
+# when set: CL_PORT, CL_HOST, CL_CORS, CL_MULTI_USER, CL_HOSTS, CL_OPEN_BROWSER.
 #
 # Set only in the environment, since this file lives in the folder the first one
 # moves: CL_DATA_DIR (default data/ in the install), CL_EXTENSIONS_DIR (default
@@ -51,6 +51,11 @@ sessionTimeoutDays: 30
 # rebinding) is refused. List a machine name you reach the server by, eg. mypc or
 # mypc.tailnet.ts.net.
 #hosts: []
+
+# The launchers (Start Project Sigma.bat, start.sh) open the browser once the server
+# answers. false keeps them from it: a server run headless, as a service, or with a
+# tab already open.
+#openBrowser: true
 `;
 
 function loadServerYaml() {
@@ -79,9 +84,11 @@ const YAML_SETTINGS = {
     host: [(v) => typeof v === 'string' && v.trim() !== '', 'an address'],
     cors: [isList, 'a list of origins'],
     hosts: [isList, 'a list of names'],
+    openBrowser: [(v) => typeof v === 'boolean', 'true or false'],
 };
 const ENV_SETTINGS = {
     CL_MULTI_USER: [(v) => v === 'true' || v === 'false', 'true or false'],
+    CL_OPEN_BROWSER: [(v) => v === 'true' || v === 'false', 'true or false'],
     CL_PORT: [(v) => /^\d{1,5}$/.test(v) && Number(v) > 0 && Number(v) < 65536, 'a whole number from 1 to 65535'],
     CL_ALLOW_PRIVATE_FETCH: [(v) => v === 'true' || v === 'false', 'true or false'],
     CL_EXTENSIONS: [(v) => v === 'on' || v === 'off', 'on or off'],
@@ -129,6 +136,8 @@ export const config = {
         ? process.env.CL_MULTI_USER === 'true'
         : yamlSettings.multiUser === true,
     sessionTimeoutDays: Number(yamlSettings.sessionTimeoutDays ?? 30),
+    // read by the launchers alone: false keeps them from opening the browser once the server answers
+    openBrowser: process.env.CL_OPEN_BROWSER ? process.env.CL_OPEN_BROWSER === 'true' : yamlSettings.openBrowser !== false,
     // test-only: lets a test fetch media from its own loopback. never set in a real deployment
     allowPrivateFetch: process.env.CL_ALLOW_PRIVATE_FETCH === 'true',
     // Kill switch: CL_EXTENSIONS=off boots with the extension system fully dark (no

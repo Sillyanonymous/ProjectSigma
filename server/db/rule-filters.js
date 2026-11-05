@@ -2,6 +2,7 @@
 import { extRuleOps } from './ext-query.js';
 import { settingValue } from './settings-store.js';
 import { httpError } from '../lib/http-error.js';
+import { cardTextCandidates } from './card-text-search.js';
 
 // a user's text as literal LIKE text (ESCAPE '\'): a % or _ in it is a character, never a wildcard
 const likeLiteral = v => String(v).replace(/[\\%_]/g, ch => `\\${ch}`);
@@ -75,6 +76,35 @@ function textOps(colExpr) {
     };
 }
 
+// a substring or empty rule on name, nickname or creator reads idx_characters_q whole as an id set, never the rows
+function qIndexOps(column) {
+    const inIndex = textOps(`c2.${column}`);
+    const set = (m, negate = false) => ({ sql: `c.id ${negate ? 'NOT IN' : 'IN'} (SELECT c2.id FROM characters c2 INDEXED BY idx_characters_q WHERE ${m.sql})`, params: m.params });
+    return {
+        ...textOps(`c.${column}`),
+        contains: v => set(inIndex.contains(v)),
+        not_contains: v => set(inIndex.contains(v), true),
+        is_empty: () => set(inIndex.is_empty()),
+        is_not_empty: () => set(inIndex.is_not_empty()),
+    };
+}
+
+// a card-text field's contains asks characters_fts which cards may hold the text, then tests only those
+function proseOps(column) {
+    const plain = textOps(`c.${column}`);
+    const narrowed = (v, db, negate) => {
+        const ids = db && cardTextCandidates(db, v, column);
+        if (!ids) return null;
+        const m = textMatch(`COALESCE(c5.${column}, '')`, v);
+        return { sql: `c.rowid ${negate ? 'NOT IN' : 'IN'} (SELECT c5.rowid FROM characters c5 WHERE c5.rowid IN (SELECT value FROM json_each(?)) AND ${m.sql})`, params: [JSON.stringify(ids), ...m.params] };
+    };
+    return {
+        ...plain,
+        contains: (v, db) => narrowed(v, db) || plain.contains(v),
+        not_contains: (v, db) => narrowed(v, db, true) || plain.not_contains(v),
+    };
+}
+
 // a character-scoped chat rule seeks the chat's character on the covering (id, name) index, never its row or a set of every match
 function characterSetOps(ops) {
     const wrapped = {};
@@ -142,21 +172,21 @@ function idListClause(ids, negate) {
 // null-prototype like CHAT_SORTS/CHAR_SORTS: the `in` guard below walks the prototype
 // chain on a plain literal, so field=constructor passed it and 500'd downstream.
 const RULE_BUILDERS = Object.assign(Object.create(null), {
-    name: textOps('c.name'),
-    creator: textOps('c.creator'),
-    creatorNotes: textOps('c.creator_notes'),
+    name: qIndexOps('name'),
+    creator: qIndexOps('creator'),
+    creatorNotes: proseOps('creator_notes'),
     version: textOps('c.character_version'),
-    nickname: textOps('c.nickname'),
-    // the card's prose as generated columns: each read parses the card, so a rule here scans
-    description: textOps('c.description'),
-    personality: textOps('c.personality'),
-    scenario: textOps('c.scenario'),
-    firstMessage: textOps('c.first_mes'),
-    exampleDialogue: textOps('c.mes_example'),
+    nickname: qIndexOps('nickname'),
+    // the card's prose: a contains narrows through characters_fts, an empty test reads every card
+    description: proseOps('description'),
+    personality: proseOps('personality'),
+    scenario: proseOps('scenario'),
+    firstMessage: proseOps('first_mes'),
+    exampleDialogue: proseOps('mes_example'),
     // the text search, a different question from systemPrompt's boolean "has one", so its own field
-    systemPromptText: textOps('c.system_prompt'),
-    postHistoryInstructions: textOps('c.post_history_instructions'),
-    depthPrompt: textOps('c.depth_prompt'),
+    systemPromptText: proseOps('system_prompt'),
+    postHistoryInstructions: proseOps('post_history_instructions'),
+    depthPrompt: proseOps('depth_prompt'),
     listingName: {
         contains: PAGE_NAME_MATCH('contains'),
         not_contains: v => { const m = PAGE_NAME_MATCH('contains')(v); return { sql: `NOT ${m.sql}`, params: m.params }; },
@@ -296,7 +326,7 @@ function compileRules(builders, db, rules, extraOps = null) {
         const builder = Object.hasOwn(fieldOps, op) ? fieldOps[op] : undefined;
         if (!builder) throw httpError(400, `unknown op '${op}' for field '${field}'; valid: ${Object.keys(fieldOps).join(', ')}`);
         if (builder.length > 0 && !value) continue;
-        const built = builder(value);
+        const built = builder(value, db);
         if (built.params.some(p => typeof p === 'number' && Number.isNaN(p))) {
             throw httpError(400, `rule '${field} ${op}' needs a valid ${field.includes('date') || op === 'in_the_last' ? 'date/number' : 'number'} value`);
         }

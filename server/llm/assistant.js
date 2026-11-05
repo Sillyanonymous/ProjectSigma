@@ -1,3 +1,4 @@
+// The out-of-character assistant, inspired by ST-Copilot by Quren (MIT).
 import crypto from 'node:crypto';
 import { getChatRow } from '../db/chats-store.js';
 import { activeWorldsFor, chatNames, chatOwnTexts, loreInPrompt, runLoreScan, visibleHistory, worldSourcesOf } from './prompt.js';
@@ -105,7 +106,6 @@ const CONTEXT_NOTE = [
 
 /** What each engine teaches the model, only when it is on: a model told of a capability offers it. */
 const DIRECTIVES = {
-    // Lorebook editing through the assistant was inspired by ST-Copilot by Quaren (MIT).
     lore: [
         'CHANGING THE LOREBOOKS',
         '',

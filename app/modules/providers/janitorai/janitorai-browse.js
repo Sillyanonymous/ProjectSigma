@@ -4,6 +4,7 @@ import {
     featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     activeFeatureRows, featurePasses, updateNsfwToggleButton, browseCardImageWidth, applyTagsClamp, cardTagsHtml,
     renderViewToggle, tagStateButtonHtml, libraryFeatureRows, libraryBadgeHtml, libraryCardClass,
+    syncSortStandIn, CREATOR_SORT_STANDIN, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { janitoraiSessionStatus } from '../janitor-session.js';
@@ -211,6 +212,11 @@ async function resolvePersistentExcludes() {
 
 function passesClientFilters(hit) {
     if (!featurePasses(hit, activeFeatureRows(JA_FEATURE_FILTERS, jaFeatureState))) return false;
+    // the following feed takes no tag params, so the picked tags apply here, by id as the browse request sends them
+    if (jaMode === 'following' && (jaIncludeTags.size || jaExcludeTags.size)) {
+        const ids = new Set((hit.tags || []).map(t => t.id));
+        if ([...jaIncludeTags].some(id => !ids.has(id)) || [...jaExcludeTags].some(id => ids.has(id))) return false;
+    }
     if (jaUnresolvedExcludes.length) {
         // tagKey on both sides: hampter catalogue names carry an emoji prefix ("👨 Male")
         const names = (hit.tags || []).map(t => tagKey(t.name));
@@ -305,6 +311,13 @@ async function loadCharacters(append = false) {
 
     try {
         const following = jaMode === 'following';
+        // signed out, the site answers a following ask with its general feed; say so instead of showing strangers
+        if (following && !janitoraiSessionStatus()?.loggedIn) {
+            jaCharacters = [];
+            jaHasMore = false;
+            if (!append) renderEmptyFollowing(grid, { signedOut: true });
+            return;
+        }
         const creatorIds = (!following && jaCreatorFilter) ? [jaCreatorFilter.id] : [];
 
         // The following feed takes no tag params, so excludes apply client-side by name.
@@ -480,9 +493,15 @@ function handleLoadError(err, append, grid) {
     showToast(`JanitorAI load failed: ${err.message}`, 'error');
 }
 
-function renderEmptyFollowing(grid) {
+function renderEmptyFollowing(grid, { signedOut = false } = {}) {
     if (!grid) return;
-    grid.innerHTML = `
+    grid.innerHTML = signedOut ? `
+        <div class="browse-empty-state is-narrow">
+            <i class="fa-solid fa-user-lock browse-empty-icon is-warn"></i>
+            <p class="browse-empty-lead"><strong>Following needs your JanitorAI session</strong></p>
+            <p class="browse-empty-text">Add your JanitorAI session in Settings &gt; Online &gt; JanitorAI to see new characters from the creators you follow.</p>
+        </div>
+    ` : `
         <div class="browse-empty-state">
             <i class="fa-solid fa-user-group browse-empty-icon"></i>
             <p class="browse-empty-title">You are not following anyone</p>
@@ -1343,20 +1362,16 @@ function renderTagsList(filter = '') {
 
 function updateTagsButton() {
     const btn = document.getElementById('janitoraiTagsBtn');
-    const label = document.getElementById('janitoraiTagsBtnLabel');
     if (!btn) return;
     const count = jaIncludeTags.size + jaExcludeTags.size;
-    btn.classList.toggle('has-filters', count > 0);
-    if (label) label.innerHTML = count > 0 ? `Tags <span class="tag-count">(${count})</span>` : 'Tags';
+    setFilterCount(btn, 'Tags', count);
 }
 
 function updateFiltersButton() {
     const btn = document.getElementById('janitoraiFiltersBtn');
     if (!btn) return;
     const count = countActiveFeatures(JA_FEATURE_FILTERS, jaFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 function updateNsfwToggle() {
@@ -1410,18 +1425,17 @@ function setMode(mode) {
     return view.switchViewMode(mode);
 }
 
+// the following feed carries no sort, and its order was never verified, so the label names none
+const JA_FOLLOWING_STANDIN = Object.freeze({ label: 'Feed Order', icon: 'fa-solid fa-bars-staggered', title: 'JanitorAI sets this feed\'s order' });
+
 // The mode chrome the base does not own (buttons and sections are its), from jaMode.
 function syncModeChrome() {
-    // The following feed takes no sort or tag params, so hide both controls.
+    // the following feed takes no sort, so its stand-in holds the place; its tags filter what loads (passesClientFilters)
     const following = jaMode === 'following';
     const sortEl = document.getElementById('janitoraiSortSelect');
-    const sortBox = sortEl?._customSelect?.container || sortEl?.closest('.browse-sort-container') || sortEl;
-    sortBox?.classList.toggle('browse-filter-hidden', following);
-    // the creator request carries its own sort, so the scope collapses the main sort slot
-    sortEl?.closest('.browse-sort-container')?.classList.toggle('hidden', !!jaCreatorFilter);
-    document.getElementById('janitoraiTagsBtn')?.closest('.browse-tags-dropdown-container')
-        ?.classList.toggle('browse-filter-hidden', following);
-    if (following) document.getElementById('janitoraiTagsDropdown')?.classList.add('hidden');
+    // the creator request carries its own sort, so the scope hides the main one too
+    (sortEl?._customSelect?.container || sortEl)?.classList.toggle('hidden', following || !!jaCreatorFilter);
+    syncSortStandIn(sortEl, following ? JA_FOLLOWING_STANDIN : jaCreatorFilter ? CREATOR_SORT_STANDIN : null, [JA_FOLLOWING_STANDIN, CREATOR_SORT_STANDIN]);
 }
 
 function activeGridId() {
@@ -1840,7 +1854,7 @@ class JanitoraiBrowseView extends BrowseView {
     get mobileFilterIds() {
         return {
             sort: 'janitoraiSortSelect',
-            // No timelineSort: the following feed takes no sort, so the sheet hides Sort By there.
+            // No timelineSort: the following feed takes no sort, so the sheet shows the bar's stand-in there.
             tags: 'janitoraiTagsBtn',
             filters: 'janitoraiFiltersBtn',
             nsfw: 'janitoraiNsfwToggle',

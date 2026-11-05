@@ -14,3 +14,14 @@ export function killTree(proc, signal) {
         else proc.kill(signal);
     } catch { /* already gone */ }
 }
+
+/** Run stop when the server ends (exit, SIGTERM, SIGINT); a signal is raised again after it, so it still ends the process. */
+export function onServerExit(stop) {
+    process.once('exit', stop);
+    for (const signal of ['SIGTERM', 'SIGINT']) {
+        process.once(signal, () => {
+            stop();
+            if (!process.listenerCount(signal)) process.kill(process.pid, signal);
+        });
+    }
+}

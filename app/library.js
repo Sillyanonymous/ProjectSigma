@@ -226,6 +226,75 @@ function customSelectLabel(select, container) {
         .map(n => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+// Holds an element at the widest state measure() lays out, so it never resizes; a hidden one waits to show
+const widthLocks = new Set();
+function lockMinWidth(el, measure) {
+    if (!el._minWidthMeasure) widthLocks.add(new WeakRef(el));
+    el._minWidthMeasure = measure;
+    if (el.style.minWidth || el._minWidthPending) return;
+    const lock = () => {
+        // a running transition (a breakpoint's padding or font size) ends here, so the measure reads the settled box
+        const transition = el.style.transition;
+        el.style.transition = 'none';
+        const widest = measure();
+        // scrollWidth rounds and stops inside the border; the lock counts both, so the widest state never outgrows it
+        const cs = getComputedStyle(el);
+        const frame = cs.boxSizing === 'border-box' ? parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) : 0;
+        if (widest > 0) el.style.minWidth = `${widest + frame + 1}px`;
+        // committed before the transition returns, so the lock itself never animates
+        void cs.minWidth;
+        el.style.transition = transition;
+    };
+    // laid out already, it locks in this task, so no frame paints it at its unlocked width
+    if (el.getClientRects().length) { lock(); return; }
+    el._minWidthPending = true;
+    const obs = new IntersectionObserver((entries) => {
+        if (!entries[0].isIntersecting) return;
+        obs.disconnect();
+        el._minWidthPending = false;
+        if (!el.style.minWidth) lock();
+    });
+    obs.observe(el);
+}
+
+function relockWidths() {
+    for (const ref of widthLocks) {
+        const el = ref.deref();
+        if (!el?.isConnected) { widthLocks.delete(ref); continue; }
+        if (el.getClientRects().length) { remeasureLock(el); continue; }
+        // a hidden one keeps its lock, so it never paints a frame unlocked; it measures again once shown
+        if (el._relockWhenShown) continue;
+        el._relockWhenShown = true;
+        const obs = new IntersectionObserver((entries) => {
+            if (!entries[0].isIntersecting) return;
+            obs.disconnect();
+            if (el._relockWhenShown) remeasureLock(el);
+        });
+        obs.observe(el);
+    }
+}
+
+function remeasureLock(el) {
+    el._relockWhenShown = false;
+    el.style.minWidth = '';
+    lockMinWidth(el, el._minWidthMeasure);
+}
+
+// a view entered shows its hidden locks in this task, so they measure before its first frame, ahead of their observers
+function relockShownWidths() {
+    for (const ref of widthLocks) {
+        const el = ref.deref();
+        if (el?._relockWhenShown && el.isConnected && el.getClientRects().length) remeasureLock(el);
+    }
+}
+
+// labels change size at the bar's breakpoints (1700px, 1400px), so once a resize settles every live lock measures again
+let relockTimer = 0;
+window.addEventListener('resize', () => {
+    clearTimeout(relockTimer);
+    relockTimer = setTimeout(relockWidths, 150);
+});
+
 // Native <select> is hidden but remains the data model - .value and 'change'
 // events work transparently so existing code needs no changes.
 function initCustomSelect(select) {
@@ -244,7 +313,7 @@ function initCustomSelect(select) {
     container.className = 'custom-select-container';
     if (select.id) container.dataset.selectId = select.id;
 
-    // Transfer non-glass classes from the select (e.g. browse-filter-hidden)
+    // Transfer non-glass classes from the select (eg. hidden)
     for (const cls of select.classList) {
         if (cls !== 'glass-select' && cls !== 'glass-select-small') {
             container.classList.add(cls);
@@ -556,9 +625,8 @@ function initCustomSelect(select) {
 
     // Lock the trigger to the widest option so it doesnt resize on pick; fluid selects skip it
     const triggerText = trigger.querySelector('.trigger-text');
-    const skipWidthLock = select.closest('.browse-sort-container') || select.classList.contains('cl-select-fluid');
-    function lockTriggerWidth() {
-        if (skipWidthLock || trigger.style.minWidth) return;
+    const skipWidthLock = select.classList.contains('cl-select-fluid');
+    function widestOption() {
         let maxW = 0;
         const original = triggerText.textContent;
         for (const opt of select.options) {
@@ -566,26 +634,15 @@ function initCustomSelect(select) {
             maxW = Math.max(maxW, trigger.scrollWidth);
         }
         triggerText.textContent = original;
-        if (maxW > 0) trigger.style.minWidth = maxW + 'px';
+        return maxW;
     }
-    // a trigger already laid out locks in this task, so no frame paints it at its unlocked width
-    function lockWhenShown() {
-        if (trigger.getClientRects().length) { lockTriggerWidth(); return; }
-        const obs = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                lockTriggerWidth();
-                obs.disconnect();
-            }
-        });
-        obs.observe(trigger);
-    }
-    lockWhenShown();
+    if (!skipWidthLock) lockMinWidth(trigger, widestOption);
 
     // A mode flip invalidates the locked width (measured under the old layout): re-measured in the same task
     function relockWidth() {
         if (skipWidthLock) return;
         trigger.style.minWidth = '';
-        lockWhenShown();
+        lockMinWidth(trigger, widestOption);
     }
 
     // Intercept .value to keep visuals in sync
@@ -808,6 +865,13 @@ function pressFromMore(row, entry, control) {
     setTimeout(() => control.click(), 0);
 }
 
+// Why a control cannot be used now: null while it can, else its title or the nearest one within its entry
+function unavailableReason(control, within) {
+    if (!control || !(control.disabled === true || control.getAttribute('aria-disabled') === 'true')) return null;
+    for (let n = control; n; n = n === within ? null : n.parentElement) if (n.title) return n.title;
+    return '';
+}
+
 // The More's list is the context menu's; each row presses a collapsed control, so the control's own
 // handler runs.
 function openRowOverflow(row, e) {
@@ -829,7 +893,9 @@ function openRowOverflow(row, e) {
         wasSet = isSet;
         for (const c of controls) {
             const icon = [...(c.querySelector('i')?.classList || [])].filter(k => k.startsWith('fa')).join(' ');
-            items.push({ icon: icon || 'fa-solid fa-circle', label: label(c), className: c.matches('.active, [aria-pressed="true"]') ? 'is-current' : '', action: () => pressFromMore(row, el, c) });
+            // a control that cannot be used now folds as a disabled row that says why
+            const why = unavailableReason(c, el);
+            items.push({ icon: icon || 'fa-solid fa-circle', label: label(c), className: c.matches('.active, [aria-pressed="true"]') ? 'is-current' : '', disabled: why !== null, hint: why || undefined, action: () => pressFromMore(row, el, c) });
         }
     }
     const r = e.currentTarget.getBoundingClientRect();
@@ -1121,6 +1187,8 @@ const DEFAULT_SETTINGS = {
     // the hours automatic backups start in, on the server's clock; the same hour twice is any time
     backupWindowStart: 3,
     backupWindowEnd: 6,
+    // the search index tidied in the background once it drifts, a large one in the backup's quiet hours
+    autoTidySearchIndex: true,
 };
 
 // The shipped place and size of every window that has one, in percent; keyed like windowGeometry,
@@ -3148,6 +3216,7 @@ function switchView(view) {
     if (callbacks) {
         for (const cb of [...callbacks]) cb();
     }
+    relockShownWidths();
     return loaded;
 }
 
@@ -4480,8 +4549,8 @@ function mapDbListItem(item) {
         data: {
             name: item.name,
             creator: item.creator || '',
-            // the tooltip's excerpt rides every row; the notes only a load that asked for them
-            creator_notes_excerpt: item.creatorNotesExcerpt || '',
+            // the notes and the tooltip's excerpt ride only a load that asked for them, so an unread excerpt stays absent
+            ...(item.creatorNotesExcerpt !== undefined ? { creator_notes_excerpt: item.creatorNotesExcerpt } : {}),
             ...(item.creatorNotes !== undefined ? { creator_notes: item.creatorNotes } : {}),
             character_version: item.characterVersion || '',
             nickname: item.nickname || '',
@@ -6093,6 +6162,23 @@ function setupVirtualScrollListener(grid, scrollContainer) {
     scrollContainer.addEventListener('scroll', currentScrollHandler, { passive: true });
 }
 
+/**
+ * A card's tooltip text, the server's plain excerpt of its notes: the list never reads the notes, so a reader's hover does.
+ * @param {string} id
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<string>}
+ */
+async function loadNotesExcerpt(id, signal) {
+    const known = _charIndex.get(id)?.data?.creator_notes_excerpt;
+    if (typeof known === 'string') return known;
+    const resp = await apiRequest(`/characters?${new URLSearchParams({ ids: id, fields: 'creatorNotesExcerpt', count: 'false' })}`, 'GET', null, { signal });
+    if (!resp.ok) return '';
+    const text = (await resp.json()).items?.[0]?.creatorNotesExcerpt ?? '';
+    const live = _charIndex.get(id);
+    if (live?.data) live.data.creator_notes_excerpt = text;
+    return text;
+}
+
 function setupCharacterGridDelegates() {
     if (characterGridDelegatesInitialized) return;
 
@@ -6111,6 +6197,24 @@ function setupCharacterGridDelegates() {
             return;
         }
         openModal(char);
+    });
+
+    // the tooltip is read as the mouse comes onto a card, and a read the pointer left behind is dropped
+    let hovered = null;
+    grid.addEventListener('pointerover', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const card = e.target.closest('.char-card');
+        if (!card || !grid.contains(card) || card === hovered?.card) return;
+        hovered?.ac.abort();
+        hovered = null;
+        if (card.title) return;
+        const id = card.dataset.charId;
+        const ac = new AbortController();
+        hovered = { card, ac };
+        loadNotesExcerpt(id, ac.signal).then(text => { if (text && card.dataset.charId === id) card.title = text; }).catch(() => { /* a read the pointer left, or one that failed, leaves no tooltip */ });
+    });
+    grid.addEventListener('pointerout', (e) => {
+        if (hovered && !hovered.card.contains(e.relatedTarget)) { hovered.ac.abort(); hovered = null; }
     });
 
     // records a loaded avatar for both card builders, keyed by the src as built (img.src is resolved absolute)
@@ -23751,6 +23855,8 @@ window.savePresetPicker = savePresetPicker;
 window.escapeHtml = escapeHtml;
 window.safePurify = safePurify;
 window.initCustomSelect = initCustomSelect;
+window.lockMinWidth = lockMinWidth;
+window.unavailableReason = unavailableReason;
 window.fitRow = fitRow;
 window.refitRow = refitRow;
 window.closeAllTopbarDropdowns = closeAllTopbarDropdowns;

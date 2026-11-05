@@ -278,7 +278,7 @@
             <button id="topbarFiltersMore" class="glass-btn icon-only topbar-filters-more cl-overflowed" title="More filters" aria-label="More filters">
                 <i class="fa-solid fa-ellipsis"></i>
             </button>
-            <div class="gallery-sync-container notifications-container hidden">
+            <div class="gallery-sync-container notifications-container hidden" data-notif-chrome>
                 <button id="notificationsBtn" class="glass-btn icon-only gallery-sync-btn" title="Notifications">
                     <i class="fa-solid fa-bell"></i>
                     <span class="warning-badge hidden"></span>
@@ -1896,6 +1896,39 @@ https://jannyai.com/characters/uuid_slug
                                 </div>
                             </details>
                         </div>
+
+                        <div class="settings-group" id="settingsSearchIndexGroup">
+                            <div class="settings-group-title"><i class="fa-solid fa-magnifying-glass"></i> Search Index</div>
+
+                            <div class="bk-stats" id="sixStats">
+                                <div class="bk-stat"><span class="bk-stat-value" id="sixStatCards">-</span><span class="bk-stat-label">Card text</span></div>
+                                <div class="bk-stat"><span class="bk-stat-value" id="sixStatChats">-</span><span class="bk-stat-label">Chat messages</span></div>
+                                <div class="bk-stat"><span class="bk-stat-value" id="sixStatLorebooks">-</span><span class="bk-stat-label">Lorebook entries</span></div>
+                            </div>
+
+                            <div class="settings-band" id="sixBand">
+                                <i class="fa-solid fa-gauge-high settings-band-icon"></i>
+                                <div class="settings-band-text">
+                                    <span class="settings-band-when" id="sixWhen">Checking...</span>
+                                    <span class="settings-band-sub" id="sixSub"></span>
+                                </div>
+                                <button type="button" class="cl-btn cl-btn-primary" id="sixTidyBtn">
+                                    <i class="fa-solid fa-broom"></i> Tidy Now
+                                </button>
+                            </div>
+
+                            <div class="settings-row">
+                                <label>
+                                    <input type="checkbox" class="cl-switch-input" id="settingsSearchIndexAutoTidy" checked><span class="cl-switch" aria-hidden="true"></span> Tidy the search index on its own
+                                </label>
+                                <span class="settings-hint">Edits leave the search index in pieces, and searches that read from the disk get slower with every piece. The figures above say how many times slower than a tidy index. Once an index reaches 2.0×, it is tidied in the background the next time the app sits idle for two minutes, and the tidy-up pauses the moment you click, type or scroll again. Tidy Now tidies every index straight away while you keep working.</span>
+                            </div>
+
+                            <details class="bk-list-wrap" id="sixListWrap">
+                                <summary class="bk-list-summary">Each index</summary>
+                                <div class="bk-list" id="sixList"></div>
+                            </details>
+                        </div>
                     </div>
                     
                     <!-- Online Providers Section -->
@@ -3041,7 +3074,7 @@ https://jannyai.com/characters/uuid_slug
             <i class="fa-solid fa-sliders mobile-bottom-nav-icon"></i>
             <span class="mobile-bottom-nav-label">Filters</span>
         </button>
-        <button class="mobile-bottom-nav-action" id="mobileNavMoreBtn" type="button" aria-label="More options">
+        <button class="mobile-bottom-nav-action" id="mobileNavMoreBtn" type="button" aria-label="More options" data-notif-chrome>
             <i class="fa-solid fa-ellipsis-vertical mobile-bottom-nav-icon"></i>
             <span class="mobile-bottom-nav-label">More</span>
         </button>

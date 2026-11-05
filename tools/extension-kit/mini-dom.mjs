@@ -122,6 +122,7 @@ export function createElement(tag) {
         remove: () => { if (el.parent) { el.parent.childNodes = el.parent.childNodes.filter(n => n !== el); el.parent = null; } },
         // no layout is modelled: every box is empty, at the origin
         getBoundingClientRect: () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+        getClientRects: () => [],
         matches: (sel) => matchesList(el, sel),
         closest(sel) { for (let n = el; n; n = n.parent) if (matchesList(n, sel)) return n; return null; },
         // the node itself or a descendant, as the DOM answers it (null is no node)

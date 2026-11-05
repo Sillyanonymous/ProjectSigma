@@ -4,6 +4,7 @@ import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     browseCardImageWidth, setFeatureRowsDisabled, activeFeatureRows, featurePasses, updateNsfwToggleButton, applyTagsClamp, cardTagsHtml,
     renderViewToggle, updateTagStateButton, tagStateButtonHtml, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
+    syncSortStandIn, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, PROVIDER_SERVICES_BASE, isMobileMode, absolutizeMediaPaths, importThroughCommand, renderBrowseError, definitionFailedNotice } from '../provider-utils.js';
@@ -93,9 +94,17 @@ let bbSelectedPost = null;
 let bbSelectedDetail = null; // /post/{id} detail fetched by the preview (full fields + uploader), reused for the import duplicate check
 let bbPreviewToken = 0;      // identity guard: the api helpers have no abort signal, so stale results are discarded by token
 
-// Curated sub-sort; only sent when the account runs weighted-tag mode
-// (server ignores it otherwise)
-let bbCuratedSort = 'recent';
+// the server reads curated_sort only in weighted-tag mode, where Curated lists three orders; elsewhere it is one
+const BB_CURATED_ORDERS = {
+    weighted: [
+        { value: 'curated', curatedSort: 'recent', label: 'Curated (Recent)', icon: 'fa-solid fa-clock' },
+        { value: 'curated_score', curatedSort: 'score', label: 'Curated (Tag Score)', icon: 'fa-solid fa-tags' },
+        { value: 'curated_followed', curatedSort: 'followed', label: 'Curated (Only Followed)', icon: 'fa-solid fa-user-check' },
+    ],
+    plain: [{ value: 'curated', label: 'Curated', icon: 'fa-solid fa-award' }],
+};
+const bbCuratedOptionsHtml = (weighted) => (weighted ? BB_CURATED_ORDERS.weighted : BB_CURATED_ORDERS.plain)
+    .map(o => `<option value="${o.value}" data-icon="${o.icon}">${o.label}</option>`).join('');
 
 // Sort presets (sort + optional time_window; valid windows are day/week/month,
 // anything else silently means all-time)
@@ -113,9 +122,10 @@ const BB_SORT_PRESETS = {
     'dl_week':     { sort: 'downloads', timeWindow: 'week' },
     'dl_month':    { sort: 'downloads', timeWindow: 'month' },
     'dl_all':      { sort: 'downloads' },
-    'curated':     { sort: 'curated', curatedSort: 'recent' },
+    ...Object.fromEntries(BB_CURATED_ORDERS.weighted.map(o => [o.value, { sort: 'curated', curatedSort: o.curatedSort }])),
     'random':      { sort: 'random' },
 };
+const isBbCuratedSort = () => BB_SORT_PRESETS[bbSortPreset]?.sort === 'curated';
 
 // curatedFresh and hideAi are server params, favorites a data-source switch, the library pair render-time; curated is wrapped
 const BB_FEATURE_FILTERS = [
@@ -393,7 +403,6 @@ class BotbooruBrowseView extends BrowseView {
     get mobileFilterIds() {
         return {
             sort: 'botbooruSortPreset',
-            subSort: 'botbooruCuratedSort',
             tags: 'botbooruTagsBtn',
             filters: 'botbooruFiltersBtn',
             nsfw: 'botbooruNsfwToggle',
@@ -429,7 +438,10 @@ class BotbooruBrowseView extends BrowseView {
         };
     }
 
-    refreshCuratedSortVisibility() { syncCuratedSortVisibility(); }
+    // a weights flip that dropped the order on screen reloads the grid with the one that took its place
+    refreshCuratedSortVisibility() {
+        if (syncCuratedSortVisibility() && bbViewMode === 'browse') this.reload();
+    }
 
     getSearchModes() { return ['character', 'creator']; }
     getSearchInputId(mode) {
@@ -462,9 +474,9 @@ class BotbooruBrowseView extends BrowseView {
                 <select id="botbooruSortPreset" class="glass-select" title="Sort">
                     <optgroup label="Discovery">
                         <option value="latest" data-icon="fa-solid fa-calendar-plus" selected>Latest</option>
-                        <option value="curated" data-icon="fa-solid fa-award">Curated</option>
                         <option value="random" data-icon="fa-solid fa-shuffle">Random</option>
                     </optgroup>
+                    <optgroup label="Curated" data-weighted="false">${bbCuratedOptionsHtml(false)}</optgroup>
                     <optgroup label="Favorites">
                         <option value="hot_day" data-icon="fa-solid fa-fire">Hot Today</option>
                         <option value="hot_week" data-icon="fa-solid fa-fire">Hot This Week</option>
@@ -486,7 +498,7 @@ class BotbooruBrowseView extends BrowseView {
                 </select>
 
                 <!-- Timeline Sort (Following mode) -->
-                <select id="botbooruTimelineSortHeader" class="glass-select browse-filter-hidden" title="Sort timeline">
+                <select id="botbooruTimelineSortHeader" class="glass-select hidden" title="Sort timeline">
                     <option value="newest" data-icon="fa-solid fa-calendar-plus">Newest</option>
                     <option value="oldest" data-icon="fa-solid fa-hourglass">Oldest First</option>
                     <option value="name_asc" data-icon="fa-solid fa-arrow-down-a-z">Name A-Z</option>
@@ -495,13 +507,6 @@ class BotbooruBrowseView extends BrowseView {
                     <option value="views" data-icon="fa-solid fa-eye">Most Viewed</option>
                     <option value="downloads" data-icon="fa-solid fa-download">Most Downloaded</option>
                     <option value="random" data-icon="fa-solid fa-shuffle">Random</option>
-                </select>
-
-                <!-- Curated sub-sort (weighted-tag accounts only) -->
-                <select id="botbooruCuratedSort" class="glass-select browse-filter-hidden" title="Curated ordering (weighted tags)">
-                    <option value="recent" data-icon="fa-solid fa-clock" selected>Recent</option>
-                    <option value="score" data-icon="fa-solid fa-tags">Tag Score</option>
-                    <option value="followed" data-icon="fa-solid fa-user-check">Only Followed</option>
                 </select>
             </div>
 
@@ -1015,11 +1020,6 @@ function initBotbooruView() {
         sortEl.value = bbSortPreset;
         CoreAPI.initCustomSelect(sortEl);
     }
-    const curatedSortEl = document.getElementById('botbooruCuratedSort');
-    if (curatedSortEl) {
-        curatedSortEl.value = bbCuratedSort;
-        CoreAPI.initCustomSelect(curatedSortEl);
-    }
     syncCuratedSortVisibility();
 
     // Restore the persisted NSFW choice (a token is required to have enabled it;
@@ -1046,12 +1046,7 @@ function initBotbooruView() {
     const timelineSortEl = document.getElementById('botbooruTimelineSortHeader');
     if (timelineSortEl) {
         timelineSortEl.value = bbTimelineSort;
-        // Transfer the hidden class to the custom-select container it becomes
-        const wasHidden = timelineSortEl.classList.contains('browse-filter-hidden');
         CoreAPI.initCustomSelect(timelineSortEl);
-        if (wasHidden && timelineSortEl._customSelect?.container) {
-            timelineSortEl._customSelect.container.classList.add('browse-filter-hidden');
-        }
         timelineSortEl.addEventListener('change', (e) => {
             bbTimelineSort = e.target.value;
             renderBotbooruTimeline();
@@ -1083,11 +1078,6 @@ function initBotbooruView() {
     });
 
     // Sort preset
-    on('botbooruCuratedSort', 'change', (e) => {
-        bbCuratedSort = e.target.value;
-        botbooruBrowseView.reload();
-    });
-
     on('botbooruSortPreset', 'change', (e) => {
         bbSortPreset = e.target.value;
         syncCuratedSortVisibility();
@@ -1667,7 +1657,7 @@ function renderBotbooruTagsList(filter = '') {
                 }
             }
             // Curated results shift with the boosters; refresh if thats whats on screen
-            if (bbViewMode === 'browse' && bbSortPreset === 'curated') triggerBotbooruReloadDebounced();
+            if (bbViewMode === 'browse' && isBbCuratedSort()) triggerBotbooruReloadDebounced();
         });
     });
 
@@ -1695,20 +1685,16 @@ function renderBotbooruTagsList(filter = '') {
 
 function updateTagsButtonState() {
     const btn = document.getElementById('botbooruTagsBtn');
-    const label = document.getElementById('botbooruTagsBtnLabel');
-    if (!btn || !label) return;
+    if (!btn) return;
     const count = bbTagFilters.size;
-    btn.classList.toggle('has-filters', count > 0);
-    label.textContent = count > 0 ? `Tags (${count})` : 'Tags';
+    setFilterCount(btn, 'Tags', count);
 }
 
 function updateBotbooruFeaturesButton() {
     const btn = document.getElementById('botbooruFiltersBtn');
     if (!btn) return;
     const count = countActiveFeatures(BB_FEATURE_FILTERS, bbFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================
@@ -1959,8 +1945,8 @@ async function loadBotbooruPosts(reset = false, append = false) {
             });
             if (thisToken !== bbLoadToken) return;
             if (!bbDelegatesInitialized) return;
-            await botbooruBrowseView.probeHits(user.uploads || []);
             if (!user || !Array.isArray(user.uploads)) throw new Error('Could not load uploads for this uploader');
+            await botbooruBrowseView.probeHits(user.uploads);
 
             if (user.username) {
                 bbUploaderFilter.name = user.username;
@@ -2001,9 +1987,8 @@ async function loadBotbooruPosts(reset = false, append = false) {
         const params = {
             sort: preset.sort,
             timeWindow: preset.timeWindow,
-            curatedSort: (bbSortPreset === 'curated' && getSetting('botbooruUseTagWeights') === true)
-                ? bbCuratedSort : preset.curatedSort,
-            curatedIncludeUpdated: (bbSortPreset === 'curated' && bbFeatureState.curatedFresh) ? false : undefined,
+            curatedSort: preset.curatedSort,
+            curatedIncludeUpdated: (isBbCuratedSort() && bbFeatureState.curatedFresh) ? false : undefined,
             hideAi: bbFeatureState.hideAi || undefined,
             includeLorebookTokens: bbIncludeLorebookTokens || undefined,
             uploadedAfter: bbUploadedAfter || undefined,
@@ -2179,38 +2164,56 @@ function setupBotbooruGridDelegates() {
 // (paced at 2 concurrent fetches; the host budget is shared).
 // ========================================
 
-// curated extras show only when they can act: the sub-select needs weighted-tag mode, the freshness row just Curated
+// Curated's orders ride the one sort menu; the freshness row shows while a Curated order is picked. True when the pick fell back
 function syncCuratedSortVisibility() {
-    const curatedActive = bbSortPreset === 'curated' && bbViewMode !== 'following' && !bbUploaderFilter;
-    const el = document.getElementById('botbooruCuratedSort');
-    if (el) {
-        const show = curatedActive && getSetting('botbooruUseTagWeights') === true;
-        const target = el._customSelect?.container || el;
-        target.classList.toggle('browse-filter-hidden', !show);
+    let dropped = false;
+    const sortEl = document.getElementById('botbooruSortPreset');
+    const group = sortEl?.querySelector('optgroup[label="Curated"]');
+    const weighted = getSetting('botbooruUseTagWeights') === true;
+    if (group && group.dataset.weighted !== String(weighted)) {
+        group.innerHTML = bbCuratedOptionsHtml(weighted);
+        group.dataset.weighted = String(weighted);
+        dropped = !weighted && bbSortPreset !== 'curated' && isBbCuratedSort();
+        if (dropped) bbSortPreset = 'curated';
+        sortEl.value = bbSortPreset;
+        sortEl._customSelect?.refresh();
+        sortEl._customSelect?.relockWidth();
     }
+    const curatedActive = isBbCuratedSort() && bbViewMode !== 'following' && !bbUploaderFilter;
     const curatedSection = document.getElementById('botbooruCuratedSection');
     if (curatedSection) curatedSection.classList.toggle('hidden', !curatedActive);
     const freshCb = document.getElementById('botbooruCuratedFresh');
     if (freshCb) freshCb.checked = bbFeatureState.curatedFresh;
+    return dropped;
 }
+
+// an uploader's view sorts in its own bar, in BotBooru's word for a creator
+const BB_UPLOADER_STANDIN = Object.freeze({ label: 'Uploader\'s Sort', icon: 'fa-solid fa-user', title: 'Sort this uploader\'s characters with the menu by their name' });
 
 function setBotbooruModeChrome(mode) {
     // the sort swaps per mode; Tags and Filters stay, since timeline items carry tags and token counts for client filtering
     const sortEl = document.getElementById('botbooruSortPreset');
     const sortTarget = sortEl?._customSelect?.container || sortEl;
-    sortTarget?.classList.toggle('browse-filter-hidden', mode === 'following');
+    // the uploads endpoint takes only its own sort, so the scope hides the main one too
+    const scoped = mode === 'browse' && !!bbUploaderFilter;
+    sortTarget?.classList.toggle('hidden', mode === 'following' || scoped);
     const tlSortEl = document.getElementById('botbooruTimelineSortHeader');
     const tlSortTarget = tlSortEl?._customSelect?.container || tlSortEl;
-    tlSortTarget?.classList.toggle('browse-filter-hidden', mode !== 'following');
-    // the uploads endpoint takes only its own sort, so the scope hides the sort slot and parks the rows it cant honour
-    sortEl?.closest('.browse-sort-container')?.classList.toggle('hidden', mode === 'browse' && !!bbUploaderFilter);
+    tlSortTarget?.classList.toggle('hidden', mode !== 'following');
+    syncSortStandIn(sortEl, scoped ? BB_UPLOADER_STANDIN : null, [BB_UPLOADER_STANDIN]);
+    // nor these rows, so they park with the reason
     setFeatureRowsDisabled(
         BB_FEATURE_FILTERS.filter(f => f.key === 'favorites' || f.key === 'hideAi' || f.key === 'curatedFresh'),
-        !!bbUploaderFilter, 'Not available while viewing an uploader');
-    // the uploads endpoint honours neither a rating nor a token count: those two park as well
-    const uploads = !!bbUploaderFilter;
+        scoped, 'Not available while viewing an uploader');
+    // the uploads endpoint honours neither a rating nor a token count: those two park as well, in the uploads view alone
+    const uploads = scoped;
     const nsfwBtn = document.getElementById('botbooruNsfwToggle');
-    if (nsfwBtn) { nsfwBtn.disabled = uploads; nsfwBtn.classList.toggle('browse-option-disabled', uploads); }
+    if (nsfwBtn) {
+        nsfwBtn.disabled = uploads;
+        nsfwBtn.classList.toggle('browse-option-disabled', uploads);
+        if (uploads) nsfwBtn.title = 'Not available while viewing an uploader';
+        else updateNsfwToggleState();
+    }
     const tokensEl = document.getElementById('botbooruIncludeLorebookTokens');
     if (tokensEl) tokensEl.disabled = uploads;
     const tokensRow = tokensEl?.closest('.browse-advanced-option');

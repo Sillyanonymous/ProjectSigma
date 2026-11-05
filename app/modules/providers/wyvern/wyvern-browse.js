@@ -4,6 +4,7 @@ import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     browseCardImageWidth, activeFeatureRows, featurePasses, featureBadgesHtml, applyTagsClamp, updateTagStateButton, tagStateButtonHtml, cardTagsHtml,
     renderViewToggle, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
+    syncSortStandIn, CREATOR_SORT_STANDIN, setFilterCount, updateNsfwToggleButton,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, fetchWithProxy, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, isMobileMode, importThroughCommand, readJsonClassified, renderBrowseError, definitionFailedNotice } from '../provider-utils.js';
@@ -1136,22 +1137,12 @@ function tryWyvernAutoLogin() {
 }
 
 function updateWyvernNsfwToggle() {
+    updateNsfwToggleButton('wyvernNsfwToggle', wyvernNsfwEnabled, {
+        onTitle: wyvernToken ? 'NSFW content enabled - click to disable' : 'NSFW content enabled (limited without login) - click to disable',
+        offTitle: 'Click to enable NSFW content',
+    });
     const btn = document.getElementById('wyvernNsfwToggle');
-    if (!btn) return;
-
-    if (wyvernNsfwEnabled) {
-        btn.classList.add('active');
-        btn.style.opacity = '1';
-        btn.innerHTML = '<i class="fa-solid fa-fire"></i> <span>NSFW On</span>';
-        btn.title = wyvernToken
-            ? 'NSFW content enabled - click to disable'
-            : 'NSFW content enabled (limited without login) - click to disable';
-    } else {
-        btn.classList.remove('active');
-        btn.style.opacity = '0.7';
-        btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> <span>SFW Only</span>';
-        btn.title = 'Click to enable NSFW content';
-    }
+    if (btn) btn.style.opacity = wyvernNsfwEnabled ? '1' : '0.7';
 }
 
 function updateWyvernLoginUI() {
@@ -1346,31 +1337,23 @@ function renderWyvernTagsList(filter = '') {
 }
 
 function updateWyvernTagsButtonState() {
-    const label = document.getElementById('wyvernTagsBtnLabel');
     const btn = document.getElementById('wyvernTagsBtn');
-    if (!label || !btn) return;
+    if (!btn) return;
 
     const includeCount = Array.from(wyvernTagFilters.values()).filter(v => v === 'include').length;
     const excludeCount = Array.from(wyvernTagFilters.values()).filter(v => v === 'exclude').length;
 
-    let text = 'Tags';
     const parts = [];
     if (includeCount > 0) parts.push(`+${includeCount}`);
     if (excludeCount > 0) parts.push(`-${excludeCount}`);
-    if (parts.length > 0) text += ` (${parts.join('/')})`;
-
-    label.textContent = text;
-    btn.classList.toggle('has-filters', includeCount > 0 || excludeCount > 0);
+    setFilterCount(btn, 'Tags', parts.join('/'));
 }
 
 function updateWyvernFiltersButtonState() {
     const btn = document.getElementById('wyvernFiltersBtn');
     if (!btn) return;
     const count = countActiveFeatures(WYVERN_FEATURE_FILTERS, wyvernFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    btn.innerHTML = count > 0
-        ? `<i class="fa-solid fa-sliders"></i> Features (${count})`
-        : '<i class="fa-solid fa-sliders"></i> Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 function extractWyvernTagsFromResults(characters) {
@@ -1643,10 +1626,15 @@ async function loadWyvernCharacters(forceRefresh = false) {
 // VIEW MODE SWITCHING
 // ========================================
 
+// the following feed asks created_at DESC
+const WYVERN_FOLLOWING_STANDIN = Object.freeze({ label: 'Newest Created', icon: 'fa-solid fa-calendar-plus', title: 'The following feed lists the newest characters first' });
+
 function setWyvernModeChrome(mode) {
-    const sortContainer = document.getElementById('wyvernSortSelect')?.closest('.browse-sort-container');
-    // the main sort picks a server pool the creator endpoint never sees, so the scope hides it
-    sortContainer?.classList.toggle('hidden', !(mode === 'browse' && !wyvernCreatorFilter));
+    const sortEl = document.getElementById('wyvernSortSelect');
+    const scoped = mode === 'browse' && !!wyvernCreatorFilter;
+    // the main sort picks a server pool neither the following feed nor the creator endpoint sees
+    (sortEl?._customSelect?.container || sortEl)?.classList.toggle('hidden', mode !== 'browse' || scoped);
+    syncSortStandIn(sortEl, scoped ? CREATOR_SORT_STANDIN : mode !== 'browse' ? WYVERN_FOLLOWING_STANDIN : null, [WYVERN_FOLLOWING_STANDIN, CREATOR_SORT_STANDIN]);
 }
 
 function switchWyvernViewMode(mode) {
@@ -1811,25 +1799,44 @@ function _handleFollowingCardClick(e) {
     if (char) openWyvernCharPreview(char);
 }
 
-function renderWyvernFollowing(appendOnly = false) {
-    const grid = document.getElementById('wyvernFollowingGrid');
-    if (!grid) return;
+// the picked tags and the saved excludes, lowercased: the feeds whose endpoint takes no tag params filter by them here
+function wyvernClientTags() {
+    const include = [], exclude = [];
+    for (const [tag, state] of wyvernTagFilters) {
+        if (state === 'include') include.push(tag.toLowerCase());
+        else if (state === 'exclude') exclude.push(tag.toLowerCase());
+    }
+    for (const t of view.persistentExcludeTags()) {
+        const lt = t.toLowerCase();
+        if (!exclude.includes(lt)) exclude.push(lt);
+    }
+    return { include, exclude };
+}
 
+function wyvernTagsPass(c, { include, exclude }) {
+    const charTags = (c.tags || []).map(t => t.toLowerCase());
+    return include.every(t => charTags.includes(t)) && !exclude.some(t => charTags.includes(t));
+}
+
+// what the following feed shows of what it loaded: the feature rows, SFW Only and the tags, none of which its request carries
+function wyvernFollowingVisible() {
     let filtered = wyvernFollowingCharacters;
     const activeRows = activeFeatureRows(WYVERN_FEATURE_FILTERS, wyvernFeatureState);
     if (activeRows.length > 0) {
         filtered = filtered.filter(c => featurePasses(c, activeRows));
     }
-    const wyvernPersistentExclude = view.persistentExcludeTags();
-    if (wyvernPersistentExclude.length > 0) {
-        const lowerExclude = wyvernPersistentExclude.map(t => t.toLowerCase());
-        filtered = filtered.filter(c => {
-            const charTags = (c.tags || []).map(t => t.toLowerCase());
-            return !lowerExclude.some(et => charTags.includes(et));
-        });
-    }
+    // a card reads its rating, so a rated one is NSFW here too
+    if (!wyvernNsfwEnabled) filtered = filtered.filter(c => !c.rating || c.rating === 'none');
+    const tags = wyvernClientTags();
+    if (tags.include.length || tags.exclude.length) filtered = filtered.filter(c => wyvernTagsPass(c, tags));
+    return filtered;
+}
 
-    const sorted = sortWyvernFollowingCharacters(filtered);
+function renderWyvernFollowing(appendOnly = false) {
+    const grid = document.getElementById('wyvernFollowingGrid');
+    if (!grid) return;
+
+    const sorted = sortWyvernFollowingCharacters(wyvernFollowingVisible());
 
     if (sorted.length === 0 && wyvernFollowingCharacters.length > 0) {
         grid.innerHTML = `
@@ -2031,37 +2038,15 @@ function renderWyvernGrid(appendOnly = false) {
         });
     }
 
-    // The creator endpoint takes no tag params, so in scope the included tags
-    // narrow the catalogue here instead of being silently ignored.
-    if (wyvernCreatorFilter) {
-        const includeTags = [...wyvernTagFilters].filter(([, state]) => state === 'include').map(([tag]) => tag.toLowerCase());
-        if (includeTags.length > 0) {
-            displayCharacters = displayCharacters.filter(c => {
-                const charTags = (c.tags || []).map(t => t.toLowerCase());
-                return includeTags.every(t => charTags.includes(t));
-            });
-        }
-    }
-
     const activeRows = activeFeatureRows(WYVERN_FEATURE_FILTERS, wyvernFeatureState);
     if (activeRows.length > 0) {
         displayCharacters = displayCharacters.filter(c => featurePasses(c, activeRows));
     }
-    // Exclude tags - client-side filter (Wyvern API has no server-side exclude)
-    const excludeTags = [];
-    for (const [tag, state] of wyvernTagFilters) {
-        if (state === 'exclude') excludeTags.push(tag);
-    }
-    for (const t of view.persistentExcludeTags()) {
-        const lt = t.toLowerCase();
-        if (!excludeTags.includes(lt)) excludeTags.push(lt);
-    }
-    if (excludeTags.length > 0) {
-        displayCharacters = displayCharacters.filter(c => {
-            const charTags = (c.tags || []).map(t => t.toLowerCase());
-            return !excludeTags.some(et => charTags.includes(et));
-        });
-    }
+    // the API has no exclude, and the creator endpoint takes no tags at all, so in scope the includes narrow here too
+    const clientTags = wyvernClientTags();
+    if (!wyvernCreatorFilter) clientTags.include = [];
+    const excludeTags = clientTags.exclude;
+    if (clientTags.include.length || excludeTags.length) displayCharacters = displayCharacters.filter(c => wyvernTagsPass(c, clientTags));
 
     if (displayCharacters.length === 0) {
         wyvernGridRenderedCount = 0;

@@ -3,7 +3,7 @@
 import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     activeFeatureRows, featurePasses, applyTagsClamp, updateNsfwToggleButton, cardTagsHtml,
-    libraryFeatureRows, libraryBadgeHtml, libraryCardClass,
+    libraryFeatureRows, libraryBadgeHtml, libraryCardClass, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, hasBrowserEndpoint, buildProviderNotice, definitionFailedNotice } from '../provider-utils.js';
@@ -662,17 +662,10 @@ function cycleTagState(btn, included) {
 
 function updateJannyTagsButton() {
     const btn = document.getElementById('jannyTagsBtn');
-    const label = document.getElementById('jannyTagsBtnLabel');
     if (!btn) return;
 
     const count = jannyIncludeTags.size;
-    if (count > 0) {
-        btn.classList.add('has-filters');
-        if (label) label.innerHTML = `Tags <span class="tag-count">(${count})</span>`;
-    } else {
-        btn.classList.remove('has-filters');
-        if (label) label.textContent = 'Tags';
-    }
+    setFilterCount(btn, 'Tags', count);
 }
 
 function updateJannyFiltersButton() {
@@ -680,9 +673,7 @@ function updateJannyFiltersButton() {
     if (!btn) return;
 
     const count = countActiveFeatures(JANNY_FEATURE_FILTERS, jannyFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================

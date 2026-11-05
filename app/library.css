@@ -5266,7 +5266,8 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
     position: relative;
 }
 
-.import-summary-badge {
+.import-summary-badge,
+.browse-count-badge {
     position: absolute;
     top: -5px;
     right: -5px;
@@ -5284,7 +5285,8 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
     line-height: 1;
 }
 
-.import-summary-badge:empty {
+.import-summary-badge:empty,
+.browse-count-badge:empty {
     display: none;
 }
 
@@ -12028,7 +12030,7 @@ html.cl-view-pending .gallery-content > :not(.loading-spinner) {
     .search-box {
         max-width: 400px;
     }
-    .online-filter-content .glass-btn span,
+    .online-filter-content .glass-btn span:where(:not(.browse-count-badge)),
     .online-filter-content .nsfw-toggle span {
         display: none;
     }

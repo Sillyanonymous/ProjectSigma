@@ -33,6 +33,7 @@ import { charWorldsRouter, characterWorldsRouter } from './routes/char-worlds.js
 import { globalWorldsRouter, personaWorldsRouter } from './routes/world-links.js';
 import { providerLinksRouter } from './routes/provider-links.js';
 import { backupRouter } from './routes/backup.js';
+import { maintenanceRouter } from './routes/maintenance.js';
 import { tagRunsRouter } from './routes/tag-runs.js';
 import { jobsRouter } from './routes/jobs.js';
 import { mediaJobsRouter } from './routes/media-jobs.js';
@@ -169,6 +170,7 @@ export async function createApp() {
     app.use('/api/personas/:id/worlds', personaWorldsRouter);
     app.use('/api/provider-links', providerLinksRouter);
     app.use('/api/backup', backupRouter);
+    app.use('/api/maintenance', maintenanceRouter);
     app.use('/api/llm', llmRouter);
     app.use('/api/media', mediaRouter);
     app.use('/api/chats/:id/attachments', chatAttachmentsRouter);

@@ -497,7 +497,8 @@ const ownWords = (e, q) => matchScore(e.title, q) > 0 || matchScore(e.note, q) >
 async function draw(keep = false) {
     const keptId = pendingId ?? (keep ? shown[at]?.id : null);
     pendingId = null;
-    const local = await localEntries();
+    // an empty field lists the page's own verbs and views, drawn at once: an opening never shows the last search's rows
+    const local = !mode && !input.value.trim() ? [...argumentVerbs(), ...viewEntries()] : await localEntries();
     if (!el || el.hidden) return;
     const q = input.value.trim();
     shownFor = q;
@@ -572,6 +573,26 @@ function moveTo(i) {
     paintPreview();
 }
 
+// a character's notes excerpt, read for the row the preview shows: the searches answer without the notes
+const excerpts = new Map();
+let excerptCtl = null;
+function previewExcerpt(id) {
+    if (!id || excerpts.has(id)) return excerpts.get(id) || '';
+    excerpts.set(id, '');
+    // the row the preview moved past is aborted, as a search the reader moved past is
+    excerptCtl?.abort();
+    excerptCtl = new AbortController();
+    const signal = excerptCtl.signal;
+    void getJson(`/characters?${new URLSearchParams({ ids: id, fields: 'creatorNotesExcerpt', count: 'false' })}`, signal).then((got) => {
+        if (!got) { excerpts.delete(id); return; }
+        const text = got.items?.[0]?.creatorNotesExcerpt || '';
+        excerpts.set(id, text);
+        const e = mode?.kind === 'actions' ? mode.entry : shown[at];
+        if (text && el && !el.hidden && e?.kind === 'character' && e.data?.id === id) paintPreview();
+    });
+    return '';
+}
+
 function paintPreview() {
     if (!previewEl) return;
     const e = mode?.kind === 'actions' ? mode.entry : shown[at];
@@ -583,10 +604,11 @@ function paintPreview() {
     let body = '';
     if (e.kind === 'character') {
         const tags = (d.tags || []).slice(0, 8).map(t => `<span class="cl-palette-tag">${esc(t)}</span>`).join('');
+        const excerpt = previewExcerpt(d.id);
         body = `<img class="cl-palette-portrait" src="${esc(CoreAPI.getCharacterAvatarThumbUrl(d.id) || '')}" alt="" decoding="async">
             <div class="cl-palette-pv-title">${esc(e.title)}</div>${e.note ? `<div class="cl-palette-pv-note">${esc(e.note)}</div>` : ''}
             ${tags ? `<div class="cl-palette-tags">${tags}</div>` : ''}
-            ${d.creatorNotesExcerpt ? `<p class="cl-palette-pv-text">${esc(String(d.creatorNotesExcerpt).slice(0, 260))}</p>` : ''}`;
+            ${excerpt ? `<p class="cl-palette-pv-text">${esc(String(excerpt).slice(0, 260))}</p>` : ''}`;
     } else if (e.kind === 'message') {
         body = `${e.pic ? `<img class="cl-palette-avatar" src="${esc(e.pic)}" alt="" decoding="async">` : ''}
             <div class="cl-palette-pv-title">${esc(d.chatName || 'A chat')}</div><div class="cl-palette-pv-note">${esc([d.charName, d.isUser ? 'your message' : ''].filter(Boolean).join(', '))}</div>
@@ -783,6 +805,7 @@ export function open() {
     servedFull = new Set();
     drillable = new Set();
     localCache = null;
+    excerpts.clear();
     shown = [];
     at = 0;
     mode = null;
@@ -795,6 +818,11 @@ export function open() {
     // a phone's keyboard comes up with it: focused inside the opening tap, the one moment every phone browser raises it
     if (CoreAPI.isMobileMode()) input.focus({ preventScroll: true });
     void draw();
+    // the server's entries are read meanwhile for the first key; a listed persona switched elsewhere redraws its mark
+    const persona = activePersona;
+    void localEntries().then(() => {
+        if (el && !el.hidden && !mode && !input.value.trim() && activePersona !== persona && shown.some(e => e.kind === 'persona')) void draw(true);
+    });
     // shown on the next frame, so its fade runs
     requestAnimationFrame(() => {
         el?.classList.add('is-open');
@@ -811,6 +839,7 @@ export function close() {
     waiting = 0;
     searchCtl?.abort();
     searchCtl = null;
+    excerptCtl?.abort();
     el.classList.remove('is-open');
     el.hidden = true;
     mode = null;

@@ -32,7 +32,8 @@ if ! node -e "const fs=require('fs');const h=require('crypto').createHash('sha25
     node -e "const fs=require('fs');fs.writeFileSync('node_modules/.sigma-installed',require('crypto').createHash('sha256').update(fs.readFileSync('package-lock.json')).digest('hex'))"
 fi
 
-# open the browser once the server answers, where there is a desktop to open it on
+# open the browser once the server answers, where there is a desktop to open it on, unless openBrowser in
+# data/server.yaml or CL_OPEN_BROWSER is false
 OPENER=""
 if [ "$(uname)" = "Darwin" ]; then
     OPENER=open
@@ -40,7 +41,7 @@ elif [ -n "${DISPLAY}${WAYLAND_DISPLAY}" ] && command -v xdg-open >/dev/null 2>&
     OPENER=xdg-open
 fi
 if [ -n "$OPENER" ]; then
-    SIGMA_OPENER="$OPENER" node --input-type=module -e "try{const {config}=await import('./server/config.js');const url='http://localhost:'+config.port+'/';for(let i=0;i<240;i++){try{if((await fetch(url+'api/health')).ok){(await import('node:child_process')).execFile(process.env.SIGMA_OPENER,[url]);break}}catch{}await new Promise(r=>setTimeout(r,500))}}catch{}" &
+    SIGMA_OPENER="$OPENER" node --input-type=module -e "try{const {config}=await import('./server/config.js');if(config.openBrowser){const url='http://localhost:'+config.port+'/';for(let i=0;i<240;i++){try{if((await fetch(url+'api/health')).ok){(await import('node:child_process')).execFile(process.env.SIGMA_OPENER,[url]);break}}catch{}await new Promise(r=>setTimeout(r,500))}}}catch{}" &
 fi
 
 echo "Starting Project Sigma. Press Ctrl+C to stop it."

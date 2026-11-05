@@ -327,6 +327,19 @@ async function initModuleSystem() {
     } catch (err) {
         console.error('[ModuleLoader] Library backup failed:', err);
     }
+    // the library's background upkeep (the search index tidy-up) as a notifications section
+    try {
+        const maintenance = await import('./maintenance.js');
+        void CoreAPI.settingsReady().then(() => maintenance.startMaintenance({
+            apiRequest: CoreAPI.apiRequest,
+            registerNotificationSection: CoreAPI.registerNotificationSection,
+            refreshNotificationsUI: CoreAPI.refreshNotificationsUI,
+            // Settings' Search Index group re-reads on each, so a tidy-up's progress reaches it too
+            onChange: (state) => document.dispatchEvent(new CustomEvent('cl-maintenance-changed', { detail: state })),
+        }));
+    } catch (err) {
+        console.error('[ModuleLoader] Maintenance failed:', err);
+    }
     // the connection editor is mounted by Settings > AI as well as by the chat panel
     loadModuleCSS('./connection-editor.css');
     // the pronouns block is drawn by Settings > Chat as well as by the chat's Personas window

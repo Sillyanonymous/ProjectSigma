@@ -7,7 +7,7 @@ import { settingValue } from '../db/settings-store.js';
 import { readDocument, writeDocument } from '../db/documents-store.js';
 import { copyBytes } from '../db/backup-copy.js';
 import { emitChange, ownerOf, runWithRequest } from '../db/changes.js';
-import { killTree } from './kill-tree.js';
+import { killTree, onServerExit } from './kill-tree.js';
 import { httpError } from './http-error.js';
 
 export const BACKUP_FREQUENCIES = Object.freeze({ off: 0, daily: 86400000, weekly: 604800000 });
@@ -224,14 +224,7 @@ function liveJobOf(user) {
 function hookExit() {
     if (_exitHooked) return;
     _exitHooked = true;
-    const stop = () => { if (_running?.proc) killTree(_running.proc); };
-    process.once('exit', stop);
-    for (const signal of ['SIGTERM', 'SIGINT']) {
-        process.once(signal, () => {
-            stop();
-            if (!process.listenerCount(signal)) process.kill(process.pid, signal);
-        });
-    }
+    onServerExit(() => { if (_running?.proc) killTree(_running.proc); });
 }
 
 /**
@@ -368,6 +361,11 @@ function end(job, status, error = null) {
     try { job.onEnd?.(viewOf(job)); } catch (e) { console.error('[backup] an end callback failed:', e); }
     job.onEnd = null;
     pump();
+}
+
+/** Whether this account's backup is running or queued, so other long work on its library can wait for it. */
+export function backupLive(db) {
+    return !!liveJobOf(ownerOf(db));
 }
 
 /** The account's backup: the running or queued one, else the last that ended; a missed window when none is live; when to look again. */

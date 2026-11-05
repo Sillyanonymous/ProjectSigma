@@ -4,6 +4,7 @@ import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     activeFeatureRows, featurePasses, applyTagsClamp, updateTagStateButton, tagStateButtonHtml, cardTagsHtml,
     renderViewToggle, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
+    syncSortStandIn, CREATOR_SORT_STANDIN, setFeatureRowsDisabled, setFilterCount, updateNsfwToggleButton,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, definitionFailedNotice, httpFailureError } from '../provider-utils.js';
@@ -54,7 +55,7 @@ let pygIncludeTags = new Set();
 let pygExcludeTags = new Set();
 let pygKnownTags = new Set();
 
-// sortAscending is server-side (read as orderDescending) and counts toward the badge like any active toggle
+// sortAscending is server-side (read as orderDescending); it counts toward the badge only where it applies (pygAscendingOff)
 const PYG_FEATURE_FILTERS = [
     { key: 'sortAscending', id: 'pygFilterSortDir', section: 'sort', icon: 'fa-arrow-up-short-wide', label: 'Ascending Order' },
     ...libraryFeatureRows('pyg', () => view, isCharPossibleMatchObj),
@@ -261,17 +262,9 @@ async function loadCharacters(append = false) {
         pygTotalItems = parseInt(data?.totalItems || '0', 10);
         const totalPages = Math.ceil(pygTotalItems / PAGE_SIZE);
 
-        // strict client tag match: the API matches substrings ("Male" hits "Female"), and the owner endpoint takes no tags
-        const ownerExclude = pygAuthorOwnerId ? mergedExclude.map(t => t.toLowerCase()) : [];
-        const strictTagFilter = pygIncludeTags.size > 0 || ownerExclude.length > 0;
-        const passesClientTags = (h) => {
-            const charTags = Array.isArray(h.tags) ? h.tags.map(t => String(t).toLowerCase()) : [];
-            if (ownerExclude.some(t => charTags.includes(t))) return false;
-            if (pygIncludeTags.size === 0) return true;
-            return [...pygIncludeTags].every(rt => charTags.includes(rt.toLowerCase()));
-        };
-        if (strictTagFilter) {
-            hits = hits.filter(passesClientTags);
+        const passesClientChecks = pygClientCheck(mergedExclude);
+        if (passesClientChecks) {
+            hits = hits.filter(passesClientChecks);
             debugLog('[PygBrowse] Client-side filtered hits:', hits.length);
         }
 
@@ -284,7 +277,7 @@ async function loadCharacters(append = false) {
         }
 
         // Auto-fetch when client-side filters remove too many results
-        const hasClientFilters = activeRows.length > 0 || strictTagFilter;
+        const hasClientFilters = activeRows.length > 0 || !!passesClientChecks;
         if (hasClientFilters && pygCurrentPage < totalPages - 1) {
             let autoFetches = 0;
             while (hits.length < PAGE_SIZE && pygCurrentPage < totalPages - 1 && autoFetches < 3 && delegatesInitialized) {
@@ -309,7 +302,7 @@ async function loadCharacters(append = false) {
                 if (thisToken !== pygLoadToken || !delegatesInitialized) return;
                 let moreHits = moreData?.characters || [];
                 await pygmalionBrowseView.probeHits(moreHits);
-                if (strictTagFilter) moreHits = moreHits.filter(passesClientTags);
+                if (passesClientChecks) moreHits = moreHits.filter(passesClientChecks);
                 collectTagsFromResults(moreHits);
                 if (activeRows.length > 0) {
                     moreHits = moreHits.filter(h => featurePasses(h, activeRows));
@@ -455,26 +448,18 @@ function cyclePygTagState(btn, tagName) {
 
 function updatePygTagsButton() {
     const btn = document.getElementById('pygTagsBtn');
-    const label = document.getElementById('pygTagsBtnLabel');
     if (!btn) return;
 
     const count = pygIncludeTags.size + pygExcludeTags.size;
-    if (count > 0) {
-        btn.classList.add('has-filters');
-        if (label) label.innerHTML = `Tags <span class="tag-count">(${count})</span>`;
-    } else {
-        btn.classList.remove('has-filters');
-        if (label) label.textContent = 'Tags';
-    }
+    setFilterCount(btn, 'Tags', count);
 }
 
 function updatePygFiltersButton() {
     const btn = document.getElementById('pygFiltersBtn');
     if (!btn) return;
-    const count = countActiveFeatures(PYG_FEATURE_FILTERS, pygFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    // Ascending Order does nothing where it greys (pygAscendingOff), so it leaves the count there
+    const count = countActiveFeatures(PYG_FEATURE_FILTERS, pygFeatureState, { inertKeys: pygAscendingOff() ? ['sortAscending'] : [] });
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================
@@ -839,20 +824,12 @@ function clearAuthorFilter() {
 }
 
 function updateNsfwToggle() {
+    updateNsfwToggleButton('pygNsfwToggle', pygNsfwEnabled, {
+        onTitle: 'NSFW content enabled (requires auth token) - click to show SFW only',
+        offTitle: 'Showing SFW only - click to include NSFW (requires auth token)',
+    });
     const btn = document.getElementById('pygNsfwToggle');
-    if (!btn) return;
-
-    if (pygNsfwEnabled) {
-        btn.classList.add('active');
-        btn.innerHTML = '<i class="fa-solid fa-fire"></i> <span>NSFW On</span>';
-        btn.title = 'NSFW content enabled (requires auth token) - click to show SFW only';
-    } else {
-        btn.classList.remove('active');
-        btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> <span>SFW Only</span>';
-        btn.title = 'Showing SFW only - click to include NSFW (requires auth token)';
-    }
-
-    btn.style.opacity = pygToken ? '' : '0.5';
+    if (btn) btn.style.opacity = pygToken ? '' : '0.5';
 }
 
 // ========================================
@@ -864,10 +841,34 @@ function setPygModeChrome(mode) {
     const followingSortEl = document.getElementById('pygFollowingSortSelect');
     const bsTarget = browseSortEl?._customSelect?.container || browseSortEl;
     const fsTarget = followingSortEl?._customSelect?.container || followingSortEl;
-    if (bsTarget) bsTarget.classList.toggle('browse-filter-hidden', mode !== 'browse');
-    // the owner endpoint ignores the main sort, so the scope collapses the sort slot
-    browseSortEl?.closest('.browse-sort-container')?.classList.toggle('hidden', mode === 'browse' && !!pygAuthorFilter);
-    if (fsTarget) fsTarget.classList.toggle('browse-filter-hidden', mode === 'browse');
+    // the owner endpoint ignores the main sort, so the scope hides it too
+    const scoped = mode === 'browse' && !!pygAuthorFilter;
+    if (bsTarget) bsTarget.classList.toggle('hidden', mode !== 'browse' || scoped);
+    if (fsTarget) fsTarget.classList.toggle('hidden', mode === 'browse');
+    syncSortStandIn(browseSortEl, scoped ? CREATOR_SORT_STANDIN : null, [CREATOR_SORT_STANDIN]);
+    // neither the following feed nor the owner endpoint takes a direction, so Ascending Order greys there, saying why
+    setFeatureRowsDisabled(PYG_FEATURE_FILTERS.filter(f => f.key === 'sortAscending'), pygAscendingOff(),
+        mode !== 'browse' ? 'Not available in Following' : 'Not available while viewing a creator');
+    updatePygFiltersButton();
+}
+
+// strict tag match: the API matches substrings ("Male" hits "Female"); the owner endpoint takes no tags and returns sensitive cards, so SFW filters here
+function pygClientCheck(mergedExclude) {
+    const ownerExclude = pygAuthorOwnerId ? mergedExclude.map(t => t.toLowerCase()) : [];
+    const ownerSfw = !!pygAuthorOwnerId && !pygNsfwEnabled;
+    if (!(pygIncludeTags.size > 0 || ownerExclude.length > 0 || ownerSfw)) return null;
+    return (h) => {
+        if (ownerSfw && h.isSensitive) return false;
+        const charTags = Array.isArray(h.tags) ? h.tags.map(t => String(t).toLowerCase()) : [];
+        if (ownerExclude.some(t => charTags.includes(t))) return false;
+        if (pygIncludeTags.size === 0) return true;
+        return [...pygIncludeTags].every(rt => charTags.includes(rt.toLowerCase()));
+    };
+}
+
+// whether Ascending Order can do anything in what the grid shows now
+function pygAscendingOff() {
+    return pygViewMode !== 'browse' || !!pygAuthorFilter;
 }
 
 function switchPygViewMode(mode) {
@@ -1627,11 +1628,7 @@ function initPygView() {
     // Sort (following mode)
     const followingSortSelect = document.getElementById('pygFollowingSortSelect');
     if (followingSortSelect) {
-        const wasHidden = followingSortSelect.classList.contains('browse-filter-hidden');
         CoreAPI.initCustomSelect(followingSortSelect);
-        if (wasHidden && followingSortSelect._customSelect?.container) {
-            followingSortSelect._customSelect.container.classList.add('browse-filter-hidden');
-        }
         followingSortSelect.addEventListener('change', () => {
             pygFollowingSort = followingSortSelect.value;
             renderPygFollowing();
@@ -2050,7 +2047,7 @@ class PygmalionBrowseView extends BrowseView {
                 </select>
 
                 <!-- Sort (Following mode) -->
-                <select id="pygFollowingSortSelect" class="glass-select browse-filter-hidden" title="Sort following timeline">
+                <select id="pygFollowingSortSelect" class="glass-select hidden" title="Sort following timeline">
                     <option value="newest" data-icon="fa-solid fa-calendar-plus" selected>Newest Created</option>
                     <option value="oldest" data-icon="fa-solid fa-hourglass">Oldest First</option>
                     <option value="name_asc" data-icon="fa-solid fa-arrow-down-a-z">Name A-Z</option>

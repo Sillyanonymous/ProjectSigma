@@ -6,6 +6,7 @@ import { config, ensureUserDirs } from '../config.js';
 import { promoteKnownNamespaces } from './characters-store.js';
 import { loadPersistedNamespaces } from '../lib/provider-namespaces.js';
 import { trackHandle } from './changes.js';
+import { FTS_TABLES, scheduleFtsMerge, stopFtsMerge } from './fts-merge.js';
 
 export const MIGRATIONS = [
     // 1: core library tables
@@ -1812,6 +1813,15 @@ export const MIGRATIONS = [
     `
     ALTER TABLE llm_profiles ADD COLUMN max_images INTEGER CHECK (max_images > 0);
     `,
+    // 89: the server owns every full-text merge: a save never merges (automerge off), and an open merge always goes on (usermerge 2)
+    `
+    INSERT INTO characters_fts(characters_fts, rank) VALUES ('automerge', 0);
+    INSERT INTO characters_fts(characters_fts, rank) VALUES ('usermerge', 2);
+    INSERT INTO chat_messages_fts(chat_messages_fts, rank) VALUES ('automerge', 0);
+    INSERT INTO chat_messages_fts(chat_messages_fts, rank) VALUES ('usermerge', 2);
+    INSERT INTO world_entries_fts(world_entries_fts, rank) VALUES ('automerge', 0);
+    INSERT INTO world_entries_fts(world_entries_fts, rank) VALUES ('usermerge', 2);
+    `,
 ];
 
 // the two per-character chat counters, one expression for the triggers, the backfill and the invariant; last_chat_at is the newest sort_at
@@ -2068,6 +2078,7 @@ export function openDb(handle) {
     // from here on every committed store write reaches the change feed, routed to this user
     trackHandle(db, handle);
     handles.set(handle, db);
+    scheduleFtsMerge(db);
     return db;
 }
 
@@ -2100,11 +2111,12 @@ function migrate(db, paths) {
 
 export function closeDb(handle) {
     if (handle !== undefined) {
-        handles.get(handle)?.close();
+        const db = handles.get(handle);
+        if (db) { stopFtsMerge(db); db.close(); }
         handles.delete(handle);
         return;
     }
-    for (const db of handles.values()) db.close();
+    for (const db of handles.values()) { stopFtsMerge(db); db.close(); }
     handles.clear();
 }
 
@@ -2117,6 +2129,8 @@ export function isDbOpen(handle) {
 export function refreshFtsIfOpen(handle) {
     const db = handles.get(handle);
     if (!db) return false;
-    for (const t of ['characters_fts', 'chat_messages_fts', 'world_entries_fts']) db.prepare(`INSERT INTO ${t}(${t}) VALUES ('integrity-check')`).run();
+    for (const t of FTS_TABLES) db.prepare(`INSERT INTO ${t}(${t}) VALUES ('integrity-check')`).run();
+    // a migration run writes in bulk, as a rebuild does, so its segments are looked at
+    scheduleFtsMerge(db);
     return true;
 }

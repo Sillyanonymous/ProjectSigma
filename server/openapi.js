@@ -348,7 +348,7 @@ export function buildOpenApiSpec(version) {
                         p('count', BOOL, 'count=false skips the total (null in the envelope): the count leg dominates broad queries on huge libraries; scroll clients use nextCursor for has-more'),
                         p('rules', STR, 'URL-encoded JSON array of structured filter rules [{field, op, value}] - the advanced-filter model evaluated server-side. Identity and library: name, nickname, creator, creatorNotes, version, listingName, tags, favorite, providerLink, playlist, playlistName, nameOverride, uid (the id of the character itself: contains or equals), tokens, cardSpec. Card text (unindexed: a rule reads the card of each character it tests, so it costs more the broader the set): description, personality, scenario, firstMessage, exampleDialogue, systemPromptText, postHistoryInstructions, depthPrompt. Presence: embeddedLorebook, systemPrompt, altGreetings, linkedLorebook. Dates: dateAdded, dateCreated, dateModified, lastChat. An extension the account has on adds its declared fields as ext.<id>.<key> (their ops are in its inventory row\'s serverQuery). Unknown field/op fails 400 naming the valid set'),
                         p('idsOnly', BOOL, 'project only {id, fav} per item (no tags or links) - select-all-matching, whose toolbar star reads fav, and cheap id enumeration; fields= adds more of each character to it'),
-                        p('fields', CSV, 'a projection the verb names: with idsOnly, the fields to carry beside id and fav (name, creator, characterVersion, mediaLocalized, links); on a list, creatorNotes to carry the notes whole where the row carries only their excerpt. An unknown name is 400'),
+                        p('fields', CSV, 'a projection the verb names: with idsOnly, the fields to carry beside id and fav (name, creator, characterVersion, mediaLocalized, links); on a list, creatorNotes to carry the notes whole and creatorNotesExcerpt their plain-text excerpt, neither of which a row carries unless named. An unknown name is 400'),
                     ],
                     responses: { 200: json(ref('CharacterEnvelope')), 400: err('invalid parameter, match and words both, or sort=relevance over more than 10000 matching characters') },
                 },
@@ -1286,7 +1286,7 @@ export function buildOpenApiSpec(version) {
             '/api/backup': {
                 post: {
                     tags: ['library'],
-                    summary: 'Start a consistent backup of the library database into data/backups/ (the database only; media and avatars are plain files). It is queued and answered at once, and the copy runs beside the server, which keeps answering: the copy holds the library as it was when the copy began, and writes made during it are in the next backup. One backup runs at a time across the server, so another account\'s may run first. Follow it through GET /api/backup/job',
+                    summary: 'Start a consistent backup of the library database into data/backups/ (the database only; media and avatars are plain files). It is queued and answered at once, and the copy runs beside the server, which keeps answering: the copy holds the library as it was when the copy began, and writes made during it are in the next backup. One backup runs at a time across the server, so another account\'s may run first. A search index tidy-up of the library pauses while it is queued or runs, and one asked for carries on once it ends. Follow it through GET /api/backup/job',
                     responses: { 202: json(ref('BackupJob'), 'the job, queued or running'), 409: err('this account already has a backup queued or running') },
                 },
                 get: {
@@ -1341,6 +1341,42 @@ export function buildOpenApiSpec(version) {
                     summary: 'Answer a missed backup window: tonight waits for the next window and asks again only if that one is missed too; skip counts the missed backup as taken at the end of its window, so the next comes on its usual day. Back Up Now is POST /api/backup',
                     requestBody: body({ type: 'object', required: ['answer'], properties: { answer: { ...STR, enum: ['tonight', 'skip'] } } }),
                     responses: { 200: json({ type: 'object', properties: { answer: STR, windowEnd: { type: 'number' } } }), 400: err("answer is 'tonight' or 'skip'"), 409: err('no missed backup to answer') },
+                },
+            },
+            '/api/maintenance': {
+                get: {
+                    tags: ['library'],
+                    summary: 'What this library\'s background upkeep is doing now. searchIndex names the search index being tidied and when the tidy-up began, null while none is: it runs beside the server once the library sits idle and an index is in pieces, or when asked, and searches may be slower and the disk busy until it ends. Every change to it is also a maintenance record on the change feed',
+                    responses: { 200: json({ type: 'object', properties: { searchIndex: { type: 'object', nullable: true, properties: { index: { ...STR, enum: ['cards', 'chats', 'lorebooks'] }, since: { type: 'number', description: 'when the tidy-up began, in ms since the epoch' }, done: { ...INT, description: 'pages of this index rewritten so far' }, total: { ...INT, description: 'pages this index holds' }, reason: { ...STR, enum: ['auto', 'asked'], description: 'auto: started once the library sat idle, and paused by activity; asked: Tidy Now' } } } } }) },
+                },
+            },
+            '/api/maintenance/activity': {
+                post: {
+                    tags: ['library'],
+                    summary: 'The reader is using this library: a client sends it on its user\'s own input (a click, a key, a scroll, a touch), at most once every few seconds, never from a background poll. Background upkeep holds off: an automatic search index tidy-up running for this library pauses, its work kept, and the next one waits until the library has had neither this nor a write for two minutes. A script that wants the upkeep to hold off while it works can send it too',
+                    responses: { 204: { description: 'noted' } },
+                },
+            },
+            '/api/maintenance/search-index': {
+                get: {
+                    tags: ['library'],
+                    summary: 'The library\'s search indexes for a settings panel: for each, how many segments it holds, its size, and its drift, how many times the disk pages a word lookup reads against the same index tidied into one segment, rounded down to hundredths (null where it cannot be read). Also the drift at which an index is tidied on its own (once the library sits idle), the last tidy-up (when it ended, how long it took, the indexes it tidied and whether it was asked for), the last failure since (when, the index, why, whether asked; null once a later tidy-up ends well), the one running as GET /api/maintenance answers it, what this library\'s asked tidy-up waits for (its backup, or another library\'s asked tidy-up; null when none waits), and whether automatic tidy-ups are on (the autoTidySearchIndex setting). A tidy-up that stopped is tried again in full the next time the library sits idle while automatic tidy-ups are on',
+                    responses: { 200: json({ type: 'object', properties: {
+                        indexes: { type: 'array', items: { type: 'object', properties: { index: { ...STR, enum: ['cards', 'chats', 'lorebooks'] }, segments: { ...INT, nullable: true }, bytes: { ...INT, nullable: true }, drift: { type: 'number', nullable: true } } } },
+                        driftLimit: { type: 'number' },
+                        last: { type: 'object', nullable: true, properties: { at: { type: 'number' }, ms: INT, indexes: { type: 'array', items: { type: 'object', properties: { index: STR, ms: INT } } }, reason: { ...STR, enum: ['auto', 'asked'] } } },
+                        failure: { type: 'object', nullable: true, properties: { at: { type: 'number' }, index: { ...STR, nullable: true }, error: STR, reason: { ...STR, enum: ['auto', 'asked'] } } },
+                        running: { type: 'object', nullable: true },
+                        queued: { ...STR, nullable: true, enum: ['backup', 'library', null] },
+                        auto: { type: 'boolean' },
+                    } }) },
+                },
+            },
+            '/api/maintenance/search-index/tidy': {
+                post: {
+                    tags: ['library'],
+                    summary: 'Tidy every search index holding more than one segment into one, now, while the reader keeps working (it is never paused by activity). Answered at once: 202 with started true and the tidy-up running, named from the first answer (followed through GET /api/maintenance and its maintenance records), or with queued true while this library is backed up or another library\'s asked tidy-up runs (this one starts when that ends); 200 with started false when every index is already one segment. It takes the lane from an automatic tidy-up of any library, which pauses and resumes later; asked again while it runs, it answers the one running. A backup goes first: one starting while it runs pauses it, and it carries on once the backup ends. It ends with every index in one segment, apart from what writes made while it ran add',
+                    responses: { 200: json({ type: 'object', properties: { started: { type: 'boolean' } } }, 'already tidy'), 202: json({ type: 'object', properties: { started: { type: 'boolean' }, queued: { type: 'boolean' }, running: { type: 'object', nullable: true } } }, 'the tidy-up running or waiting') },
                 },
             },
             '/api/tags': {
@@ -1966,7 +2002,7 @@ export function buildOpenApiSpec(version) {
                     properties: {
                         id: STR, name: STR, creator: STR, nickname: STR,
                         characterVersion: STR,
-                        creatorNotesExcerpt: { ...STR, description: 'the first 200 characters of the creator notes as plain text (the grid tooltip); the notes whole ride only a list asked with fields=creatorNotes' },
+                        creatorNotesExcerpt: { ...STR, description: 'only with fields=creatorNotesExcerpt: the first 200 characters of the creator notes as plain text (the grid tooltip)' },
                         creatorNotes: { ...STR, description: 'only with fields=creatorNotes' },
                         fav: { type: 'boolean' }, updateLocked: { type: 'boolean' },
                         mediaLocalized: { type: 'boolean' }, loreDismissed: { type: 'boolean' },

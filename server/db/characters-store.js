@@ -221,7 +221,7 @@ const LINKS_SUBQUERY = `(SELECT json_group_array(json_object('providerId', pl.pr
               FROM provider_links pl WHERE pl.char_id = c.id)`;
 
 const LIST_SQL = `
-    SELECT c.rowid AS rid, c.id, c.name, c.creator, c.nickname, c.character_version, c.creator_notes,
+    SELECT c.rowid AS rid, c.id, c.name, c.creator, c.nickname, c.character_version,
            c.fav, c.update_locked, c.media_localized, c.lore_dismissed, c.token_estimate, c.created_at, c.imported_at, c.updated_at,
            (SELECT json_group_array(t.name ORDER BY ct.pos) FROM char_tags ct
               JOIN tags t ON t.id = ct.tag_id WHERE ct.char_id = c.id) AS tags,
@@ -230,7 +230,11 @@ const LIST_SQL = `
     FROM characters c
 `;
 
-// the row columns a set verb may ask for beside id and fav, plus the one list field a reader names to get it whole
+// the notes sit on overflow pages, most of a cold page's reads, so a list reads them only for a reader that names them
+const NOTES_FIELDS = Object.freeze(['creatorNotes', 'creatorNotesExcerpt']);
+const withNotes = (sql) => sql.replace('c.character_version,', 'c.character_version, c.creator_notes,');
+
+// the row columns a set verb may ask for beside id and fav, plus the list fields a reader names to get them
 const CHAR_SET_FIELDS = Object.assign(Object.create(null), {
     name: 'c.name',
     creator: 'c.creator',
@@ -238,7 +242,7 @@ const CHAR_SET_FIELDS = Object.assign(Object.create(null), {
     mediaLocalized: 'c.media_localized',
     links: `${LINKS_SUBQUERY} AS links`,
 });
-export const CHAR_FIELDS = [...Object.keys(CHAR_SET_FIELDS), 'creatorNotes'];
+export const CHAR_FIELDS = [...Object.keys(CHAR_SET_FIELDS), ...NOTES_FIELDS];
 const fieldColumns = (fields = []) => fields.filter(f => CHAR_SET_FIELDS[f]).map(f => `, ${CHAR_SET_FIELDS[f]}`).join('');
 function idsOnlyItem(row, fields = []) {
     const item = { id: row.id, fav: !!row.fav };
@@ -509,13 +513,14 @@ export function characterListQuery(db, opts = {}) {
         cursorParams.push(cur.sk, cur.sk, cur.rid);
     }
 
+    const fields = Array.isArray(opts.fields) ? opts.fields : [];
     // the projection fields of the extensions this account has on, a lookup per page row
     const proj = projectionSelect(db);
-    const listSql = proj.sql ? LIST_SQL.replace('\n    FROM characters c', `${proj.sql}\n    FROM characters c`) : LIST_SQL;
+    const rowSql = fields.some(f => NOTES_FIELDS.includes(f)) ? withNotes(LIST_SQL) : LIST_SQL;
+    const listSql = proj.sql ? rowSql.replace('\n    FROM characters c', `${proj.sql}\n    FROM characters c`) : rowSql;
 
     const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : null;
     const offset = limit && !cursorSql ? (Number.isInteger(opts.offset) && opts.offset > 0 ? opts.offset : 0) : 0;
-    const fields = Array.isArray(opts.fields) ? opts.fields : [];
     if (extSort) {
         return extSortQuery(extSort, { where, whereParams, others, idList, order, countSql, listSql, setsOnly, sort, limit, offset, extAliases: proj.aliases, fields });
     }
@@ -673,7 +678,7 @@ export function queryCharacters(db, opts = {}) {
     return { items, total, limit: q.limit, offset: q.offset, sort: q.sort, order: q.order, nextCursor };
 }
 
-// the notes ride the row as the tooltip's excerpt; a reader that needs them whole names them
+// the notes whole and their plain excerpt (the grid's tooltip) ride a row only when its reader names them
 function rowToListItem(row, extAliases = [], fields = []) {
     const links = JSON.parse(row.links || '[]');
     const item = {
@@ -682,7 +687,7 @@ function rowToListItem(row, extAliases = [], fields = []) {
         creator: row.creator,
         nickname: row.nickname,
         characterVersion: row.character_version,
-        creatorNotesExcerpt: excerptOf(row.creator_notes),
+        ...(fields.includes('creatorNotesExcerpt') ? { creatorNotesExcerpt: excerptOf(row.creator_notes) } : {}),
         ...(fields.includes('creatorNotes') ? { creatorNotes: row.creator_notes } : {}),
         fav: !!row.fav,
         updateLocked: !!row.update_locked,
@@ -1352,7 +1357,8 @@ function relatedTextArm(db, S, src, N, cands, cand) {
     }
     const match = (w) => `${RELATED_COLUMNS} : "${w}"`;
     const postings = new Map(), scored = [];
-    for (const w of asked) {
+    // in term order, so a cold index is read in page order
+    for (const w of [...asked].sort()) {
         let df = cache.df.get(w);
         if (df === undefined) {
             const rows = S.posting.all(match(w), cap + 1);

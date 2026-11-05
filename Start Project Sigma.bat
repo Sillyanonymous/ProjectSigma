@@ -45,8 +45,9 @@ if errorlevel 1 (
     node -e "const fs=require('fs');fs.writeFileSync('node_modules/.sigma-installed',require('crypto').createHash('sha256').update(fs.readFileSync('package-lock.json')).digest('hex'))"
 )
 
-rem Open the browser once the server answers, on the port it reads from data/server.yaml or CL_PORT.
-start "" /b node --input-type=module -e "try{const {config}=await import('./server/config.js');const url='http://localhost:'+config.port+'/';for(let i=0;i<240;i++){try{if((await fetch(url+'api/health')).ok){(await import('node:child_process')).exec('rundll32 url.dll,FileProtocolHandler '+url);break}}catch{}await new Promise(r=>setTimeout(r,500))}}catch{}"
+rem Open the browser once the server answers, on the port it reads from data/server.yaml or CL_PORT,
+rem unless openBrowser there or CL_OPEN_BROWSER is false.
+start "" /b node --input-type=module -e "try{const {config}=await import('./server/config.js');if(config.openBrowser){const url='http://localhost:'+config.port+'/';for(let i=0;i<240;i++){try{if((await fetch(url+'api/health')).ok){(await import('node:child_process')).exec('rundll32 url.dll,FileProtocolHandler '+url);break}}catch{}await new Promise(r=>setTimeout(r,500))}}}catch{}"
 
 echo Starting Project Sigma. Close this window, or press Ctrl+C, to stop it.
 echo.

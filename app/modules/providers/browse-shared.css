@@ -42,6 +42,26 @@
     flex-shrink: 0;
 }
 
+/* a filter's count rides its button's corner (setFilterCount), so the button keeps one width */
+.glass-btn:has(> .browse-count-badge) {
+    position: relative;
+}
+
+/* inside the button's right edge: hanging past the bar's last control it reads as overflow, and the More folds that control */
+.glass-btn > .browse-count-badge {
+    right: 0;
+}
+
+/* a greyed button says why on hover; it neither points nor lights */
+.glass-btn.browse-option-disabled {
+    cursor: not-allowed;
+}
+
+.glass-btn.browse-option-disabled:hover {
+    background: var(--cl-ghost-mid);
+    border-color: var(--glass-border);
+}
+
 /* ========================================
    ONLINE BROWSER STYLES
    ======================================== */
@@ -150,20 +170,11 @@
     gap: var(--space-xs);
 }
 
-/* Graceful hide for browse-only filters - preserves space, fades out */
+/* A provider's hide that keeps the control's space (a gated sub-sort, a browse-only filter), so nothing beside it shifts */
 .browse-filter-hidden {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--dur-fast) ease, visibility var(--dur-fast) ease;
-}
-
-[data-select-id="chubDiscoveryPreset"],
-[data-select-id="chubTimelineSortHeader"],
-[data-select-id="pygFollowingSortSelect"],
-[data-select-id="botbooruSortPreset"],
-[data-select-id="botbooruTimelineSortHeader"],
-.browse-more-filters {
     transition: opacity var(--dur-fast) ease, visibility var(--dur-fast) ease;
 }
 
@@ -174,10 +185,40 @@
     border-color: var(--glass-border);
 }
 
-/* Container for overlapping sort dropdowns */
+/* the sorts stack in one cell, unused ones invisible at their size, so a mode switch never changes the slot's width or what folds */
 .browse-sort-container {
     position: relative;
     min-width: 0;
+    display: inline-grid;
+    align-items: center;
+    column-gap: var(--space-sm-md);
+}
+
+.browse-sort-container > .custom-select-container {
+    grid-area: 1 / 1;
+    width: 100%;
+}
+
+/* the sort shown fills the cell its widest sibling sized, so no gap opens beside it */
+.browse-sort-container > .custom-select-container > .custom-select-trigger {
+    width: 100%;
+}
+
+/* a provider's declared sub-sort (mobileFilterIds.subSort) sits beside the stacked sorts, never over them */
+.browse-sort-container > .custom-select-container.browse-sub-sort {
+    grid-area: 1 / 2;
+}
+
+.browse-sort-container > .custom-select-container.hidden {
+    display: inline-flex;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* the sort leaving goes at once: a fade would paint it under the one taking its place */
+.browse-sort-container > .custom-select-container.hidden,
+.browse-sort-container > .custom-select-container.hidden > .custom-select-trigger {
+    transition: none;
 }
 
 .browse-sort-container .custom-select-trigger {
@@ -193,14 +234,13 @@
 }
 
 
-[data-select-id="chubTimelineSortHeader"],
-[data-select-id="pygFollowingSortSelect"],
-[data-select-id="botbooruTimelineSortHeader"] {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    max-width: 100%;
+/* The sort's greyed stand-in (syncSortStandIn) neither glows nor points: it says why on hover */
+.custom-select-container.browse-option-disabled {
+    cursor: not-allowed;
+}
+
+.custom-select-container.browse-option-disabled > .custom-select-trigger {
+    pointer-events: none;
 }
 
 .dropdown-menu .filter-checkbox {
@@ -2019,7 +2059,7 @@ body.collapse-all-browse-sections
     color: var(--cl-info-bright);
 }
 
-/* Active tag counts in button */
+/* A tag's use count in the tags list */
 .browse-tags-dropdown-container .tag-count {
     font-size: var(--font-xs);
     opacity: 0.8;

@@ -3,7 +3,7 @@
 import {
     BrowseView, registerCdAdapter, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     browseCardImageWidth, activeFeatureRows, featurePasses, featureBadgesHtml, applyTagsClamp, updateTagStateButton,
-    tagStateButtonHtml, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
+    tagStateButtonHtml, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList, setFilterCount, updateNsfwToggleButton,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, definitionFailedNotice } from '../provider-utils.js';
@@ -729,17 +729,10 @@ function cycleTagState(btn, tagName) {
 
 function updateCtTagsButton() {
     const btn = document.getElementById('ctTagsBtn');
-    const label = document.getElementById('ctTagsBtnLabel');
     if (!btn) return;
 
     const count = ctIncludeTags.size + ctExcludeTags.size;
-    if (count > 0) {
-        btn.classList.add('has-filters');
-        if (label) label.innerHTML = `Tags <span class="tag-count">(${count})</span>`;
-    } else {
-        btn.classList.remove('has-filters');
-        if (label) label.textContent = 'Tags';
-    }
+    setFilterCount(btn, 'Tags', count);
 }
 
 function updateCtFiltersButton() {
@@ -747,9 +740,7 @@ function updateCtFiltersButton() {
     if (!btn) return;
 
     const count = countActiveFeatures(CT_FEATURE_FILTERS, ctFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================
@@ -1021,21 +1012,13 @@ function clearCtAuthorFilter() {
 }
 
 function updateNsfwToggle() {
-    const btn = document.getElementById('ctNsfwToggle');
-    if (!btn) return;
     const sessionActive = isCtSessionActive();
-
-    if (ctNsfwEnabled && sessionActive) {
-        btn.classList.add('active');
-        btn.innerHTML = '<i class="fa-solid fa-fire"></i> <span>NSFW On</span>';
-        btn.title = 'NSFW content enabled (logged in) - click to show SFW only';
-    } else {
-        btn.classList.remove('active');
-        btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> <span>SFW Only</span>';
-        btn.title = 'Showing SFW only - click to include NSFW (requires login)';
-    }
-
-    btn.style.opacity = sessionActive ? '' : '0.5';
+    updateNsfwToggleButton('ctNsfwToggle', ctNsfwEnabled && sessionActive, {
+        onTitle: 'NSFW content enabled (logged in) - click to show SFW only',
+        offTitle: 'Showing SFW only - click to include NSFW (requires login)',
+    });
+    const btn = document.getElementById('ctNsfwToggle');
+    if (btn) btn.style.opacity = sessionActive ? '' : '0.5';
 }
 
 // ========================================

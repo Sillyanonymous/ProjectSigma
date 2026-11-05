@@ -5,7 +5,7 @@ import {
     featureFilterState, renderFeatureFilterItems, countActiveFeatures,
     browseCardImageWidth, activeFeatureRows, featurePasses, updateNsfwToggleButton,
     renderAltGreetingsList, cardTagsHtml,
-    renderViewToggle, libraryFeatureRows, libraryBadgeHtml, libraryCardClass,
+    renderViewToggle, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, parseProviderUrl } from '../provider-utils.js';
@@ -339,13 +339,7 @@ function renderGrid(characters, append = false) {
 
 
     // the creator endpoints take no tag params, so in scope the active tags narrow here
-    if (datacatBrowseMode === 'creator' && datacatActiveTagIds.size > 0) {
-        const wanted = [...datacatActiveTagIds].map(String);
-        filtered = filtered.filter(c => {
-            const ids = (c.tags || []).map(t => String(t?.id ?? t));
-            return wanted.every(id => ids.includes(id));
-        });
-    }
+    if (datacatBrowseMode === 'creator' && datacatActiveTagIds.size > 0) filtered = filtered.filter(datacatTagsPass);
 
     const startIdx = append ? datacatGridRenderedCount : 0;
     const html = filtered.slice(startIdx).map(c => createDatacatCard(c)).join('');
@@ -802,19 +796,13 @@ function cycleTagState(btn, active) {
 
 function updateTagsButton() {
     const btn = document.getElementById('datacatTagsBtn');
-    const label = document.getElementById('datacatTagsBtnLabel');
     if (!btn) return;
 
-    const count = isJannyTagMode()
+    // a JanitorAI sort sends no tags, so the greyed button counts none there
+    const count = isHampterSortMode(datacatSortMode) ? 0 : isJannyTagMode()
         ? jannyActiveTagIds.size
         : datacatActiveTagIds.size;
-    if (count > 0) {
-        btn.classList.add('has-filters');
-        if (label) label.innerHTML = `Tags <span class="tag-count">(${count})</span>`;
-    } else {
-        btn.classList.remove('has-filters');
-        if (label) label.textContent = 'Tags';
-    }
+    setFilterCount(btn, 'Tags', count);
 }
 
 // ========================================
@@ -825,17 +813,21 @@ function isJannyTagMode() {
     return isJannySortMode(datacatSortMode);
 }
 
+// the active tags by id: the endpoints that take no tag params (a creator's list, the following feed) narrow here
+function datacatTagsPass(c) {
+    const ids = (c.tags || []).map(t => String(t?.id ?? t));
+    return [...datacatActiveTagIds].every(id => ids.includes(String(id)));
+}
+
 function updateTagsVisibility() {
     const btn = document.getElementById('datacatTagsBtn');
     if (!btn) return;
-    // Hampter does have tag params (the janitorai provider sends them), but datacat's hampter
-    // mode never wired a picker for them, so it stays hidden here.
-    const hide = isHampterSortMode(datacatSortMode);
-    btn.hidden = hide;
-    if (hide) {
-        const dropdown = document.getElementById('datacatTagsDropdown');
-        if (dropdown) dropdown.classList.add('hidden');
-    }
+    // datacat's JanitorAI sorts never wired a picker for the tag params they have, so Tags greys there, saying why
+    const off = isHampterSortMode(datacatSortMode);
+    btn.disabled = off;
+    btn.classList.toggle('browse-option-disabled', off);
+    btn.title = off ? 'Not available with JanitorAI sorts' : 'Tag filters';
+    if (off) document.getElementById('datacatTagsDropdown')?.classList.add('hidden');
 }
 
 function updateSourceFilterVisibility() {
@@ -1955,6 +1947,9 @@ function renderFollowing(append = false) {
         filtered = filtered.filter(c => featurePasses(c, activeRows));
     }
 
+    // the following feed takes no tag params, so the tags the Tags button counts narrow it here
+    if (!isHampterSortMode(datacatSortMode) && !isJannyTagMode() && datacatActiveTagIds.size > 0) filtered = filtered.filter(datacatTagsPass);
+
     const dcPersistentExclude = view.persistentExcludeTags();
     if (dcPersistentExclude.length > 0) {
         const lowerExclude = dcPersistentExclude.map(t => t.toLowerCase());
@@ -1972,7 +1967,7 @@ function renderFollowing(append = false) {
             <div class="browse-timeline-empty">
                 <i class="fa-solid fa-filter"></i>
                 <h3>No Matching Characters</h3>
-                <p>No characters match your current NSFW filter setting.</p>
+                <p>No characters match your current filters.</p>
             </div>
         `;
         datacatBrowseView.updateLoadMoreVisibility('datacatFollowingLoadMore', false, false);
@@ -2536,10 +2531,7 @@ function updateDatacatFiltersButtonState() {
     const btn = document.getElementById('datacatFiltersBtn');
     if (!btn) return;
     const count = countActiveFeatures(DATACAT_FEATURE_FILTERS, datacatFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    btn.innerHTML = count > 0
-        ? `<i class="fa-solid fa-sliders"></i> Features (${count})`
-        : '<i class="fa-solid fa-sliders"></i> <span>Features</span>';
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================

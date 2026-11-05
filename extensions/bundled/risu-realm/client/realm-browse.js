@@ -2,7 +2,7 @@
 // what the Realm shows.
 import {
     BrowseView, featureFilterState, renderFeatureFilterItems, countActiveFeatures,
-    activeFeatureRows, featurePasses, applyTagsClamp, updateNsfwToggleButton, cardTagsHtml, libraryFeatureRows,
+    activeFeatureRows, featurePasses, applyTagsClamp, updateNsfwToggleButton, cardTagsHtml, libraryFeatureRows, setFilterCount,
 } from '/modules/providers/browse-view.js';
 import CoreAPI from '/modules/core-api.js';
 import {
@@ -328,9 +328,7 @@ function updateRealmFiltersButton() {
     const btn = document.getElementById('realmFiltersBtn');
     if (!btn) return;
     const count = countActiveFeatures(REALM_FEATURE_FILTERS, realmFeatureState);
-    btn.classList.toggle('has-filters', count > 0);
-    const span = btn.querySelector('span');
-    if (span) span.textContent = count > 0 ? `Features (${count})` : 'Features';
+    setFilterCount(btn, 'Features', count);
 }
 
 // ========================================

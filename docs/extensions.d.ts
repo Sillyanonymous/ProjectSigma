@@ -1511,6 +1511,7 @@ export interface ChangeVocabulary {
     extensionJob: 'updated' | 'deleted';
     library: 'changed';
     llmProfile: 'created' | 'updated' | 'deleted';
+    maintenance: 'updated';
     media: 'created' | 'updated' | 'deleted';
     mediaJob: 'updated' | 'deleted';
     message: 'created' | 'updated' | 'deleted';

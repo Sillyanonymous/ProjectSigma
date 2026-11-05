@@ -42,6 +42,8 @@ function stmts(db) {
         tokens: db.prepare('SELECT term, doc FROM temp.search_scratch_tokens ORDER BY doc, offset'),
         terms: db.prepare('SELECT term FROM search_terms WHERE instr(term, ?) > 0 LIMIT ?').pluck(),
         anyPending: db.prepare('SELECT EXISTS (SELECT 1 FROM search_terms_pending)').pluck(),
+        // the rowid ceiling, about the library's size without counting it
+        lastRowid: db.prepare('SELECT MAX(rowid) FROM characters').pluck(),
         slice: db.prepare('SELECT rid FROM search_terms_pending ORDER BY rid LIMIT ?').pluck(),
         addRows: db.prepare(`INSERT INTO temp.search_scratch (t) SELECT concat_ws(char(10), ${cols.join(', ')})
             FROM characters_fts_source WHERE rid IN (SELECT value FROM json_each(?))`),
@@ -82,16 +84,37 @@ function readSearchText(db, text) {
 
 const quote = (t) => `"${String(t).replace(/"/g, '""')}"`;
 
+const NONE = Object.freeze({ selects: ['SELECT c2.rowid FROM characters c2 WHERE 0'], params: [] });
+// a rule narrows by its longest few words: any subset of them still finds every card holding the whole text
+const NARROW_WORDS = 3;
+
 /**
  * The cards whose named fields hold each typed word inside a word, a quoted run as a phrase: rowid SELECTs, or a scanning row clause.
  * @param {string[]} fields keys of CARD_TEXT_Q_FIELDS
  * @returns {{ selects: string[], params: any[], row?: { sql: string, params: any[] } }}
  */
 export function cardTextSearch(db, text, fields) {
-    const specs = fields.map(f => CARD_TEXT_Q_FIELDS[f]);
-    const none = { selects: ['SELECT c2.rowid FROM characters c2 WHERE 0'], params: [] };
-    const { words, phrases } = readSearchText(db, text);
-    if (!words.length && !phrases.length) return none;
+    return cardTextArms(db, readSearchText(db, text), fields.map(f => CARD_TEXT_Q_FIELDS[f])) || NONE;
+}
+
+/**
+ * The rowids whose card column may hold a text; null where reading every card is cheaper or the only way.
+ * @returns {number[] | null}
+ */
+export function cardTextCandidates(db, text, column) {
+    const read = readSearchText(db, text);
+    const words = [...read.words].sort((a, b) => b.token.length - a.token.length || (a.token < b.token ? -1 : 1)).slice(0, NARROW_WORDS);
+    const arms = cardTextArms(db, { words, phrases: read.phrases }, [{ column, scan: scanIn(column) }], { narrowOnly: true });
+    if (!arms) return null;
+    // past a third the scan is cheaper: the candidates are read anyway, and the lookup costs on top
+    const most = Math.floor((stmts(db).lastRowid.get() || 0) / 3);
+    const rows = db.prepare(`SELECT * FROM (${arms.selects.join(' UNION ALL ')}) LIMIT ?`).pluck().all(...arms.params, most + 1);
+    return rows.length > most ? null : [...new Set(rows)];
+}
+
+// null for a text of no words; narrowOnly drops a word past the cap (any subset still finds every card), null if none is left
+function cardTextArms(db, { words, phrases }, specs, { narrowOnly = false } = {}) {
+    if (!words.length && !phrases.length) return null;
     const s = stmts(db);
     const colset = `{${specs.map(sp => sp.column).join(' ')}}`;
     const scanOf = (alias, raw) => {
@@ -102,12 +125,13 @@ export function cardTextSearch(db, text, fields) {
     const scanned = [];
     for (const w of words) {
         const terms = s.terms.all(w.token, TERM_FANOUT_CAP + 1);
-        if (terms.length > TERM_FANOUT_CAP) scanned.push(w);
+        if (terms.length > TERM_FANOUT_CAP) { if (!narrowOnly) scanned.push(w); }
         else indexed.push({ word: w, match: terms.length ? `(${terms.map(quote).join(' OR ')})` : null });
     }
     for (const p of phrases) indexed.push({ match: quote(p.join(' ')) });
 
     if (!indexed.length) {
+        if (narrowOnly) return null;
         const scans = scanned.map(w => scanOf('c', w.raw));
         return { selects: [], params: [], row: { sql: `(${scans.map(x => x.sql).join(' AND ')})`, params: scans.flatMap(x => x.params) } };
     }
@@ -140,7 +164,7 @@ export function cardTextSearch(db, text, fields) {
         // CROSS JOIN keeps the queue the outer loop: left free, the planner (no stats on the queue) walked every card for the scan
         selects.push(`SELECT p.rid FROM search_terms_pending p CROSS JOIN characters c4 ON c4.rowid = p.rid WHERE ${conds.join(' AND ')}`);
     }
-    return selects.length ? { selects, params } : none;
+    return selects.length ? { selects, params } : NONE;
 }
 
 /** Fold the words of up to max pending rows into search_terms; answers how many rows it folded. */

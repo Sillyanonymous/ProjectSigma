@@ -18,6 +18,7 @@ export const CHANGE_VOCABULARY = Object.freeze(Object.fromEntries(Object.entries
     extensionJob: ['updated', 'deleted'],
     library: ['changed'],
     llmProfile: ['created', 'updated', 'deleted'],
+    maintenance: ['updated'],
     media: ['created', 'updated', 'deleted'],
     mediaJob: ['updated', 'deleted'],
     message: ['created', 'updated', 'deleted'],
@@ -36,8 +37,8 @@ export const CHANGE_VOCABULARY = Object.freeze(Object.fromEntries(Object.entries
 }).map(([entity, ops]) => [entity, Object.freeze(ops)])));
 export const CHANGE_ENTITIES = Object.freeze(Object.keys(CHANGE_VOCABULARY));
 
-// what a library store write reports; user, library, extension, extensionJob and backup are announced outside one
-export const LIBRARY_WRITE_ENTITIES = Object.freeze(CHANGE_ENTITIES.filter(e => !['user', 'library', 'extension', 'extensionJob', 'backup'].includes(e)));
+// what a library store write reports; user, library, extension, extensionJob, backup and maintenance are announced outside one
+export const LIBRARY_WRITE_ENTITIES = Object.freeze(CHANGE_ENTITIES.filter(e => !['user', 'library', 'extension', 'extensionJob', 'backup', 'maintenance'].includes(e)));
 
 const requestContext = new AsyncLocalStorage();
 // db handle -> { owner, frames }

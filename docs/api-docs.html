@@ -320,7 +320,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>fields</code></td>
             <td class="dim">query</td>
             <td>string</td>
-            <td>a projection the verb names: with idsOnly, the fields to carry beside id and fav (name, creator, characterVersion, mediaLocalized, links); on a list, creatorNotes to carry the notes whole where the row carries only their excerpt. An unknown name is 400</td>
+            <td>a projection the verb names: with idsOnly, the fields to carry beside id and fav (name, creator, characterVersion, mediaLocalized, links); on a list, creatorNotes to carry the notes whole and creatorNotesExcerpt their plain-text excerpt, neither of which a row carries unless named. An unknown name is 400</td>
         </tr></tbody></table></div>
 
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
@@ -5054,7 +5054,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/backup</span>
-            <span class="summary-text">Start a consistent backup of the library database into data/backups/ (the database only; media and avatars are plain files). It is queued and answered at once, and the copy runs beside the server, which keeps answering: the copy holds the library as it was when the copy began, and writes made during it are in the next backup. One backup runs at a time across the server, so another account's may run first. Follow it through GET /api/backup/job</span>
+            <span class="summary-text">Start a consistent backup of the library database into data/backups/ (the database only; media and avatars are plain files). It is queued and answered at once, and the copy runs beside the server, which keeps answering: the copy holds the library as it was when the copy began, and writes made during it are in the next backup. One backup runs at a time across the server, so another account's may run first. A search index tidy-up of the library pauses while it is queued or runs, and one asked for carries on once it ends. Follow it through GET /api/backup/job</span>
         </summary>
         <div class="op-body">
 
@@ -5187,6 +5187,90 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><span class="code code-4xx">409</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
             <td>no missed backup to answer</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-get--api-maintenance">
+        <summary>
+            <span class="method m-get">GET</span>
+            <span class="path">/api/maintenance</span>
+            <span class="summary-text">What this library's background upkeep is doing now. searchIndex names the search index being tidied and when the tidy-up began, null while none is: it runs beside the server once the library sits idle and an index is in pieces, or when asked, and searches may be slower and the disk busy until it ends. Every change to it is also a maintenance record on the change feed</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-post--api-maintenance-activity">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/maintenance/activity</span>
+            <span class="summary-text">The reader is using this library: a client sends it on its user's own input (a click, a key, a scroll, a touch), at most once every few seconds, never from a background poll. Background upkeep holds off: an automatic search index tidy-up running for this library pauses, its work kept, and the next one waits until the library has had neither this nor a write for two minutes. A script that wants the upkeep to hold off while it works can send it too</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">204</span></td>
+            <td></td>
+            <td>noted</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-get--api-maintenance-search-index">
+        <summary>
+            <span class="method m-get">GET</span>
+            <span class="path">/api/maintenance/search-index</span>
+            <span class="summary-text">The library's search indexes for a settings panel: for each, how many segments it holds, its size, and its drift, how many times the disk pages a word lookup reads against the same index tidied into one segment, rounded down to hundredths (null where it cannot be read). Also the drift at which an index is tidied on its own (once the library sits idle), the last tidy-up (when it ended, how long it took, the indexes it tidied and whether it was asked for), the last failure since (when, the index, why, whether asked; null once a later tidy-up ends well), the one running as GET /api/maintenance answers it, what this library's asked tidy-up waits for (its backup, or another library's asked tidy-up; null when none waits), and whether automatic tidy-ups are on (the autoTidySearchIndex setting). A tidy-up that stopped is tried again in full the next time the library sits idle while automatic tidy-ups are on</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-post--api-maintenance-search-index-tidy">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/maintenance/search-index/tidy</span>
+            <span class="summary-text">Tidy every search index holding more than one segment into one, now, while the reader keeps working (it is never paused by activity). Answered at once: 202 with started true and the tidy-up running, named from the first answer (followed through GET /api/maintenance and its maintenance records), or with queued true while this library is backed up or another library's asked tidy-up runs (this one starts when that ends); 200 with started false when every index is already one segment. It takes the lane from an automatic tidy-up of any library, which pauses and resumes later; asked again while it runs, it answers the one running. A backup goes first: one starting while it runs pauses it, and it carries on once the backup ends. It ends with every index in one segment, apart from what writes made while it ran add</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>already tidy</td>
+        </tr><tr>
+            <td><span class="code code-2xx">202</span></td>
+            <td>object</td>
+            <td>the tidy-up running or waiting</td>
         </tr></tbody></table></div>
         </div>
     </details>
@@ -7720,7 +7804,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </summary>
         <div class="op-body">
 
-            <p class="desc">Upgrade to a WebSocket and every committed write to your library arrives as it lands, whichever client or server code made it. The server speaks JSON messages and ignores anything sent to it: {type: &quot;hello&quot;, clientId, handle} once; {type: &quot;changes&quot;, records} per batch, each record {entity, op, ids?, all?, fields?, origin, ...} naming what changed by id (entity and op are one of assistantSession created/updated/deleted, attachment created/deleted, background created/updated/deleted, backgroundBinding updated/deleted, backup updated, character created/updated/deleted, chat created/updated/deleted, document updated/deleted, extension updated, extensionJob updated/deleted, library changed, llmProfile created/updated/deleted, media created/updated/deleted, mediaJob updated/deleted, message created/updated/deleted, persona created/updated/deleted, playlist created/updated/deleted, preset created/updated/deleted, setting updated, studioSession created/updated/deleted, tag updated/deleted, tagRun created/deleted, user created/updated/deleted, version updated/deleted, world created/updated/deleted, worldEntry created/updated/deleted, worldLink updated; all: true, with no ids, when the write spanned more rows than a record names (a whole set, or characters past a thousand); origin is the client id the writing request sent as X-CL-Client, so a tab can skip its own, and null for what an extension wrote through its own routes or listeners; extension, on a record an extension reported for a write to its own tables, is that extension's id, its fields named &lt;id&gt;.&lt;name&gt;: the entity's own data did not change; to, on a tag or lorebook rename, is the name it has now, the old one in ids: a tag merge is the merged tag's deleted record with to the surviving tag's spelling, a tag delete carries no to, and a binding sweep that re-pointed a lorebook is a worldLink record naming the old name as world beside to); and {type: &quot;resync&quot;} when a slow connection fell behind, after which a client re-reads what it shows. The feed carries no history: after a reconnect, re-read. user records reach admins only. The connection closes with 4001 when the session ends (a password change, a disabled account).</p>
+            <p class="desc">Upgrade to a WebSocket and every committed write to your library arrives as it lands, whichever client or server code made it. The server speaks JSON messages and ignores anything sent to it: {type: &quot;hello&quot;, clientId, handle} once; {type: &quot;changes&quot;, records} per batch, each record {entity, op, ids?, all?, fields?, origin, ...} naming what changed by id (entity and op are one of assistantSession created/updated/deleted, attachment created/deleted, background created/updated/deleted, backgroundBinding updated/deleted, backup updated, character created/updated/deleted, chat created/updated/deleted, document updated/deleted, extension updated, extensionJob updated/deleted, library changed, llmProfile created/updated/deleted, maintenance updated, media created/updated/deleted, mediaJob updated/deleted, message created/updated/deleted, persona created/updated/deleted, playlist created/updated/deleted, preset created/updated/deleted, setting updated, studioSession created/updated/deleted, tag updated/deleted, tagRun created/deleted, user created/updated/deleted, version updated/deleted, world created/updated/deleted, worldEntry created/updated/deleted, worldLink updated; all: true, with no ids, when the write spanned more rows than a record names (a whole set, or characters past a thousand); origin is the client id the writing request sent as X-CL-Client, so a tab can skip its own, and null for what an extension wrote through its own routes or listeners; extension, on a record an extension reported for a write to its own tables, is that extension's id, its fields named &lt;id&gt;.&lt;name&gt;: the entity's own data did not change; to, on a tag or lorebook rename, is the name it has now, the old one in ids: a tag merge is the merged tag's deleted record with to the surviving tag's spelling, a tag delete carries no to, and a binding sweep that re-pointed a lorebook is a worldLink record naming the old name as world beside to); and {type: &quot;resync&quot;} when a slow connection fell behind, after which a client re-reads what it shows. The feed carries no history: after a reconnect, re-read. user records reach admins only. The connection closes with 4001 when the session ends (a password change, a disabled account).</p>
 
             <div class="sect"><span class="sect-label">Parameters</span><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th><th>Description</th></tr></thead><tbody>
         <tr>
@@ -9818,7 +9902,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <tr>
             <td><code>creatorNotesExcerpt</code></td>
             <td>string</td>
-            <td>the first 200 characters of the creator notes as plain text (the grid tooltip); the notes whole ride only a list asked with fields=creatorNotes</td>
+            <td>only with fields=creatorNotesExcerpt: the first 200 characters of the creator notes as plain text (the grid tooltip)</td>
         </tr>
         <tr>
             <td><code>creatorNotes</code></td>

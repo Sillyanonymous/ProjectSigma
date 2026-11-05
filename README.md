@@ -4,6 +4,9 @@ A self-hosted home for your AI character cards. Project Σ keeps your characters
 gallery media in one library on your own machine, lets you search it like a database, chat with your characters through
 your own AI connection, and browse the popular character sites without leaving the app.
 
+Project Σ is the successor to the [Character Library](https://github.com/Sillyanonymous/SillyTavern-CharacterLibrary)
+extension for SillyTavern: you can see it as a standalone Character Library.
+
 It runs as a small server on your computer or a home server, and you use it from any browser on your network, phones
 included. Everything lives in one `data/` folder. The library is built to stay quick at sizes that would stall a folder of
 card files: it is designed for libraries of a million characters.
@@ -59,8 +62,9 @@ guide is one page that opens in any browser: online at that link, in the app und
 - <img src="docs/assets/icons/database.svg" width="16" height="16" alt=""> [Built to be trusted with your library](https://sillyanonymous.github.io/ProjectSigma/guide.html#data-and-backups). Optional accounts with a separate library
   each, scheduled database backups, a consistency checker, and a migration that brings a whole SillyTavern library
   across and verifies it. See also [accounts](https://sillyanonymous.github.io/ProjectSigma/guide.html#accounts-and-server).
-- <img src="docs/assets/icons/server.svg" width="16" height="16" alt=""> [An API underneath](https://sillyanonymous.github.io/ProjectSigma/guide.html#api). Everything the app does goes through a documented HTTP API, so you can build
-  your own front end or scripts on it.
+- <img src="docs/assets/icons/server.svg" width="16" height="16" alt=""> [An API underneath](https://sillyanonymous.github.io/ProjectSigma/guide.html#api). Everything the app does goes through a documented HTTP API: power users can
+  automate tasks and script their own library with it (bulk tagging and cleanup, scheduled imports and exports, backups
+  on a timer, reports on the collection), and extension creators build on it.
 
 ![A character's details: the picture, tags and playlists beside the card's description and first message](docs/assets/screenshots/details.webp)
 
@@ -96,7 +100,8 @@ npm start
 
 Or let a launcher do it: double-click `Start Project Sigma.bat` on Windows, or run `sh start.sh` on Linux and macOS. It
 checks that Node.js is new enough, installs what Project Σ needs on the first run and again after an update, starts the
-server and opens your browser on it. Keep its window open while you use the app; closing it stops the server.
+server and opens your browser on it (`openBrowser: false` in `data/server.yaml` keeps it from that). Keep its window open
+while you use the app; closing it stops the server.
 
 Open http://localhost:7788 and the app loads. All state lives in the `data/` folder next to the install. To use it from
 your phone, open the same address with this computer's network address in place of `localhost`.
@@ -209,8 +214,9 @@ has an environment variable, the variable wins over the file.
 | `sessionTimeoutDays` | | `30` | How long a sign-in lasts, in days; `-1` for no limit (a browser still keeps the sign-in at most 400 days) |
 | `port` | `CL_PORT` | `7788` | The port the server listens on |
 | `host` | `CL_HOST` | `0.0.0.0` | The address it binds: every interface by default, so a phone on your network can reach it; `127.0.0.1` keeps it to this machine |
-| `cors` | `CL_CORS` (comma-separated) | none | The other origins whose pages may call the API, for a client hosted elsewhere (`*` for any) |
+| `cors` | `CL_CORS` (comma-separated) | none | The other origins whose pages may call the API, such as a dashboard or tool of your own served from another address (`*` for any) |
 | `hosts` | `CL_HOSTS` (comma-separated) | none | With multi-user off, the machine names the server answers besides IP addresses and localhost, so a page on another site that points its own name here is refused |
+| `openBrowser` | `CL_OPEN_BROWSER` (`true` or `false`) | `true` | Whether the launchers open the browser once the server answers; `false` for a server run headless, as a service, or with a tab already open |
 
 These are set only in the environment:
 
@@ -226,11 +232,13 @@ The server reads `server.yaml` strictly: a setting it does not know, or a value 
 server configured differently from what was meant. The yes-or-no and number variables are read the same way
 (`CL_MULTI_USER=1` stops the boot too).
 
-## For developers
+## For power users and extension creators
 
-- The API: everything the bundled client does goes through the public HTTP API, so any front end can be built on
-  it. The live spec is at `GET /api/openapi.json`; a browsable reference is `docs/api-docs.html` (regenerate it with
-  `npm run docs`). [The API](https://sillyanonymous.github.io/ProjectSigma/guide.html#api) covers signing in, cross-origin clients and the live change feed.
+- The API: everything the app does goes through the public HTTP API, so you can automate tasks and script your own
+  library: bulk tagging and cleanup, scheduled imports and exports, backups on a timer, reports on the collection, or
+  your library feeding tools of your own. The live spec is at `GET /api/openapi.json`; a browsable reference is
+  `docs/api-docs.html` (regenerate it with `npm run docs`). [The API](https://sillyanonymous.github.io/ProjectSigma/guide.html#api) covers signing in, calls from
+  another site and the live change feed.
 - Extensions: the extension API gives extensions the same reach as the app's own code: events, storage, settings,
   windows, views and providers. [The extension authors' guide](https://sillyanonymous.github.io/ProjectSigma/guide.html#extensions), the user guide's last part,
   is the reference.
@@ -245,6 +253,20 @@ server configured differently from what was meant. The yes-or-no and number vari
 
 Issues are welcome; pull requests are closed. [CONTRIBUTING.md](CONTRIBUTING.md) says how to report a problem and why an
 extension is the way to change the app.
+
+## Acknowledgements
+
+Big thanks to [SillyTavern](https://github.com/SillyTavern/SillyTavern), the de facto roleplay platform. It taught me a
+lot, and Character Library would not have been possible without it, since it started as a SillyTavern extension.
+
+Big thanks to Rivelle of [Moonlit Echoes](https://github.com/RivelleDays/SillyTavern-MoonlitEchoesTheme): she made
+SillyTavern bearable to look at for me and taught me a lot of good UX practices.
+
+Acknowledgements to three SillyTavern extensions: nothing was lifted from them, but they served as inspiration.
+
+- [SillyTavern Tracker](https://github.com/kaldigo/SillyTavern-Tracker) by kaldigo, for the bundled **Trackers**
+- [Pathweaver](https://github.com/mattjaybe/SillyTavern-Pathweaver) by mattjaybe, for the bundled **Next Beat**
+- [ST-Copilot](https://github.com/Supker/ST-Copilot) by Quren, for the Assistant
 
 ## License
 

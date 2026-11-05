@@ -1872,23 +1872,29 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
 
         function syncSort() {
             const isFollowing = followChip.classList.contains('active');
-            // Wyvern has no Following-mode sort; gate the whole Sort By section so it doesnt show empty.
             const hasFollowSort = !!getIds()?.timelineSort;
-            mtBrowseSortChip.hidden = isFollowing;
-            mtFollowSortChip.hidden = !(isFollowing && hasFollowSort);
-            mtSortSection.hidden = isFollowing && !hasFollowSort;
+            // where no sort applies the bar shows its greyed stand-in, and so does the sheet: Sort By never empties or jumps
+            const standIn = standInOf(getIds());
+            mtStandInChip.hidden = !standIn;
+            if (standIn) {
+                mtStandInChip._syncLabel();
+                mirrorAvailability(mtStandInChip, standIn._customSelect?.trigger);
+            }
+            mtBrowseSortChip.hidden = isFollowing || !!standIn;
+            mtFollowSortChip.hidden = !(isFollowing && hasFollowSort) || !!standIn;
+            mtSortSection.hidden = mtBrowseSortChip.hidden && mtFollowSortChip.hidden && mtStandInChip.hidden && mtSubSortChip.hidden;
         }
 
         browseChip.addEventListener('click', () => {
             const ids = getIds();
             const realBtn = ids?.modeBrowseSelector ? document.querySelector(ids.modeBrowseSelector) : null;
-            if (realBtn) { realBtn.click(); setTimeout(() => { syncMode(); syncSort(); syncMtTags(); }, 100); }
+            if (realBtn) { realBtn.click(); setTimeout(syncModeToggleSheet, 100); }
             close();
         });
         followChip.addEventListener('click', () => {
             const ids = getIds();
             const realBtn = ids?.modeFollowSelector ? document.querySelector(ids.modeFollowSelector) : null;
-            if (realBtn) { realBtn.click(); setTimeout(() => { syncMode(); syncSort(); syncMtTags(); }, 100); }
+            if (realBtn) { realBtn.click(); setTimeout(syncModeToggleSheet, 100); }
             close();
         });
 
@@ -1903,14 +1909,15 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         const mtBrowseSortChip = createSettingsSelectChip(
             () => { const ids = getIds(); return ids?.sort ? document.getElementById(ids.sort) : null; },
             'Sort By',
-            () => syncSubSort(),
+            () => syncModeToggleSheet(),
         );
         mtSortSection.appendChild(mtBrowseSortChip);
 
-        // Optional sub-sort (eg. botbooru): mirror the real select's browse-filter-hidden, which encodes the gating.
+        // A provider's optional sub-sort (mobileFilterIds.subSort): shown while its select is neither browse-filter-hidden nor hidden
         const mtSubSortChip = createSettingsSelectChip(
             () => { const ids = getIds(); return ids?.subSort ? document.getElementById(ids.subSort) : null; },
             'Sort By',
+            () => syncModeToggleSheet(),
         );
         mtSubSortChip.hidden = true;
         mtSubSortChip.style.marginTop = 'var(--space-sm)';
@@ -1920,7 +1927,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             const ids = getIds();
             const real = ids?.subSort ? document.getElementById(ids.subSort) : null;
             const realTarget = real ? (real._customSelect?.container || real) : null;
-            const show = !!realTarget && !realTarget.classList.contains('browse-filter-hidden');
+            const show = !!realTarget && !realTarget.classList.contains('browse-filter-hidden') && !realTarget.classList.contains('hidden');
             if (show) mtSubSortChip._syncLabel();
             mtSubSortChip.hidden = !show;
         }
@@ -1928,9 +1935,21 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         const mtFollowSortChip = createSettingsSelectChip(
             () => { const ids = getIds(); return ids?.timelineSort ? document.getElementById(ids.timelineSort) : null; },
             'Sort By',
+            () => syncModeToggleSheet(),
         );
         mtFollowSortChip.hidden = true;
         mtSortSection.appendChild(mtFollowSortChip);
+
+        // the bar's stand-in (syncSortStandIn) beside the view's sort, while it shows
+        function standInOf(ids) {
+            const sort = ids?.sort ? document.getElementById(ids.sort) : null;
+            const select = sort?.closest('.browse-sort-container')?.querySelector('select.browse-sort-standin');
+            const box = select?._customSelect?.container;
+            return box && !box.classList.contains('hidden') ? select : null;
+        }
+        const mtStandInChip = createSettingsSelectChip(() => standInOf(getIds()), 'Sort By');
+        mtStandInChip.hidden = true;
+        mtSortSection.appendChild(mtStandInChip);
         modeToggleSection.appendChild(mtSortSection);
 
         // Filters row (Tags, Features, NSFW)
@@ -1946,13 +1965,13 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             if (realBtn) { close(); setTimeout(() => realBtn.click(), 300); }
         });
 
-        // Mirror the real button's browse-filter-hidden, or a provider hiding its tag filter per mode
-        // leaves a chip proxying to nothing.
+        // mirrors the real button: hidden (a provider's browse-filter-hidden) hides the chip, greyed greys it and a tap says why
         function syncMtTags() {
             const ids = getIds();
             const realBtn = ids?.tags ? document.getElementById(ids.tags) : null;
             const box = realBtn?.closest('.browse-tags-dropdown-container') || realBtn;
             mtTagsChip.hidden = !!box && box.classList.contains('browse-filter-hidden');
+            mirrorAvailability(mtTagsChip, realBtn);
         }
 
         const mtFeaturesChip = createChip('<i class="fa-solid fa-sliders"></i> Features');
@@ -1972,12 +1991,41 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
                 mtNsfwChip.innerHTML = '<i class="fa-solid fa-shield-halved"></i> ' + label;
                 mtNsfwChip.classList.toggle('active', realBtn.classList.contains('active'));
             }
+            mirrorAvailability(mtNsfwChip, realBtn);
         }
         mtNsfwChip.addEventListener('click', () => {
             const ids = getIds();
             const realBtn = ids?.nsfw ? document.getElementById(ids.nsfw) : null;
             if (realBtn) { realBtn.click(); setTimeout(syncMtNsfwState, 100); }
         });
+
+        // a chip mirroring a control that cannot be used now greys like it and, tapped, says why: a phone shows no tooltip
+        function mirrorAvailability(chip, real) {
+            const why = window.unavailableReason?.(real, real?.closest('.online-kind-filter > *')) ?? null;
+            chip.classList.toggle('is-unavailable', why !== null);
+            chip.setAttribute('aria-disabled', why !== null ? 'true' : 'false');
+            chip.dataset.unavailableWhy = why || '';
+        }
+        modeToggleSection.addEventListener('click', (e) => {
+            const chip = e.target.closest('.is-unavailable');
+            if (!chip || !modeToggleSection.contains(chip)) return;
+            // capture runs before the chip's own handler, which would proxy to a control that does nothing
+            e.stopPropagation();
+            e.preventDefault();
+            const why = chip.dataset.unavailableWhy;
+            if (why) window.showToast?.(why, 'info', 3000, { group: `unavailable:${why}` });
+        }, true);
+
+        // the sheet mirrors the bar at open, and again after a pick made inside it (a sort can grey Tags, as DataCat's do)
+        function syncModeToggleSheet() {
+            mtBrowseSortChip._syncLabel();
+            mtFollowSortChip._syncLabel();
+            syncMode();
+            syncMtNsfwState();
+            syncSort();
+            syncSubSort();
+            syncMtTags();
+        }
 
         mtFilterRow.appendChild(mtTagsChip);
         mtFilterRow.appendChild(mtFeaturesChip);
@@ -2200,13 +2248,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
 
                 if (hasModeToggle) {
                     // Chips read options live from the real selects at open time; only labels + per-mode visibility refresh here.
-                    mtBrowseSortChip._syncLabel();
-                    mtFollowSortChip._syncLabel();
-                    syncMode();
-                    syncMtNsfwState();
-                    syncSort();
-                    syncSubSort();
-                    syncMtTags();
+                    syncModeToggleSheet();
                 }
             } else if (activeView === 'chats') {
                 syncGrouping();
@@ -2462,6 +2504,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             const notifItem = document.createElement('button');
             notifItem.className = 'mobile-sheet-item';
             notifItem.innerHTML = '<i class="fa-solid fa-bell"></i> Notifications';
+            notifItem.dataset.notifChrome = '';
             notifItem.addEventListener('click', () => {
                 close();
                 // Small delay so the sheet closes first
@@ -4375,6 +4418,15 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
 
         relocateDropdowns();
 
+        // a row greyed in place says why on a tap, as its hover title does on a desktop
+        document.addEventListener('click', (e) => {
+            const row = e.target.closest?.('[data-mobile-relocated] .browse-option-disabled[title]');
+            if (!row?.title) return;
+            e.preventDefault();
+            e.stopPropagation();
+            window.showToast?.(row.title, 'info', 3000, { group: `unavailable:${row.title}` });
+        }, true);
+
         // the rebuild lands inside the kind's slot, a level down, so the watch covers the subtree
         new MutationObserver(() => relocateDropdowns())
             .observe(filterContent, { childList: true, subtree: true });
@@ -4403,6 +4455,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         // Hosted: the shell never hides a dropdown that sits in a host (refreshNotificationsUI),
         // so an empty list renders its empty state here instead of vanishing.
         sheet.dataset.notifHost = 'sheet';
+        sheet.dataset.notifChrome = '';
         sheet.appendChild(dropdown);
         document.body.appendChild(overlay);
 

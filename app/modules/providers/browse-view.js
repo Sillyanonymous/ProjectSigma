@@ -370,21 +370,90 @@ export function renderAltGreetingsList(idPrefix, greetings, charName) {
     CoreAPI.setBrowseAltGreetings(greetings);
 }
 
-// The NSFW on/off toggle button. Hoisted from the chub/botbooru pair, identical up
-// to the off-state title (botbooru's login requirement), which rides as an option.
-export function updateNsfwToggleButton(btnId, enabled, { offTitle = 'Showing SFW only - click to include NSFW' } = {}) {
+// every creator view sorts in its own bar, so the main sort's place says where
+export const CREATOR_SORT_STANDIN = Object.freeze({ label: 'Creator\'s Sort', icon: 'fa-solid fa-user', title: 'Sort this creator\'s characters with the menu by their name' });
+
+/**
+ * The greyed stand-in in the sort's place while no sort applies; it holds every order the site shows, so the slot keeps one width.
+ * @param {HTMLSelectElement} sortEl the slot's main sort
+ * @param {{label: string, icon: string, title: string} | null} fixed the order shown (one of every), or null while a sort applies
+ * @param {Array<{label: string, icon: string, title: string}>} every each order the site can show
+ */
+export function syncSortStandIn(sortEl, fixed, every) {
+    const slot = sortEl?.closest('.browse-sort-container');
+    if (!slot) return;
+    let el = slot.querySelector('select.browse-sort-standin');
+    if (!el) {
+        el = document.createElement('select');
+        el.className = 'glass-select browse-sort-standin browse-option-disabled';
+        el.disabled = true;
+        for (const order of every) {
+            const option = new Option(order.label);
+            option.dataset.icon = order.icon;
+            el.add(option);
+        }
+        slot.appendChild(el);
+        CoreAPI.initCustomSelect(el);
+    }
+    const box = el._customSelect?.container || el;
+    box.classList.toggle('hidden', !fixed);
+    if (!fixed) return;
+    el.selectedIndex = every.indexOf(fixed);
+    el._customSelect?.update();
+    const trigger = el._customSelect?.trigger;
+    // a disabled button shows no tooltip in every browser, so its container carries the reason too
+    for (const node of [box, trigger]) if (node) node.title = fixed.title;
+    // folded behind the More, the row names the order and the reason rides as its hint
+    if (trigger) trigger.dataset.overflowLabel = fixed.label;
+}
+
+/**
+ * A filter button's count as a badge on its corner, so the button keeps one width and nothing beside it shifts.
+ * @param {HTMLElement} btn
+ * @param {string} label the button's word, which the More menu names with the count
+ * @param {number|string} count a number or a "+2/-1" form; 0 or '' for none
+ * @param {boolean} [active] lights the button; a filter the count leaves out can light it too
+ */
+export function setFilterCount(btn, label, count, active = !!count) {
+    if (!btn) return;
+    btn.classList.toggle('has-filters', !!active);
+    const text = count ? String(count) : '';
+    let badge = btn.querySelector('.browse-count-badge');
+    if (!text) badge?.remove();
+    else {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'browse-count-badge';
+            btn.appendChild(badge);
+        }
+        badge.textContent = text;
+    }
+    btn.dataset.overflowLabel = text ? `${label} (${text})` : label;
+}
+
+// fixed-width icons, so the icon-only switch of a narrow bar keeps one width too
+const NSFW_TOGGLE_LABELS = [
+    '<i class="fa-solid fa-fire fa-fw"></i> <span>NSFW On</span>',
+    '<i class="fa-solid fa-shield-halved fa-fw"></i> <span>SFW Only</span>',
+];
+
+// Every site's NSFW switch: the titles ride as options, and it holds its wider label, so a flip never resizes it
+export function updateNsfwToggleButton(btnId, enabled, { offTitle = 'Showing SFW only - click to include NSFW', onTitle = 'NSFW content enabled - click to show SFW only' } = {}) {
     const btn = document.getElementById(btnId);
     if (!btn) return;
-
-    if (enabled) {
-        btn.classList.add('active');
-        btn.innerHTML = '<i class="fa-solid fa-fire"></i> <span>NSFW On</span>';
-        btn.title = 'NSFW content enabled - click to show SFW only';
-    } else {
-        btn.classList.remove('active');
-        btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> <span>SFW Only</span>';
-        btn.title = offTitle;
-    }
+    CoreAPI.lockMinWidth(btn, () => {
+        const current = btn.innerHTML;
+        let widest = 0;
+        for (const html of NSFW_TOGGLE_LABELS) {
+            btn.innerHTML = html;
+            widest = Math.max(widest, btn.scrollWidth);
+        }
+        btn.innerHTML = current;
+        return widest;
+    });
+    btn.classList.toggle('active', !!enabled);
+    btn.innerHTML = NSFW_TOGGLE_LABELS[enabled ? 0 : 1];
+    btn.title = enabled ? onTitle : offTitle;
 }
 
 // the picture a preview shows when its own will not load
@@ -497,6 +566,9 @@ export class BrowseView {
         if (options.domRecreated && options.defaults) {
             this.applyDefaults(options.defaults);
         }
+        // a declared sub-sort sits beside the slot's stacked sorts, never over them
+        const subSort = this.mobileFilterIds?.subSort ? document.getElementById(this.mobileFilterIds.subSort) : null;
+        (subSort?._customSelect?.container || subSort)?.classList.add('browse-sub-sort');
         // Re-register dropdown dismiss after deactivate removed it
         if (this._dropdownDismissPairs && !this._dropdownCloseHandler) {
             this._registerDropdownDismiss(this._dropdownDismissPairs);
@@ -604,6 +676,8 @@ export class BrowseView {
         const vm = this.viewModes;
         if (vm) {
             const name = vm.current();
+            // the markup draws browse unscoped, so the live mode's chrome lands before the first paint
+            vm.modes[name].chrome?.();
             this._dispatchMode(name, vm.modes[name]);
             return;
         }
@@ -2509,7 +2583,7 @@ export class BrowseView {
     /**
      * Element IDs for the provider's filter bar controls.
      * The mobile settings sheet queries these to build the online section dynamically.
-     * @returns {{ sort: string|null, tags: string|null, filters: string|null, nsfw: string|null, refresh: string|null }}
+     * @returns {{ sort: string|null, tags: string|null, filters: string|null, nsfw: string|null, refresh: string|null, subSort?: string, timelineSort?: string }}
      */
     get mobileFilterIds() {
         return { sort: null, tags: null, filters: null, nsfw: null, refresh: null };

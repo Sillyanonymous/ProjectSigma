@@ -6,6 +6,7 @@ import {
     activeFeatureRows, activeFeatureExcludes, featurePasses, featureBadgesHtml,
     updateTagStateButton, tagStateButtonHtml, updateNsfwToggleButton, applyTagsClamp, cardTagsHtml,
     renderViewToggle, libraryFeatureRows, libraryBadgeHtml, libraryCardClass, renderAltGreetingsList,
+    syncSortStandIn, CREATOR_SORT_STANDIN, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, isMobileMode, importThroughCommand, proxiedUrl, readJsonClassified, renderBrowseError, definitionFailedNotice } from '../provider-utils.js';
@@ -377,7 +378,7 @@ class ChubBrowseView extends BrowseView {
                 </select>
 
                 <!-- Timeline Sort (Following mode) -->
-                <select id="chubTimelineSortHeader" class="glass-select browse-filter-hidden" title="Sort timeline">
+                <select id="chubTimelineSortHeader" class="glass-select hidden" title="Sort timeline">
                     <option value="newest" data-icon="fa-solid fa-calendar-plus">Newest Created</option>
                     <option value="updated" data-icon="fa-solid fa-clock-rotate-left">Recently Updated</option>
                     <option value="oldest" data-icon="fa-solid fa-hourglass">Oldest First</option>
@@ -801,8 +802,6 @@ class ChubBrowseView extends BrowseView {
             chubCharacters = []; chubCurrentPage = 1; chubHasMore = true; chubGridRenderedCount = 0;
             chubTimelineCharacters = []; chubTimelinePage = 1; chubTimelineHasMore = true; chubTimelineHidden = 0; chubTimelineLoadGen++;
         }
-        // a settings save re-activates the view: the timeline's sort menu and subtitle follow the joined switch
-        setChubModeChrome(chubViewMode);
     }
 
     get creatorScope() {
@@ -915,13 +914,7 @@ function initChubView() {
     if (authorSortEl) authorSortEl.value = chubAuthorSort;
     
     for (const el of [discoveryPresetEl, timelineSortEl, authorSortEl, sortDirectionEl]) {
-        if (!el) continue;
-        const wasHidden = el.classList.contains('browse-filter-hidden');
-        CoreAPI.initCustomSelect(el);
-        // Transfer visibility class to the custom-select container
-        if (wasHidden && el._customSelect?.container) {
-            el._customSelect.container.classList.add('browse-filter-hidden');
-        }
+        if (el) CoreAPI.initCustomSelect(el);
     }
     
     updateNsfwToggleState();
@@ -1354,13 +1347,7 @@ function updateChubFiltersButtonState() {
         : [];
     const count = countActiveFeatures(CHUB_FEATURE_FILTERS, chubFeatureState, { inertKeys });
 
-    btn.classList.toggle('has-filters', count > 0);
-
-    if (count > 0) {
-        btn.innerHTML = `<i class="fa-solid fa-sliders"></i> Features (${count})`;
-    } else {
-        btn.innerHTML = `<i class="fa-solid fa-sliders"></i> Features`;
-    }
+    setFilterCount(btn, 'Features', count);
 }
 
 function updateChubFeatureFilterAvailability() {
@@ -1368,10 +1355,10 @@ function updateChubFeatureFilterAvailability() {
     setFeatureRowsDisabled(
         browseOnlyFeatureRows(CHUB_FEATURE_FILTERS, { except: ['favorites'] }),
         inTimeline, 'Not available in the Following tab');
-    // the favorites loader never reads the author, so the row is parked while a creator scope is up
+    // the favorites loader never reads the author, so the row is parked while a creator scope is up (it lives on browse)
     setFeatureRowsDisabled(
         CHUB_FEATURE_FILTERS.filter(f => f.key === 'favorites'),
-        !!chubAuthorFilter, 'Not available while viewing a creator');
+        !inTimeline && !!chubAuthorFilter, 'Not available while viewing a creator');
     updateChubFiltersButtonState();
 }
 
@@ -1618,31 +1605,25 @@ function renderChubTagsDropdownList(filter = '') {
  */
 function updateChubTagsButtonState() {
     const btn = document.getElementById('chubTagsBtn');
-    const label = document.getElementById('chubTagsBtnLabel');
-    if (!btn || !label) return;
+    if (!btn) return;
     
     const includeCount = Array.from(chubTagFilters.values()).filter(v => v === 'include').length;
     const excludeCount = Array.from(chubTagFilters.values()).filter(v => v === 'exclude').length;
     
     const hasAdvanced = chubSortAscending || chubMinTokens !== 50 || chubMaxTokens !== 100000 || chubMinAiRating > 0;
     
-    let text = 'Tags';
     const parts = [];
     if (includeCount > 0) parts.push(`+${includeCount}`);
     if (excludeCount > 0) parts.push(`-${excludeCount}`);
-    if (parts.length > 0) {
-        text += ` (${parts.join('/')})`;
-    }
-    
-    label.textContent = text;
-    
-    const hasFilters = includeCount > 0 || excludeCount > 0 || hasAdvanced;
-    btn.classList.toggle('has-filters', hasFilters);
+    setFilterCount(btn, 'Tags', parts.join('/'), parts.length > 0 || hasAdvanced);
 }
 
 // ============================================================================
 // CHUBAI VIEW MODE SWITCHING (Browse/Timeline)
 // ============================================================================
+
+// the timeline's one order, verified live: lastActivityAt, newest first
+const CHUB_TIMELINE_STANDIN = Object.freeze({ label: 'Latest Updates', icon: 'fa-solid fa-clock-rotate-left', title: 'The timeline lists the latest updates first' });
 
 // The mode-specific filter chrome (custom selects, tags dropdown, the API-only
 // advanced options block); the switching skeleton lives in the base contract.
@@ -1650,24 +1631,33 @@ function setChubModeChrome(mode) {
     const browse = mode === 'browse';
     const discoveryPreset = document.getElementById('chubDiscoveryPreset');
     const timelineSortHeader = document.getElementById('chubTimelineSortHeader');
-    const tagsDropdownContainer = document.querySelector('.browse-tags-dropdown-container');
     const dpTarget = discoveryPreset?._customSelect?.container || discoveryPreset;
     const tsTarget = timelineSortHeader?._customSelect?.container || timelineSortHeader;
-    if (dpTarget) dpTarget.classList.toggle('browse-filter-hidden', !browse);
-    // the username query never reads the preset, so the scope collapses the sort slot
-    discoveryPreset?.closest('.browse-sort-container')?.classList.toggle('hidden', browse && !!chubAuthorFilter);
+    // the username query never reads the preset, so the scope hides it too
+    const scoped = browse && !!chubAuthorFilter;
+    if (dpTarget) dpTarget.classList.toggle('hidden', !browse || scoped);
     // the feed has one order, so its timeline takes no sort; the joined timeline sorts what it holds
     const joined = chubTimelineJoined();
-    if (tsTarget) tsTarget.classList.toggle('browse-filter-hidden', browse || !joined);
+    if (tsTarget) tsTarget.classList.toggle('hidden', browse || !joined);
+    syncSortStandIn(discoveryPreset, scoped ? CREATOR_SORT_STANDIN : !browse && !joined ? CHUB_TIMELINE_STANDIN : null, [CHUB_TIMELINE_STANDIN, CREATOR_SORT_STANDIN]);
     const subtitle = document.getElementById('chubTimelineSubtitle');
     if (subtitle) subtitle.textContent = joined ? 'Newest characters from every creator you follow' : 'Latest updates from creators and tags you follow';
-    // tags stay usable in BOTH modes (the timeline filters topics client-side);
-    // browse only ever restores visibility defensively
-    if (browse && tagsDropdownContainer) tagsDropdownContainer.classList.remove('browse-filter-hidden');
-    const advancedOpts = document.getElementById('chubAdvancedOptions');
-    const advancedDivider = document.getElementById('chubAdvancedDivider');
-    if (advancedOpts) advancedOpts.hidden = !browse;
-    if (advancedDivider) advancedDivider.hidden = !browse;
+    // the timeline takes no direction, token range or score: those rows grey there, saying why, and keep their own title for browse
+    for (const row of document.querySelectorAll('#chubAdvancedOptions .browse-advanced-option')) {
+        row.classList.toggle('browse-option-disabled', !browse);
+        for (const field of row.querySelectorAll('input, select')) {
+            field.disabled = !browse;
+            field._customSelect?.update?.();
+        }
+        if (!browse && !('liveTitle' in row.dataset)) {
+            row.dataset.liveTitle = row.title;
+            row.title = 'Not available in Following';
+        } else if (browse && 'liveTitle' in row.dataset) {
+            row.title = row.dataset.liveTitle;
+            delete row.dataset.liveTitle;
+        }
+    }
+    updateChubAiRatingFieldState();
 }
 
 function switchChubViewMode(mode) {
@@ -2350,7 +2340,8 @@ function chubAiRatingSupported() {
 function updateChubAiRatingFieldState() {
     const input = document.getElementById('chubMinAiRating');
     if (!input) return;
-    const supported = chubAiRatingSupported();
+    // the timeline greys the row too, and this runs after that greying, so the two never disagree
+    const supported = chubViewMode !== 'timeline' && chubAiRatingSupported();
     input.disabled = !supported;
     input.closest('.browse-advanced-option')?.classList.toggle('browse-option-disabled', !supported);
 }

@@ -18,6 +18,11 @@ async function migrateCancel() {
     return readAnswer(await apiRequest('/migrate/cancel', 'POST', {}));
 }
 
+// Search Index's Tidy Now: whether a tidy-up started, or the one running; another library's refusal thrown in the server's words
+async function tidySearchIndexNow() {
+    return readAnswer(await apiRequest('/maintenance/search-index/tidy', 'POST'));
+}
+
 // the run and the finalize stream their log line by line and end with the done frame
 async function migrateStream(resp, onLine) {
     if (!resp.ok) return readAnswer(resp);
@@ -367,6 +372,7 @@ function setupSettingsModal() {
     const backupKeepInput = document.getElementById('settingsBackupKeep');
     const backupWindowStartSelect = document.getElementById('settingsBackupWindowStart');
     const backupWindowEndSelect = document.getElementById('settingsBackupWindowEnd');
+    const autoTidySearchIndexCheckbox = document.getElementById('settingsSearchIndexAutoTidy');
 
     if (!settingsBtn || !settingsModal) return;
 
@@ -525,6 +531,112 @@ function setupSettingsModal() {
                         <span class="bk-row-size">${escapeHtml(formatBytes(b.bytes))}</span>
                     </div>`).join('')
                     : '<div class="bk-empty">No backups on disk yet.</div>';
+        }
+    }
+
+    // Search Index: each index's drift as the server reads it, the last tidy-up and the one running
+    const SIX_INDEXES = Object.freeze([['cards', 'sixStatCards', 'card text'], ['chats', 'sixStatChats', 'chat messages'], ['lorebooks', 'sixStatLorebooks', 'lorebook entries']]);
+    const sixName = (index) => SIX_INDEXES.find(([key]) => key === index)?.[2] || 'search';
+    // down, as the server rounds it: a figure never shows the limit before the rule has reached it
+    const sixTimes = (drift) => `${(Math.floor(drift * 10) / 10).toFixed(1)}×`;
+    // a number and its unit never part at a line's end
+    function sixDuration(ms) {
+        const s = Math.round((ms || 0) / 1000);
+        if (s < 1) return 'under a second';
+        return s < 60 ? `${s}\u00a0s` : `${Math.floor(s / 60)}\u00a0min ${s % 60}\u00a0s`;
+    }
+    let sixStatus = null;
+    // the last read sent wins, so a progress read overtaken by a later one is dropped
+    let sixReadSeq = 0;
+    // when the reader pressed Tidy Now, so a tidy-up they asked for that stops is told them once
+    let sixAskedAt = 0;
+
+    // The band: a tidy-up running or waiting, else one that stopped, the index furthest past the limit, an unread one, else in shape.
+    function paintSearchIndexBand() {
+        const band = document.getElementById('sixBand');
+        const btn = document.getElementById('sixTidyBtn');
+        band?.classList.remove('is-warn');
+        const st = sixStatus;
+        const whole = !!st && st.indexes.every(ix => Number.isFinite(ix.segments) && ix.segments <= 1);
+        // an automatic tidy-up gives way to Tidy Now, so the button rests only for an asked one
+        const asked = st?.running?.reason === 'asked';
+        const waits = st?.queued === 'backup' ? 'Waiting for the backup to finish' : st?.queued ? 'Waiting for another library\'s tidy-up' : '';
+        if (btn) {
+            btn.disabled = !!st && (asked || !!st.queued || whole);
+            btn.title = asked ? 'A tidy-up is running' : waits || (whole ? 'Every index is in one piece' : '');
+        }
+        if (!st) {
+            bkSet('sixWhen', 'Could not read the search index');
+            bkSet('sixSub', 'The server did not answer. Nothing has been changed.');
+            return;
+        }
+        if (st.running) {
+            const pct = st.running.total > 0 ? Math.min(99, Math.floor((st.running.done / st.running.total) * 100)) : 0;
+            bkSet('sixWhen', `Tidying the ${sixName(st.running.index)} index`);
+            bkSet('sixSub', `${pct}% · searches may be slower until it ends`);
+            return;
+        }
+        if (st.queued) {
+            bkSet('sixWhen', waits);
+            bkSet('sixSub', st.queued === 'backup' ? 'The tidy-up starts as soon as it ends.' : 'Yours starts as soon as that one ends.');
+            return;
+        }
+        const last = st.last ? `Last tidied ${bkAgo(st.last.at)}, took ${sixDuration(st.last.ms)}` : 'Not tidied yet';
+        const later = st.auto ? 'It is tidied the next time the app sits idle.' : 'Tidying on its own is off.';
+        if (st.failure && (!st.last || st.failure.at > st.last.at)) {
+            band?.classList.add('is-warn');
+            bkSet('sixWhen', 'The last tidy-up stopped before finishing');
+            bkSet('sixSub', `${st.failure.error}. ${st.auto ? 'It is tried again the next time the app sits idle.' : 'Tidy Now tries again.'}`);
+            return;
+        }
+        const worst = st.indexes.filter(ix => Number.isFinite(ix.drift)).sort((a, b) => b.drift - a.drift)[0];
+        if (worst && worst.drift >= st.driftLimit) {
+            band?.classList.add('is-warn');
+            bkSet('sixWhen', `The ${sixName(worst.index)} index is in pieces`);
+            bkSet('sixSub', `Searches that read from the disk can be ${sixTimes(worst.drift)} slower. ${later} ${last}.`);
+            return;
+        }
+        // an index the server could not read is unknown, never a tidy one
+        const unread = st.indexes.find(ix => !Number.isFinite(ix.drift));
+        if (unread) {
+            bkSet('sixWhen', `The ${sixName(unread.index)} index could not be read`);
+            bkSet('sixSub', `Its figures are unknown; Tidy Now still tidies it. ${last}.`);
+            return;
+        }
+        bkSet('sixWhen', 'Search index in shape');
+        bkSet('sixSub', last);
+    }
+
+    async function refreshSearchIndexPanel() {
+        if (!document.getElementById('settingsSearchIndexGroup')) return;
+        const seq = ++sixReadSeq;
+        let st = null;
+        try {
+            const resp = await apiRequest('/maintenance/search-index', 'GET');
+            if (resp.ok) st = await resp.json();
+        } catch { /* handled by the unknown state in the band */ }
+        if (seq !== sixReadSeq) return;
+        sixStatus = st;
+        paintSearchIndexBand();
+        // a tidy-up the reader asked for that stopped is told once, where they asked for it
+        if (sixAskedAt && st && !st.running && !st.queued) {
+            const failed = st.failure && st.failure.at >= sixAskedAt && (!st.last || st.failure.at > st.last.at);
+            if (failed) showToast(`The tidy-up stopped: ${st.failure.error}`, 'warning');
+            if (failed || (st.last?.at ?? 0) >= sixAskedAt) sixAskedAt = 0;
+        }
+        const of = (key) => st?.indexes?.find(ix => ix.index === key);
+        for (const [key, id] of SIX_INDEXES) bkSet(id, Number.isFinite(of(key)?.drift) ? sixTimes(of(key).drift) : '-');
+        const listEl = document.getElementById('sixList');
+        if (listEl) {
+            listEl.innerHTML = !st ? '<div class="bk-empty">Could not read the search index</div>'
+                : SIX_INDEXES.map(([key, , name]) => {
+                    const ix = of(key);
+                    const pieces = Number.isFinite(ix?.segments) ? `${ix.segments} ${ix.segments === 1 ? 'piece' : 'pieces'}` : 'unreadable';
+                    return `<div class="bk-row">
+                        <span class="bk-row-when">${escapeHtml(name.charAt(0).toUpperCase() + name.slice(1))} · ${escapeHtml(pieces)}</span>
+                        <span class="bk-row-size">${escapeHtml(Number.isFinite(ix?.bytes) ? formatBytes(ix.bytes) : '-')}</span>
+                    </div>`;
+                }).join('');
         }
     }
 
@@ -904,6 +1016,28 @@ function setupSettingsModal() {
         if (!settingsModal.classList.contains('visible')) return;
         if (bkIsLive(e.detail?.job)) paintBackupBand();
         else refreshBackupPanel();
+    });
+
+    // Tidying the search index is an action, not a pending change; the tidy-up is followed through the maintenance records
+    document.getElementById('sixTidyBtn')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        sixAskedAt = Date.now();
+        try {
+            const answer = await tidySearchIndexNow();
+            if (!answer?.started) { sixAskedAt = 0; showToast('The search index is already in one piece', 'info'); }
+        } catch (err) {
+            sixAskedAt = 0;
+            showToast(`Could not start the tidy-up: ${err.message}`, 'error');
+        } finally {
+            await refreshSearchIndexPanel();
+        }
+    });
+
+    // each maintenance record re-reads the panel: its progress while a tidy-up runs, its figures once it ends
+    document.addEventListener('cl-maintenance-changed', () => {
+        if (settingsModal.classList.contains('visible')) refreshSearchIndexPanel();
     });
 
     // The SillyTavern migration wizard: the plan on Check, the run and finalize over the streamed log,
@@ -1645,6 +1779,8 @@ function setupSettingsModal() {
         if (backupWindowStartSelect) backupWindowStartSelect.value = String(getSetting('backupWindowStart') ?? 3);
         if (backupWindowEndSelect) backupWindowEndSelect.value = String(getSetting('backupWindowEnd') ?? 6);
         refreshBackupPanel();
+        if (autoTidySearchIndexCheckbox) autoTidySearchIndexCheckbox.checked = getSetting('autoTidySearchIndex') !== false;
+        refreshSearchIndexPanel();
         refreshMigratePanel();
 
         // Provider Order & Defaults
@@ -2658,6 +2794,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             backupFrequency: backupFrequencySelect ? backupFrequencySelect.value : 'off',
             backupWindowStart: backupWindowStartSelect ? Number(backupWindowStartSelect.value) : getDefaultSetting('backupWindowStart'),
             backupWindowEnd: backupWindowEndSelect ? Number(backupWindowEndSelect.value) : getDefaultSetting('backupWindowEnd'),
+            autoTidySearchIndex: autoTidySearchIndexCheckbox ? autoTidySearchIndexCheckbox.checked : true,
             ...readHistoryCountsFromUI(),
             ...readProviderOrderFromUI(),
             infiniteScroll: readInfiniteScrollFromUI(),
