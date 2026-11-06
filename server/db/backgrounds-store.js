@@ -3,7 +3,7 @@ import path from 'node:path';
 import { characterExists } from './characters-store.js';
 import { chatExists } from './chats-store.js';
 import { emitChange } from './changes.js';
-import { isImageFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor } from '../lib/stored-file.js';
+import { isImageFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor, nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
 
 // files are <user>/backgrounds/{uuid}.ext, immutable once written; the original filename lives only in display_name
@@ -78,8 +78,10 @@ function freeDisplayName(db, wanted) {
  * @param {{width?: number, height?: number}} dims measured by the caller, which owns sharp
  */
 export function addBackground(db, paths, filename, bytes, { sourceUrl = null, urlHash = null, width = null, height = null } = {}) {
-    const display = sanitizeDisplayName(filename);
-    if (!display) throw httpError(400, 'bad filename');
+    const given = sanitizeDisplayName(filename);
+    if (!given) throw httpError(400, 'bad filename');
+    // named by its bytes, so a video named .png is refused as the video it is
+    const display = nameForBytes(given, bytes);
     if (!isImageFile(display)) throw httpError(400, `not an image: ${path.extname(display) || display}`);
 
     const finalDisplay = freeDisplayName(db, display);

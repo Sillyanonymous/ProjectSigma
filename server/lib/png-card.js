@@ -1,12 +1,18 @@
 import zlib from 'node:zlib';
 
-// PNG tEXt/zTXt codec for embedded character cards ('chara' = V2, 'ccv3' = V3).
+// PNG tEXt/zTXt/iTXt codec for embedded character cards ('chara' = V2, 'ccv3' = V3).
 // Implemented from the PNG 1.2 spec; payloads are base64 JSON per the public card specs.
 
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const CARD_KEYWORDS = new Set(['chara', 'ccv3']);
 // a zTXt chunk is deflate and a few bytes can inflate without end, so the read is bounded
 const CARD_TEXT_MAX_BYTES = 50 * 1024 * 1024;
+// RisuAI's files beside the card, one chunk each, named by the __asset:N the card points with
+const ASSET_KEYWORD_RE = /^chara-ext-asset_:?(\d+)$/i;
+const ASSET_REF_RE = /^__asset:(\d+)$/;
+const ASSETS_MAX_BYTES = 200 * 1024 * 1024;
+
+const isTextChunk = (type) => type === 'tEXt' || type === 'zTXt' || type === 'iTXt';
 
 // crc32 (IEEE), node's own; the running form sums a zip member chunk by chunk: crc32Update(CRC32_INIT, ...) then crc32Final
 export const CRC32_INIT = 0;
@@ -38,29 +44,44 @@ function* chunks(buffer) {
     }
 }
 
-// A text chunk's card keyword, read without touching its payload, or null
-function cardKeywordOf(data) {
+// A text chunk's keyword as written, read without touching its payload, or null
+function keywordOf(data) {
     const nul = data.indexOf(0);
-    if (nul < 0) return null;
-    const keyword = data.toString('latin1', 0, nul);
-    return CARD_KEYWORDS.has(keyword) ? keyword : null;
+    return nul < 0 ? null : data.toString('latin1', 0, nul);
 }
 
-function textChunkPayload(type, data, maxOutputLength = CARD_TEXT_MAX_BYTES) {
-    const keyword = cardKeywordOf(data);
-    if (!keyword) return null;
-    const nul = keyword.length;
+// A text chunk's card keyword, lowercased (SillyTavern reads any case), or null
+function cardKeywordOf(data) {
+    const keyword = keywordOf(data)?.toLowerCase();
+    return keyword && CARD_KEYWORDS.has(keyword) ? keyword : null;
+}
+
+// A text chunk's text after its keyword: tEXt as is, zTXt and a compressed iTXt inflated within the cap; null when unreadable
+function chunkText(type, data, maxOutputLength) {
+    const nul = data.indexOf(0);
+    if (nul < 0) return null;
     try {
-        if (type === 'tEXt') {
-            return { keyword, text: data.toString('latin1', nul + 1) };
+        if (type === 'tEXt') return data.toString('latin1', nul + 1);
+        if (type === 'zTXt') {
+            // keyword \0 compressionMethod(0=deflate) compressed
+            if (data[nul + 1] !== 0) return null;
+            return zlib.inflateSync(data.subarray(nul + 2), { maxOutputLength }).toString('latin1');
         }
-        // zTXt: keyword \0 compressionMethod(0=deflate) compressed
-        if (data[nul + 1] !== 0) return null;
-        return { keyword, text: zlib.inflateSync(data.subarray(nul + 2), { maxOutputLength }).toString('latin1') };
+        // iTXt: keyword \0 compressionFlag compressionMethod languageTag \0 translatedKeyword \0 text (UTF-8)
+        const flag = data[nul + 1], method = data[nul + 2];
+        const lang = data.indexOf(0, nul + 3);
+        const translated = lang < 0 ? -1 : data.indexOf(0, lang + 1);
+        if (translated < 0) return null;
+        const text = data.subarray(translated + 1);
+        if (flag === 0) return text.toString('utf8');
+        if (flag !== 1 || method !== 0) return null;
+        return zlib.inflateSync(text, { maxOutputLength }).toString('utf8');
     } catch {
         return null;
     }
 }
+
+const isCompressed = (type, data) => type === 'zTXt' || (type === 'iTXt' && data[data.indexOf(0) + 1] === 1);
 
 /**
  * Extract embedded card JSON from a PNG buffer.
@@ -72,24 +93,58 @@ export function readCardChunks(buffer) {
     // one inflate budget a file, so a repeated bomb pays once; a failed zTXt spends its whole allowance
     let budget = CARD_TEXT_MAX_BYTES;
     for (const chunk of chunks(buffer)) {
-        if (chunk.type !== 'tEXt' && chunk.type !== 'zTXt') continue;
+        if (!isTextChunk(chunk.type)) continue;
         // the keyword first: a keyword already read never inflates again
         const keyword = cardKeywordOf(chunk.data);
         if (!keyword || found[keyword] !== undefined) continue;
-        if (chunk.type === 'zTXt' && budget <= 0) continue;
-        const payload = textChunkPayload(chunk.type, chunk.data, budget);
-        if (chunk.type === 'zTXt') budget -= payload ? payload.text.length : budget;
-        if (!payload) continue;
+        const compressed = isCompressed(chunk.type, chunk.data);
+        if (compressed && budget <= 0) continue;
+        const text = chunkText(chunk.type, chunk.data, budget);
+        if (compressed) budget -= text != null ? text.length : budget;
+        if (text == null) continue;
         try {
-            const card = JSON.parse(Buffer.from(payload.text, 'base64').toString('utf8'));
+            const card = JSON.parse(Buffer.from(text, 'base64').toString('utf8'));
             // a payload that is no object (a null, a string) is no card, and takes no keyword's slot
-            if (card && typeof card === 'object' && !Array.isArray(card)) found[payload.keyword] = card;
+            if (card && typeof card === 'object' && !Array.isArray(card)) found[keyword] = card;
         } catch {
             // corrupt payload, keep scanning; a later duplicate chunk may be intact
         }
     }
     if (found.chara === undefined && found.ccv3 === undefined) return null;
     return { v3: found.ccv3 ?? null, v2: found.chara ?? null };
+}
+
+/**
+ * The files a card points at with __asset:N, in card order, each read once from its chara-ext-asset_ chunk; a missing one is left out.
+ * @returns {{ index: number, name: string, ext: string, bytes: Buffer }[]}
+ */
+export function embeddedAssets(buffer, card) {
+    if (!isPng(buffer)) return [];
+    const wanted = new Map();
+    const want = (uri, name, ext) => {
+        const m = typeof uri === 'string' ? ASSET_REF_RE.exec(uri) : null;
+        if (m && !wanted.has(m[1])) wanted.set(m[1], { index: Number(m[1]), name: typeof name === 'string' ? name : '', ext: typeof ext === 'string' ? ext : '' });
+    };
+    const data = card?.data || {};
+    for (const a of Array.isArray(data.assets) ? data.assets : []) want(a?.uri, a?.name, a?.ext);
+    const risu = data.extensions?.risuai;
+    for (const e of Array.isArray(risu?.emotions) ? risu.emotions : []) if (Array.isArray(e)) want(e[1], e[0], '');
+    for (const e of Array.isArray(risu?.additionalAssets) ? risu.additionalAssets : []) if (Array.isArray(e)) want(e[1], e[0], e[2]);
+    if (!wanted.size) return [];
+    const read = new Map();
+    let budget = ASSETS_MAX_BYTES;
+    for (const chunk of chunks(buffer)) {
+        if (budget <= 0) break;
+        if (!isTextChunk(chunk.type)) continue;
+        const index = ASSET_KEYWORD_RE.exec(keywordOf(chunk.data) ?? '')?.[1];
+        if (!index || !wanted.has(index) || read.has(index)) continue;
+        const text = chunkText(chunk.type, chunk.data, budget);
+        const bytes = text ? Buffer.from(text, 'base64') : null;
+        if (!bytes?.length) continue;
+        budget -= bytes.length;
+        read.set(index, bytes);
+    }
+    return [...wanted].filter(([index]) => read.has(index)).map(([index, ref]) => ({ ...ref, bytes: read.get(index) }));
 }
 
 function buildTextChunk(keyword, json) {
@@ -106,13 +161,14 @@ function buildTextChunk(keyword, json) {
 /**
  * Return a copy of the PNG with all card chunks removed. Avatars are pure images;
  * the DB is the card truth and export re-embeds fresh.
+ * @param {{ assets?: boolean }} [opts] assets: drop the chara-ext-asset_ files too, for a container that carries them itself
  */
-export function stripCardChunks(buffer) {
+export function stripCardChunks(buffer, { assets = false } = {}) {
     if (!isPng(buffer)) return buffer;
     const parts = [PNG_SIG];
     for (const chunk of chunks(buffer)) {
         // a card chunk by its keyword alone: the strip never inflates a payload it drops
-        if ((chunk.type === 'tEXt' || chunk.type === 'zTXt') && cardKeywordOf(chunk.data)) continue;
+        if (isTextChunk(chunk.type) && (cardKeywordOf(chunk.data) || (assets && ASSET_KEYWORD_RE.test(keywordOf(chunk.data) ?? '')))) continue;
         parts.push(buffer.subarray(chunk.start, chunk.end));
         if (chunk.type === 'IEND') break;
     }
@@ -130,7 +186,7 @@ export function writeCardChunks(buffer, card) {
     for (const chunk of chunks(buffer)) {
         if (chunk.type === 'IEND') { iendStart = chunk.start; break; }
         // a card chunk by its keyword alone: the strip never inflates a payload it drops
-        if ((chunk.type === 'tEXt' || chunk.type === 'zTXt') && cardKeywordOf(chunk.data)) continue;
+        if (isTextChunk(chunk.type) && cardKeywordOf(chunk.data)) continue;
         kept.push(buffer.subarray(chunk.start, chunk.end));
     }
     if (iendStart < 0) throw new Error('PNG has no IEND chunk');

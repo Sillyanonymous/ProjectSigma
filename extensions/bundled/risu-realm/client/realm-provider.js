@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // RisuAI Realm, the provider: a card is its charx download, staged by the server half; the listing adds
 // tags and the name.
 import { ProviderBase } from '/modules/providers/provider-interface.js';

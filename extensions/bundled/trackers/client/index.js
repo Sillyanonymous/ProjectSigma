@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Trackers, the client half: the conversation window (panel.js), Trackers at This Message, the editor
 // and the settings.
 import { mountTrackers } from './panel.js';

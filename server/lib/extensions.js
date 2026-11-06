@@ -21,7 +21,7 @@ const execFileP = promisify(execFile);
 // 2 to 60 characters: the id rides the store document key `ext-<id>`, whose grammar stops at 64
 export const EXT_ID_RE = /^[a-z0-9][a-z0-9-]{1,59}$/;
 // the extension api both halves speak, '<major>.<minor>': the minor moves with each batch of new doors, the major on a break
-export const SERVER_EXT_API_VERSION = '2.6';
+export const SERVER_EXT_API_VERSION = '2.7';
 
 /**
  * An api version as [major, minor]: a whole number from 1 is that major's .0, a 'major.minor' string
@@ -242,7 +242,7 @@ function namespaceTaken(ns) {
 }
 
 // paths the extension routes answer themselves, which an extension of that id would sit under
-const ROUTE_IDS = ['jobs'];
+const ROUTE_IDS = ['jobs', 'updates'];
 
 // why an id cannot join `others`, or null; the inventory asks per row against the earlier rows, an install against all
 function idProblem(id, m, others) {
@@ -384,7 +384,7 @@ const GIT_TIMEOUT_MS = 120000;
 const STALE_INSTALL_MS = 5 * GIT_TIMEOUT_MS;
 
 // prompts off: a repository asking for a sign-in fails at once, never a prompt on the server's desktop
-const runGit = (args) => execFileP('git', args, { timeout: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } });
+const runGit = (args) => execFileP('git', args, { timeout: GIT_TIMEOUT_MS, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } });
 
 // an install is staged in a dot folder beside the installs, so a bad one never occupies the tree
 function stagingDir() {
@@ -510,17 +510,117 @@ export async function installFromZip(zipPath) {
     }
 }
 
+// ========================================
+// UPDATES
+// ========================================
+
+// git's own words for a failure, without the command line or its hints
+function gitWords(e) {
+    const lines = String(e?.stderr || e?.message || e).split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^hint:/.test(l) && !/^Command failed:/.test(l));
+    return lines.join(' ') || 'git failed';
+}
+const gitOut = async (args) => String((await runGit(args)).stdout).trim();
+
+// one git call at a time per install: a check and an update never touch one repository together
+const _repoLocks = new Map();
+function withRepo(id, fn) {
+    const run = (_repoLocks.get(id) || Promise.resolve()).then(fn, fn);
+    _repoLocks.set(id, run.catch(() => { /* the caller hears the failure; the next in line only waits for it */ }));
+    return run;
+}
+
+// the inventory's row for an install, so an update is held to the same checks a listing is
+const installedRow = (id) => listExtensions().find(r => r.id === String(id) && !r.bundled) || null;
+
+/**
+ * Bring a git install to its repository's latest commit, whatever its history did; a version that would not load goes back.
+ * @returns {Promise<{ id: string, updated: boolean, from: {commit: string, version: string|null}, to: {commit: string, version: string|null} }>}
+ */
 export async function updateExtension(id) {
     const dir = installedDir(id);
     if (!fs.existsSync(path.join(dir, '.git'))) {
         throw httpError(400, 'not a git install; update it by replacing the folder');
     }
+    return withRepo(String(id), async () => {
+        const was = installedRow(id);
+        let before, after;
+        try {
+            const branch = await gitOut(['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+            before = await gitOut(['-C', dir, 'rev-parse', 'HEAD']);
+            await runGit(['-C', dir, 'fetch', '--depth', '1', 'origin', branch]);
+            after = await gitOut(['-C', dir, 'rev-parse', 'FETCH_HEAD']);
+            if (after !== before) await runGit(['-C', dir, 'reset', '--hard', 'FETCH_HEAD']);
+        } catch (e) {
+            throw httpError(400, `update failed: ${gitWords(e)}`);
+        }
+        const now = installedRow(id);
+        // a row that loaded before and would not now keeps the code it had
+        if (after !== before && !was?.error && now?.error) {
+            try {
+                await runGit(['-C', dir, 'reset', '--hard', before]);
+            } catch (e) {
+                throw httpError(400, `update failed: the new version would not load (${now.error}), and going back to ${before.slice(0, 7)} failed: ${gitWords(e)}`);
+            }
+            throw httpError(400, `update refused: the new version would not load (${now.error}); the extension stays as it was`);
+        }
+        const out = { id: String(id), updated: after !== before, from: { commit: before.slice(0, 7), version: was?.version || null }, to: { commit: after.slice(0, 7), version: now?.version || null } };
+        noteUpdated(out);
+        return out;
+    });
+}
+
+// the last check: what each git install's repository holds beyond it (kept in memory, re-asked by an admin's tab)
+const UPDATE_CHECK_PARALLEL = 4;
+let _updates = { checkedAt: null, extensions: [] };
+let _checking = null;
+
+async function checkOne(row) {
+    const dir = path.join(extensionsRoot(), row.id);
+    const base = { id: row.id, name: row.name || row.id, version: row.version || null };
     try {
-        await runGit(['-C', dir, 'pull', '--ff-only']);
+        return await withRepo(row.id, async () => {
+            const branch = await gitOut(['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+            const local = await gitOut(['-C', dir, 'rev-parse', 'HEAD']);
+            const remote = (await gitOut(['-C', dir, 'ls-remote', 'origin', `refs/heads/${branch}`])).split(/\s+/)[0] || '';
+            if (!remote) return { ...base, available: false, error: `the repository has no branch '${branch}' any more` };
+            if (remote === local) return { ...base, available: false, commit: local.slice(0, 7) };
+            // the tip itself, so the row can name the version coming; the update reuses what this fetched
+            await runGit(['-C', dir, 'fetch', '--depth', '1', 'origin', branch]);
+            let nextVersion = null;
+            try { nextVersion = JSON.parse(await gitOut(['-C', dir, 'show', 'FETCH_HEAD:manifest.json'])).version || null; } catch { /* the update says what it finds */ }
+            return { ...base, available: true, commit: local.slice(0, 7), nextCommit: remote.slice(0, 7), nextVersion };
+        });
     } catch (e) {
-        throw httpError(400, `update failed: ${e.message}`);
+        return { ...base, available: false, error: gitWords(e) };
     }
-    return { id };
+}
+
+function noteUpdated(out) {
+    _updates = { ..._updates, extensions: _updates.extensions.map(e => (e.id === out.id ? { id: e.id, name: e.name, version: out.to.version, available: false, commit: out.to.commit } : e)) };
+}
+
+/** The last check, as an admin's tab reads it; an install removed since drops out. */
+export function extensionUpdates() {
+    const present = new Set(listExtensions().filter(r => !r.bundled).map(r => r.id));
+    return { checkedAt: _updates.checkedAt, checking: !!_checking, extensions: _updates.extensions.filter(e => present.has(e.id)).map(e => ({ ...e })) };
+}
+
+/**
+ * Ask each git install's repository for its latest commit, never updating; a check younger than maxAge answers as is.
+ * @param {{ maxAge?: number }} [opts] milliseconds
+ */
+export async function checkExtensionUpdates({ maxAge = 0 } = {}) {
+    if (maxAge > 0 && _updates.checkedAt && Date.now() - _updates.checkedAt < maxAge) return extensionUpdates();
+    if (!_checking) {
+        _checking = (async () => {
+            const rows = listExtensions().filter(r => r.git && !r.reserved);
+            let out = [];
+            for (let i = 0; i < rows.length; i += UPDATE_CHECK_PARALLEL) out = out.concat(await Promise.all(rows.slice(i, i + UPDATE_CHECK_PARALLEL).map(checkOne)));
+            _updates = { checkedAt: Date.now(), extensions: out };
+        })().finally(() => { _checking = null; });
+    }
+    await _checking;
+    return extensionUpdates();
 }
 
 export function removeExtension(id) {

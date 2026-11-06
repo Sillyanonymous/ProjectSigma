@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The Story Beats window's body: the open chat's beats as a timeline, the planner that drafts new ones, and the log.
 import { WEIGHTS, TITLE_MAX, DIRECTIVE_MAX, NOTES_MAX, BEAT_LIMITS, beatCount } from './limits.js';
 

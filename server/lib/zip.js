@@ -1,8 +1,12 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
 import { crc32, crc32Update, crc32Final, CRC32_INIT } from './png-card.js';
 import { httpError } from './http-error.js';
+import { UUID_SOURCE } from './uuid.js';
 
 // Minimal zip writer/reader for bundles and charx. zip64 only past the classic limits, so stock readers open normal bundles
 
@@ -131,6 +135,41 @@ export class ZipFileWriter {
         eocd.writeUInt32LE(Math.min(cdStart, U32), 16);
         this.#write(eocd);
         fs.closeSync(this.fd);
+    }
+}
+
+// ================================================================ packs: a zip written to a temp file, then sent
+
+// a crash leaves a pack's temp file behind, so boot sweeps them (a day is past any live download)
+const STALE_PACK_MS = 24 * 60 * 60 * 1000;
+const PACK_NAME_RE = new RegExp(`^cl-bundle-${UUID_SOURCE}\\.zip$`);
+
+/** A fresh temp path for a pack, named so the boot sweep knows it. */
+export function packPath() {
+    return path.join(os.tmpdir(), `cl-bundle-${crypto.randomUUID()}.zip`);
+}
+
+export function dropPack(zipPath) {
+    try { fs.unlinkSync(zipPath); } catch { /* gone already, or held open: the boot sweep takes it */ }
+}
+
+/** A finished pack as the response body (its caller set the other headers), the file removed once sent or failed. */
+export function sendPack(res, zipPath) {
+    res.setHeader('Content-Length', fs.statSync(zipPath).size);
+    const stream = fs.createReadStream(zipPath);
+    stream.pipe(res);
+    stream.on('close', () => dropPack(zipPath));
+    stream.on('error', () => dropPack(zipPath));
+}
+
+export function sweepStalePacks() {
+    const cutoff = Date.now() - STALE_PACK_MS;
+    let names;
+    try { names = fs.readdirSync(os.tmpdir()); } catch { return; }
+    for (const name of names) {
+        if (!PACK_NAME_RE.test(name)) continue;
+        const full = path.join(os.tmpdir(), name);
+        try { if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full); } catch { /* gone, or still held open */ }
     }
 }
 
@@ -266,6 +305,33 @@ export function readZipEntry(zipPath, entry, { max = ZIP_IMPORT_LIMITS.media } =
     let out;
     try { out = zlib.inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.size) }); } catch (e) { throw httpError(400, inflateFailure(entry, e)); }
     return checkedBytes(entry, out);
+}
+
+/**
+ * An entry's first `n` bytes, inflating no more of it than they need: what a file is, read without reading it whole.
+ * @returns {Promise<Buffer>} up to `n` bytes (fewer for a shorter entry)
+ */
+export async function readZipEntryHead(zipPath, entry, n = 16) {
+    const fh = await fs.promises.open(zipPath, 'r');
+    let raw;
+    try {
+        const lh = Buffer.alloc(30);
+        await fh.read(lh, 0, 30, entry.offset);
+        // a stored head is the bytes themselves; a deflated one needs a little of the stream to give them
+        raw = Buffer.alloc(Math.min(entry.compressedSize, isDeflated(entry) ? 8 * 1024 : n));
+        await fh.read(raw, 0, raw.length, dataStart(entry, lh));
+    } finally { await fh.close(); }
+    if (!isDeflated(entry)) return raw.subarray(0, n);
+    // streamed and stopped at the first output chunk, so a member that expands hugely (silence) still gives its head
+    return new Promise((resolve) => {
+        const inflate = zlib.createInflateRaw();
+        let done = false;
+        const finish = (buf) => { if (done) return; done = true; inflate.destroy(); resolve(buf.subarray(0, n)); };
+        inflate.once('data', (chunk) => finish(chunk));
+        inflate.once('error', () => finish(Buffer.alloc(0)));
+        inflate.once('end', () => finish(Buffer.alloc(0)));
+        inflate.end(raw);
+    });
 }
 
 const inflateRawAsync = promisify(zlib.inflateRaw);

@@ -435,14 +435,17 @@ async function bulkToggleFavorites(setFavorite) {
     else CoreAPI.showToast(`${said}${rest}`, 'success');
 }
 
-// Fetch a character's PNG and save it via the shared anchor-download; throws on a failed fetch.
-async function downloadCharacterPng(char) {
-    // server rebuilds the PNG with the CURRENT card + portable cl.uid embedded
-    const response = await CoreAPI.apiRequest(`/characters/${encodeURIComponent(char.id)}/export`);
+// Fetch a character's card file (png or charx) and save it via the shared anchor-download; throws on a failed fetch.
+async function downloadCharacterFile(char, format = 'png') {
+    // server rebuilds the file with the CURRENT card + portable cl.uid embedded
+    const response = await CoreAPI.apiRequest(`/characters/${encodeURIComponent(char.id)}/export${format === 'charx' ? '?format=charx' : ''}`);
     if (!response.ok) throw new Error('Failed to fetch character file');
     // download name only; a uuid filename would tell the user nothing
-    CoreAPI.downloadBlobAsFile(await response.blob(), char.name ? `${char.name}.png` : 'character.png');
+    CoreAPI.downloadBlobAsFile(await response.blob(), `${char.name || 'character'}.${format}`);
 }
+
+// the card file Export Character downloads, as the setting picks it
+const cardFileFormat = () => (CoreAPI.getSetting('exportFormat') === 'charx' ? 'charx' : 'png');
 
 // The provider page a linked character exports as, or null
 function providerLinkUrl(char) {
@@ -454,7 +457,7 @@ function providerLinkUrl(char) {
 const PNG_EXPORT_GAP_MS = 200;
 const exportCancelled = () => new DOMException('Export cancelled', 'AbortError');
 
-/** character.export: PNGs, the linked ones' provider links, or one bundle; by ids answers per id, by filter answers counts. */
+/** character.export: card files (png or charx), the linked ones' provider links, or one bundle; by ids answers per id, by filter answers counts. */
 async function exportCharactersFrom({ ids, filter, format = 'png', worlds = true, signal, onProgress } = {}) {
     if (filter !== undefined) return exportFilterFrom({ ids, filter, format, worlds, signal, onProgress });
     const list = Array.isArray(ids) ? [...new Set(ids.map(id => (id == null ? '' : String(id))).filter(Boolean))] : [];
@@ -464,12 +467,12 @@ async function exportCharactersFrom({ ids, filter, format = 'png', worlds = true
         if (!out) throw new Error('character.export: bundle export unavailable');
         return out;
     }
-    if (format !== 'png' && format !== 'links') throw new Error(`character.export: unknown format ${format}`);
+    if (format !== 'png' && format !== 'charx' && format !== 'links') throw new Error(`character.export: unknown format ${format}`);
     // the ids the page has not loaded, read in one request per hundred rather than one each
     const unheld = list.filter(id => !CoreAPI.getCharacterById(id));
     if (unheld.length) await CoreAPI.fetchCharactersByIds(unheld);
     const chars = list.map(id => CoreAPI.getCharacterById(id)).filter(Boolean);
-    const exported = format === 'links' ? await exportLinksNow(chars) : await exportPngsNow(chars, { signal, onProgress });
+    const exported = format === 'links' ? await exportLinksNow(chars) : await exportFilesNow(chars, format, { signal, onProgress });
     const done = new Set(exported);
     return { exported, skipped: list.filter(id => !done.has(id)) };
 }
@@ -483,7 +486,7 @@ async function exportFilterFrom({ ids, filter, format, worlds, signal, onProgres
         if (!out) throw new Error('character.export: bundle export unavailable');
         return out;
     }
-    if (format !== 'png' && format !== 'links') throw new Error(`character.export: unknown format ${format}`);
+    if (format !== 'png' && format !== 'charx' && format !== 'links') throw new Error(`character.export: unknown format ${format}`);
     let count = 0, skippedCount = 0, done = 0;
     const links = [];
     for await (const page of CoreAPI.walkCharacterSetWhere(filter, { fields: format === 'links' ? ['name', 'links'] : ['name'], signal })) {
@@ -495,7 +498,7 @@ async function exportFilterFrom({ ids, filter, format, worlds, signal, onProgres
                 if (done) await new Promise(r => setTimeout(r, PNG_EXPORT_GAP_MS));
                 if (signal?.aborted) throw exportCancelled();
                 try {
-                    await downloadCharacterPng(char);
+                    await downloadCharacterFile(char, format);
                     count++;
                 } catch (err) {
                     console.error('[ContextMenu] Export failed for:', char.name, err);
@@ -510,13 +513,13 @@ async function exportFilterFrom({ ids, filter, format, worlds, signal, onProgres
     return { count, skippedCount };
 }
 
-async function exportPngsNow(chars, { signal, onProgress } = {}) {
+async function exportFilesNow(chars, format, { signal, onProgress } = {}) {
     const exported = [];
     for (const [i, char] of chars.entries()) {
         if (i) await new Promise(r => setTimeout(r, PNG_EXPORT_GAP_MS));
         if (signal?.aborted) throw exportCancelled();
         try {
-            await downloadCharacterPng(char);
+            await downloadCharacterFile(char, format);
             exported.push(char.id);
         } catch (err) {
             console.error('[ContextMenu] Export failed for:', char.name, err);
@@ -536,13 +539,13 @@ async function exportLinksNow(chars) {
 async function bulkExport() {
     const selection = CoreAPI.getSelection();
     if (!selection.count) return;
-    return CoreAPI.getSetting('exportAsLinks') ? bulkExportLinks(selection) : bulkExportPngs(selection);
+    return CoreAPI.getSetting('exportAsLinks') ? bulkExportLinks(selection) : bulkExportFiles(selection);
 }
 
-// the selection's cards (or provider links) in the export window, with progress and a Cancel between files
-async function bulkExportPngs(selection = CoreAPI.getSelection()) {
+// the selection's card files (or provider links) in the export window, with progress and a Cancel between files
+async function bulkExportFiles(selection = CoreAPI.getSelection()) {
     if (!selection.count) return;
-    await CoreAPI.getModule('batch-transfer')?.runCardsExport?.(selection, 'png');
+    await CoreAPI.getModule('batch-transfer')?.runCardsExport?.(selection, cardFileFormat());
 }
 
 async function bulkExportLinks(selection = CoreAPI.getSelection()) {
@@ -644,10 +647,10 @@ async function bulkDeleteCharacters(target) {
 }
 
 async function exportCharacter(char) {
-    let format = 'png';
+    let format = cardFileFormat();
     if (CoreAPI.getSetting('exportAsLinks')) {
         if (providerLinkUrl(char)) format = 'links';
-        else CoreAPI.showToast('Character has no provider link - exporting PNG', 'info');
+        else CoreAPI.showToast(`Character has no provider link - exporting ${format === 'charx' ? 'CHARX' : 'PNG'}`, 'info');
     }
 
     let result = null;
@@ -674,7 +677,7 @@ export default {
     // Bulk actions - exposed for multi-select toolbar + batch-transfer chooser
     bulkToggleFavorites,
     bulkExport,
-    bulkExportPngs,
+    bulkExportFiles,
     bulkExportLinks,
     bulkDelete
 };

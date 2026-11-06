@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Chat Timeline, the server half: a character's chats as one tree, folded with the client's own model
 // file and answered as runs.
 import { createTrie, buildSegments, toWire, matchesQuery, snippetAround } from '../client/graph.js';

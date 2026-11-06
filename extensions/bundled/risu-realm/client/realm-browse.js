@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // RisuAI Realm, the browse view; a card's definition lives only in its download, so the preview shows
 // what the Realm shows.
 import {

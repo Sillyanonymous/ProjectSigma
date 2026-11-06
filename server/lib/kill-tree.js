@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 export function killTree(proc, signal) {
     if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
     try {
-        if (process.platform === 'win32' && proc.pid) spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+        if (process.platform === 'win32' && proc.pid) spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
         else proc.kill(signal);
     } catch { /* already gone */ }
 }

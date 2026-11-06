@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // RisuAI Realm, the server half: a download fetched into a stage, so the page never carries a charx
 // (some pass 150 MB).
 import { realmIdOf } from '../client/realm-id.js';

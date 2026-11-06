@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The Realm's endpoints and shapes. The hub answers any origin, so the page reads it; the download is
 // the server half's.
 import { fetchWithProxy, readJsonClassified } from '/modules/providers/provider-utils.js';

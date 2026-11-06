@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The Trackers definition editor, a dialog on the library's canon since it opens from Settings too.
 // Every write spells its route here.
 import { KINDS, UPDATES, ROLES, TONES, DEFAULT_PROMPT, validateDefinition, normalizeDefinition, clone, updateOf } from './model.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // a Realm character's id, one grammar for both halves (the server imports ../client/realm-id.js)
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

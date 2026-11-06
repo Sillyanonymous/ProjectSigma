@@ -7523,6 +7523,20 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
 }
 .cl-confirm-note-danger i { color: var(--cl-error-pale); }
 
+/* outside the scrolling body, so the switch holding the buttons stays in view however long the message */
+.cl-confirm-overlay .cl-confirm-acks { flex-shrink: 0; }
+
+/* a statement the reader switches on before the confirm button works */
+.cl-confirm-ack {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) 0;
+    font-size: var(--font-sm);
+    line-height: 1.45;
+    cursor: pointer;
+}
+
 @keyframes clConfirmFadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -8924,6 +8938,16 @@ html.cl-mobile .persona-edit-desc { font-size: var(--mobile-input-size); }
     font-size: var(--font-xs);
     overflow-wrap: anywhere;
 }
+
+/* an extension's site names a host and path of any length, so its Check and its hint wrap instead of running past the group */
+.settings-action-btn.browser-ext-site-btn,
+.settings-hint.browser-ext-site-hint {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: start;
+    max-width: 100%;
+    min-width: 0;
+}
 .settings-status-badge.active {
     color: var(--cl-success);
     background: rgba(var(--cl-success-rgb), 0.1);
@@ -8982,6 +9006,13 @@ html.cl-mobile .persona-edit-desc { font-size: var(--mobile-input-size); }
 .ext-refresh-btn {
     margin-left: auto;
 }
+/* a shown Check for Updates already takes the free space, so the refresh sits beside it */
+.ext-refresh-btn:not([hidden]) ~ .ext-refresh-btn {
+    margin-left: 0;
+}
+/* a phone says Check for Updates in words, where an icon has no title to read */
+.ext-check-label { display: none; }
+html.cl-mobile .ext-check-label { display: inline; margin-left: var(--space-xs); }
 .ext-row {
     background: var(--cl-ghost-faint);
     border: 1px solid var(--cl-ghost-mid);
@@ -9090,6 +9121,8 @@ html:not(.cl-mobile) .ext-row.has-settings:not(.is-open) .ext-row-section { disp
     color: var(--cl-error-pale);
     overflow-wrap: anywhere;
 }
+/* a waiting update's own button, for a phone whose row folds its verbs away */
+.ext-row-update { display: none; }
 .ext-row-actions {
     flex-shrink: 0;
     display: flex;
@@ -9163,6 +9196,9 @@ html.cl-mobile .ext-row:not(.is-open) .ext-row-verbs,
 html.cl-mobile .ext-row:not(.is-open) .ext-row-section,
 html.cl-mobile .ext-row:not(.is-open) .ext-row-inspect { display: none; }
 html.cl-mobile .ext-row.is-open .ext-row-desc { -webkit-line-clamp: unset; }
+/* the row's own Update button says the update, so the chip would say it twice */
+html.cl-mobile .ext-row-update { display: block; margin-top: var(--space-sm); }
+html.cl-mobile .ext-chip-update { display: none; }
 /* quiet verbs, recommender-style: invisible at rest, wake with the row, land on hover */
 .ext-row-verb {
     opacity: 0;
@@ -9283,6 +9319,10 @@ html.cl-mobile .ext-row-verb,
 .ext-chip-error {
     color: var(--cl-error-pale);
     background: rgba(var(--cl-error-rgb), 0.12);
+}
+.ext-chip-update {
+    color: var(--accent-hover);
+    background: rgba(var(--accent-rgb), 0.12);
 }
 .ext-empty {
     text-align: center;
@@ -9553,7 +9593,7 @@ html.cl-mobile .cl-cwin-fold-summary {
     padding: var(--space-sm);
 }
 
-/* a hint saying a saved value does not apply now */
+/* a hint saying a saved value does not apply now, or warning about what a group's controls do */
 .settings-hint.settings-hint-warn {
     color: var(--cl-warning-pale);
     opacity: 1;

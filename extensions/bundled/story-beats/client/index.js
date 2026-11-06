@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Story Beats, the client half: the conversation's Story Beats window, commands any extension may run, and the settings.
 import { SETTING_LIMITS, settingNumber, STRATEGIES } from './limits.js';
 import { mountBeats } from './panel.js';

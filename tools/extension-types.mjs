@@ -29,6 +29,27 @@ const block = (name, doc, entries) => [
     '',
 ];
 
+/** The authors' guide's rules for a coding assistant, word for word, at the top of the file an assistant reads first. */
+export const AGENT_RULES = [
+    'Leave the app\'s own code as it is: don\'t edit its files, don\'t patch it while it runs, and don\'t propose app changes that read, name, special-case or depend on a particular extension, the bundled ones included.',
+    'Before building anything, look for an existing hook, slot, event, command or store function in `extensions.d.ts`.',
+    'If nothing fits, don\'t work around the app: write a request in the shape of "Asking for a new door", and build the rest inside the extension.',
+    'Write the app\'s data only through `ctx.stores`. Keep your own data in your settings, your storage, your `x_<your id>_` tables, or your slot on a card or a chat.',
+    'Don\'t read or write another extension\'s tables, settings, storage or chat slot.',
+    'When relaying a maintainer\'s answer, keep what was agreed apart from what was declined: "looking into a generic door" doesn\'t mean "the app will build our feature".',
+];
+
+// a rule as comment lines of at most 100 columns, its later lines indented under its first word
+const ruleLines = (rule) => {
+    const out = [];
+    let line = '// -';
+    for (const word of rule.split(' ')) {
+        if (line.length + 1 + word.length > 100) { out.push(line); line = '//  '; }
+        line += ` ${word}`;
+    }
+    return [...out, line];
+};
+
 /** What this generator writes, for a check that the committed file is current. */
 export function generate() {
     const base = fs.readFileSync(baseFile, 'utf8').replace(/\r\n/g, '\n').trimEnd();
@@ -39,6 +60,10 @@ export function generate() {
         '// the two contracts (app/modules/ext-contract.js, server/lib/ext-contract.js), the change',
         '// feed\'s vocabulary (server/db/changes.js) and the model layer\'s lists (server/llm/errors.js,',
         '// server/llm/vocabulary.js). Edit those, then run npm run docs.',
+        '',
+        '// Firm rules for a coding assistant working on an extension ("Working with the app" in the',
+        '// extension authors\' guide says why):',
+        ...AGENT_RULES.flatMap(ruleLines),
         '',
         base,
         '',

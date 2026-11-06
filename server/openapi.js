@@ -69,6 +69,20 @@ const PRONOUNS = {
 };
 // what a write may send of them: any of the five, each trimmed and held to 64 characters
 const PRONOUNS_WRITE = { ...PRONOUNS, description: 'any of the five forms, each a string of at most 64 characters once trimmed; a form left out is left alone (empty on a create), and an empty string clears one back to its they/them word' };
+// a git install at one commit, and what an update check found for each
+const EXT_AT = { type: 'object', properties: { commit: { ...STR, description: 'short commit id' }, version: { ...STR, nullable: true, description: "the manifest's version there" } } };
+const EXT_UPDATES = { type: 'object', properties: {
+    checkedAt: { type: 'number', nullable: true, description: 'when the last check ended, epoch ms; null before the first' },
+    checking: { type: 'boolean', description: 'a check is running now' },
+    extensions: { type: 'array', items: { type: 'object', properties: {
+        id: STR, name: STR, version: { ...STR, nullable: true, description: 'the installed version' },
+        available: { type: 'boolean', description: 'the repository holds a commit the install is not on' },
+        commit: { ...STR, description: 'the installed commit, short' },
+        nextCommit: { ...STR, description: "the repository's latest commit, short, when available" },
+        nextVersion: { ...STR, nullable: true, description: 'the version that commit names, when available' },
+        error: { ...STR, description: 'why the repository could not be asked' },
+    } } },
+} };
 // the keys the native shape gives a message, refused on a stored row (they would be exported as JSONL)
 const RESERVED_KEYS_REFUSED = 'an element carrying seq or raw (the native shape\'s keys: send each message\'s raw)';
 
@@ -284,11 +298,24 @@ export function buildOpenApiSpec(version) {
                     responses: { 200: json({ type: 'object' }, '{id}'), 400: err('bad url / clone, archive or manifest failure / a manifest needing a newer extension api than the server speaks (the error names both versions) / extensions disabled'), 403: err('admin required'), 409: err('already installed'), 413: err('the archive is larger than the upload limit') },
                 },
             },
+            '/api/extensions/updates': {
+                get: {
+                    tags: ['extensions'], summary: "The last update check (admin): for each git-installed extension, whether its repository holds a newer commit, the version that commit's manifest names, or why the repository could not be asked. Held in memory, so checkedAt is null until a check runs after a restart",
+                    responses: { 200: json(EXT_UPDATES, '{checkedAt, checking, extensions}'), 403: err('admin required') },
+                },
+            },
+            '/api/extensions/updates/check': {
+                post: {
+                    tags: ['extensions'], summary: "Ask every git-installed extension's repository for its latest commit now (admin), or answer a check younger than maxAge milliseconds as it is; a second ask joins the one running. It never updates anything. What changed since the last check is announced as extension records",
+                    requestBody: body({ type: 'object', properties: { maxAge: { type: 'number', description: 'answer the last check as it is when it is younger than this many milliseconds; 0 or absent always asks' } } }),
+                    responses: { 200: json(EXT_UPDATES, '{checkedAt, checking, extensions}'), 400: err('maxAge not a number of 0 or more / extensions disabled'), 403: err('admin required') },
+                },
+            },
             '/api/extensions/{id}/update': {
                 post: {
-                    tags: ['extensions'], summary: 'git pull --ff-only a git-installed extension (admin). A server half keeps running the code it booted with, so restart is true when the extension has one (its inventory serverState reads restart until the server restarts)',
+                    tags: ['extensions'], summary: "Bring a git-installed extension to its repository's latest commit (admin): the install is reset to that commit, so a rewritten history or an edit inside its folder never blocks an update. A new version that would not load is refused and the install stays as it was. updated is false when it was on that commit already. A server half keeps running the code it booted with, so restart is true when an update reached an extension that has one (its inventory serverState reads restart until the server restarts)",
                     parameters: [{ name: 'id', in: 'path', required: true, schema: STR }],
-                    responses: { 200: json({ type: 'object', properties: { id: STR, restart: { type: 'boolean' } } }, '{id, restart}'), 400: err('not a git install / pull failed / extensions disabled'), 403: err('admin required'), 404: err('no such extension') },
+                    responses: { 200: json({ type: 'object', properties: { id: STR, updated: { type: 'boolean' }, from: EXT_AT, to: EXT_AT, restart: { type: 'boolean' } } }, '{id, updated, from, to, restart}'), 400: err('not a git install / the repository could not be reached / the new version would not load / extensions disabled'), 403: err('admin required'), 404: err('no such extension') },
                 },
             },
             '/api/extensions/{id}': {
@@ -400,9 +427,9 @@ export function buildOpenApiSpec(version) {
                         200: json({ type: 'object', properties: {
                             stageId: STR,
                             format: { ...STR, enum: ['png', 'charx'] },
-                            card: { type: 'object', description: 'the card normalized ({spec, spec_version, data}), as the import would store it' },
+                            card: { type: 'object', description: 'the card normalized ({spec, spec_version, data}), as the import would store it: a PNG carrying both a V3 and a V2 copy answers the V3 one, with any field only the V2 copy holds kept beside it' },
                             picture: { type: 'boolean', description: 'whether the file carries a picture; a charx without one imports with a plain placeholder' },
-                            media: { type: 'array', items: { type: 'object', properties: { name: STR, size: INT } }, description: "a charx's other embedded files, the gallery rows the commit adds (a name the character already holds is skipped)" },
+                            media: { type: 'array', items: { type: 'object', properties: { name: STR, size: INT } }, description: "a charx's other embedded files, or the files a card PNG points at with __asset:N (RisuAI's chara-ext-asset_ chunks, which stay in the picture too): the gallery rows the commit adds (a name the character already holds is skipped)" },
                         } }),
                         400: err('empty body; or a charx the archive reader refuses: a member past the import cap, members unpacking past the archive budget, or a corrupt member (its local header, its checksum, or inflating past its declared size)'), 413: err('a card PNG past 100 MB'), 415: err('a Content-Type other than application/octet-stream, image/png, image/webp or image/jpeg (a form or JSON post is refused before it is read); or a body that is neither a card PNG nor a charx'), 422: err('no card in the file, or a card.json that is not JSON'),
                     },
@@ -502,9 +529,9 @@ export function buildOpenApiSpec(version) {
             },
             '/api/characters/{id}/export': {
                 get: {
-                    tags: ['characters'], summary: 'Card PNG with chunks freshly embedded from the library (tags/links/identity re-emitted)',
-                    parameters: [pathId()],
-                    responses: { 200: { description: 'PNG attachment', content: { 'image/png': { schema: { type: 'string', format: 'binary' } } } }, 404: err('not found') },
+                    tags: ['characters'], summary: 'The character as a card file freshly built from the library (tags/links/identity re-emitted): a card PNG, or a CHARX holding the card as V3 with its picture and every gallery file',
+                    parameters: [pathId(), p('format', { ...STR, enum: ['png', 'charx'] }, "png (the default) or charx. A charx of a V2 card says V3 in its card.json and records what the export added in extensions.cl.charx, so importing that file back gives the card as stored (identical); a file another app has changed since comes in as the V3 card it became")],
+                    responses: { 200: { description: 'the file as an attachment', content: { 'image/png': { schema: { type: 'string', format: 'binary' } }, 'application/zip': { schema: { type: 'string', format: 'binary', description: 'a charx: card.json, assets/icon/image/main.png and one assets/other/... member per gallery file' } } } }, 400: err("a format other than png or charx"), 404: err('not found') },
                 },
             },
             '/api/characters/{id}/media': {
@@ -516,7 +543,7 @@ export function buildOpenApiSpec(version) {
                 },
                 post: {
                     tags: ['media'], summary: 'Upload media (raw body). A content-hash duplicate is not stored again ({skipped:true, reason: "content", duplicateOf}), and when that item has no sourceUrl the supplied one is recorded on it ({adopted:true}), so a later lookup by that url finds it',
-                    parameters: [pathId(), p('name', STR, 'display name'), p('sourceUrl', STR, 'origin url; dedupes by url hash')],
+                    parameters: [pathId(), p('name', STR, "display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension"), p('sourceUrl', STR, 'origin url; dedupes by url hash')],
                     requestBody: { required: true, content: { '*/*': { schema: { type: 'string', format: 'binary' } } } },
                     responses: { 200: json(ref('Media'), 'row, or {skipped:true} when already present'), 400: err('empty body, or a name with nothing usable as a filename'), 404: err('character not found') },
                 },
@@ -564,7 +591,7 @@ export function buildOpenApiSpec(version) {
                 },
                 post: {
                     tags: ['media'], summary: 'Add a picture or video to the chat\'s gallery (raw body). Bytes the chat holds already answer that attachment, created false, and nothing is stored again. An image\'s size is read and kept',
-                    parameters: [pathId(), p('name', STR, 'display name')],
+                    parameters: [pathId(), p('name', STR, "display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension")],
                     requestBody: { required: true, content: { '*/*': { schema: { type: 'string', format: 'binary' } } } },
                     responses: { 200: json({ type: 'object', properties: { attachment: ref('Attachment'), created: { type: 'boolean' } } }), 400: err('empty body, or a name with nothing usable as a filename'), 404: err('chat not found'), 415: err('neither a picture nor video') },
                 },
@@ -578,7 +605,7 @@ export function buildOpenApiSpec(version) {
                 },
                 post: {
                     tags: ['creator'], summary: 'Add a picture to the session (raw body), for a turn to name. Bytes the session holds already answer that attachment, created false. An image\'s size is read and kept; the pictures go with the session when it is deleted',
-                    parameters: [pathId('id', 'session uuid'), p('name', STR, 'display name')],
+                    parameters: [pathId('id', 'session uuid'), p('name', STR, "display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension")],
                     requestBody: { required: true, content: { '*/*': { schema: { type: 'string', format: 'binary' } } } },
                     responses: { 200: json({ type: 'object', properties: { attachment: ref('Attachment'), created: { type: 'boolean' } } }), 400: err('empty body, or a name with nothing usable as a filename'), 404: err('no such session'), 415: err('neither a picture nor video') },
                 },
@@ -597,7 +624,7 @@ export function buildOpenApiSpec(version) {
                 post: {
                     tags: ['backgrounds'],
                     summary: 'Upload image bytes (raw body). Deduped library-wide by content hash, and by url hash when ?sourceUrl= is given',
-                    parameters: [p('name', STR, 'display name; the extension decides the stored format'), p('sourceUrl', STR, 'provenance, and makes a re-run idempotent')],
+                    parameters: [p('name', STR, "display name; the bytes decide what the file is (a video named .png is refused), and the stored name takes their extension"), p('sourceUrl', STR, 'provenance, and makes a re-run idempotent')],
                     requestBody: { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } },
                     responses: { 200: json(ref('Background'), 'row, or {skipped:true, reason:"url"|"content", duplicateOf} when the bytes are already held'), 400: err('empty body'), 415: err('not an image') },
                 },
@@ -2321,6 +2348,7 @@ export function buildOpenApiSpec(version) {
                     serverState: { type: 'string', enum: ['loaded', 'failed', 'restart', 'removed'], description: 'present when it has a server half' },
                     serverError: STR,
                     serverHooks: { type: 'array', items: { type: 'object', properties: { kind: STR, id: STR } }, description: 'what the server half registered: its store guards, pipeline filters, macros, prompt blocks, job schedules and change listener, each group in the order the half registered it' },
+                    browserConsumers: { type: 'array', items: { type: 'object', properties: { id: STR, name: STR, origin: STR, fetchPrefix: STR, warmPath: STR } }, description: 'the hosted-browser consumers the server half registered, each id <extension>:<name>, served by /api/provider-services/browser/* only for accounts that switched the extension on' },
                     serverQuery: {
                         type: 'object',
                         description: 'the query doors the server half declared over its own tables',

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { guardedFetch, readBodyCapped } from './net-guard.js';
-import { safeFileName } from './stored-file.js';
+import { safeFileName, sniffMediaExt } from './stored-file.js';
 import { httpError } from './http-error.js';
 
 // Remote media intake for the gallery and the backgrounds: one copy of the size cap, timeout and type gate.
@@ -23,32 +23,17 @@ export function urlHashFor(url) {
     return crypto.createHash('sha256').update(String(url)).digest('hex');
 }
 
-// what the first bytes say, for CDNs that say nothing: an octet-stream with a bare path would never thumbnail
-const MAGIC = [
-    { ext: '.png', test: b => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
-    { ext: '.jpg', test: b => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-    { ext: '.gif', test: b => b.length > 6 && b.toString('latin1', 0, 4) === 'GIF8' },
-    { ext: '.webp', test: b => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP' },
-    { ext: '.wav', test: b => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE' },
-    { ext: '.avif', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^avi[fs]/.test(b.toString('latin1', 8, 12)) },
-    { ext: '.m4a', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && b.toString('latin1', 8, 12) === 'M4A ' },
-    { ext: '.mp4', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' },
-    { ext: '.webm', test: b => b.length > 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 },
-    { ext: '.ogg', test: b => b.length > 4 && b.toString('latin1', 0, 4) === 'OggS' },
-    { ext: '.mp3', test: b => b.length > 3 && (b.toString('latin1', 0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) },
-];
-function sniffMediaExt(bytes) {
-    if (!Buffer.isBuffer(bytes)) return null;
-    for (const m of MAGIC) if (m.test(bytes)) return m.ext;
-    return null;
-}
-
 // the url's last segment, its extension from the content type when missing, else from the bytes
 export function displayNameForUrl(url, contentType, bytes = null) {
     let base = 'media';
     try {
         const segs = new URL(url).pathname.split('/').filter(Boolean);
-        if (segs.length) base = decodeURIComponent(segs[segs.length - 1]).slice(0, 60);
+        if (segs.length) {
+            const seg = decodeURIComponent(segs[segs.length - 1]);
+            // shortened at its stem, so a long name keeps the extension that says what it is
+            const ext = /^\.[a-z0-9]{1,5}$/i.test(path.extname(seg)) ? path.extname(seg) : '';
+            base = seg.length > 60 ? `${seg.slice(0, seg.length - ext.length).slice(0, 60 - ext.length)}${ext}` : seg;
+        }
     } catch { /* a bad url or escape keeps the generic name */ }
     base = safeFileName(base, 'media');
     if (!path.extname(base)) {

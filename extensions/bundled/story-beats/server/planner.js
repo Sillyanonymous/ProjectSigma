@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The planner: beats drafted from the reader's notes or from a planning conversation, read back as drafts.
 import { WEIGHTS, TITLE_MAX, DIRECTIVE_MAX, ADD_MAX } from '../client/limits.js';
 import { clip, titleOf } from './beats.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The director: what it is asked, how its answer is read, and what a pass changes in a chat's beats.
 import { REASON_MAX, within } from '../client/limits.js';
 import { clip, markOf, nextReady, setStatus, titleOf, waitsOn } from './beats.js';

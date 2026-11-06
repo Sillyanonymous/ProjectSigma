@@ -15,6 +15,7 @@ import { invalidateBackgroundThumbs } from './thumbs.js';
 import { boolOf } from '../lib/query-params.js';
 // dimensions ride the row so the picker can quote a choice's memory cost
 import { imageSizeOf } from '../lib/image-size.js';
+import { nameForBytes } from '../lib/stored-file.js';
 
 export const backgroundsRouter = Router();
 
@@ -121,8 +122,9 @@ backgroundsRouter.post('/', express.raw({ type: () => true, limit: '200mb' }), a
     const db = req.db;
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'file body required' });
 
-    const name = req.query.name || 'background.png';
-    if (!isImageFile(String(name))) {
+    // named by its bytes before the gate, so a video named .png is refused and a picture with a cut name is not
+    const name = nameForBytes(String(req.query.name || 'background.png'), req.body);
+    if (!isImageFile(name)) {
         return res.status(415).json({ error: 'backgrounds are images only' });
     }
     // the store's refusals carry statusCode 400 and measure never throws; anything

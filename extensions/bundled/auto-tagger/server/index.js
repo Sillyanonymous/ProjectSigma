@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Auto-tagger, the server half: one job per account asks the account's model for tags and keeps
 // them for the client half.
 import { settingNumber } from '../client/limits.js';

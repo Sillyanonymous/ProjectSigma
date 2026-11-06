@@ -80,6 +80,13 @@ html.cl-mobile .sprite-item:hover .video-play-overlay,
 html.cl-mobile .sprite-item:hover .video-play-overlay i {
     transform: none !important;
 }
+/* a long-press opens the file's menu, never the browser's own picture callout or a text selection */
+html.cl-mobile .gallery-media-container .sprite-item,
+html.cl-mobile .gallery-media-container .audio-item {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
 
 /* Buttons & interactive elements */
 html.cl-mobile .cl-btn-primary:hover,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Map styles: the presets, the reader's own style over one of them, and the checks an imported style passes.
 
 export const FORMAT = 'sigma-chat-timeline-style';

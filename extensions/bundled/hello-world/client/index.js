@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: 0BSD
+// SPDX-License-Identifier: MIT
 
 // The Hello World tour, the client half: every page door once, small. The conversation hooks wait
 // for the "hooks" setting; docs/guide.html#extensions is the guide.

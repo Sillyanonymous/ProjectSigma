@@ -163,7 +163,8 @@ assistantRouter.post('/sessions/:sid/generate', async (req, res) => {
         const built = buildAssistantPrompt(db, session.chatId, { transcript: turns, ...builderSettings(db), pictures: sessionPictures(db, pictureScope(db, session), turns, profileId) });
         snapshot = built.context;
 
-        const body = { messages: built.messages, stream: true, purpose: 'assistant' };
+        // llm.request is told the chat and the session on both rounds, as reply.final is
+        const body = { messages: built.messages, stream: true, purpose: 'assistant', scope: { chatId: session.chatId, sessionId: session.id } };
         if (profileId) body.profileId = profileId;
         const params = withReplyCeiling(db, req.body?.params, profileId);
         if (params) body.params = params;

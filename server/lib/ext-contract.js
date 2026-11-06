@@ -13,7 +13,7 @@ export const PIPELINE_TYPES = freeze({
     'lore.candidates': { value: 'ExtensionBook[]', context: LORE_FACTS },
     'lore.activate': { value: 'PlacedLore', context: LORE_FACTS },
     'prompt.final': { value: 'PromptMessage[]', context: 'PipelineFacts & { chatId: string; charId: string; trigger: PromptTrigger; dryRun: boolean }' },
-    'llm.request': { value: 'LlmRequest', context: 'PipelineFacts & { purpose: LlmPurpose; profileKind: string; profileId: string | null; extension?: string }' },
+    'llm.request': { value: 'LlmRequest', context: 'PipelineFacts & { purpose: LlmPurpose; profileKind: string; profileId: string | null; extension?: string; chatId?: string; sessionId?: string; charId?: string; mode?: string }' },
     'reply.final': {
         value: 'string',
         context: "PipelineFacts & ({ surface: 'chat'; chatId: string; mode: 'append' | 'regenerate' | 'swipe' | 'continue'; interrupted: string | null }"

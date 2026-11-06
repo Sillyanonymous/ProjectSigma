@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Inspired by Pathweaver for SillyTavern by mattjaybe (MIT); thanks to its author.
 
 // What Next Beat asks a model: a set of suggestions as JSON lines, or one hidden surprise, the story quoted as data.

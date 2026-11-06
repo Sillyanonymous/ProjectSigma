@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Midnight's palettes: the four it ships, Auto's hours, and what a palette writes. Pure, no DOM.
 
 export const SKIES = ['stars', 'aurora', 'embers', 'haze', 'none'];

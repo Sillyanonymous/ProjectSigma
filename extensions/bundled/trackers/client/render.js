@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // A tracker's state as HTML, derived from its fields: the kind is the component, the role the weight.
 // Every value goes through esc.
 import { filled, updateOf, UNLISTED } from './model.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The timeline view for the window and the dialog: the server's folded tree as cards over SVG lines, a panel and a style.
 import { fromWire, layout, pathOf, segmentsAt, excerpt } from './graph.js';
 import { COLOURS, PATTERNS, CORNERS, FONTS, PRESETS, OWN, resolveStyle, applyStyle, normalizeOwn, exportOwn, parseImport, hexOf } from './style.js';

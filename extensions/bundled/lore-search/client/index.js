@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Lore Search, the client half: one dialog over the server's index, from the topbar, a chat's options
 // and a lore entry.
 const ID = 'lore-search';

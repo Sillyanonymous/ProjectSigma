@@ -440,21 +440,29 @@ export async function toggleBotbooruFavorite(postId) {
 }
 
 /**
- * The account's favorites list: a BARE ARRAY of posts[]-shaped items with
- * kind:"character", STRING tags (normalized here), and no uploader_id. No
- * total field; hasMore = full page.
- * @returns {Promise<Array|null>}
+ * One page of the account's favorites, by offset (at most 100 a page).
+ * @param {number|string} userId
+ * @param {{limit?: number, offset?: number, hideAi?: boolean}} [opts]
+ * @returns {Promise<{items: Array, raw: number, total: number|null}|null>} the character entries, the page's entry count
+ *   with lorebooks (the next offset), the list's size
  */
 export async function fetchBotbooruFavorites(userId, opts = {}) {
     const qs = new URLSearchParams({
-        page: String(opts.page ?? 1),
-        per_page: String(opts.perPage ?? 40),
+        fav_limit: String(opts.limit ?? 40),
+        fav_offset: String(opts.offset ?? 0),
     });
+    if (opts.hideAi) qs.set('hide_ai', 'true');
     try {
         const resp = await fetchWithProxy(`${BOTBOORU_BASE}/api/users/${userId}/favorites?${qs}`, { headers: getBotbooruHeaders(true) });
         const data = await resp.json();
-        if (!Array.isArray(data)) return null;
-        return data.filter(item => item?.kind === 'character').map(normalizeBotbooruPostTags);
+        // the older bare array (no total) still reads, as the site's own profile page reads it
+        const entries = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : null;
+        if (!entries) return null;
+        return {
+            items: entries.filter(item => item?.kind === 'character').map(normalizeBotbooruPostTags),
+            raw: entries.length,
+            total: Array.isArray(data) || !Number.isFinite(data.total) ? null : data.total,
+        };
     } catch (e) {
         CoreAPI.debugLog('[Botbooru] favorites list fetch failed:', e.message);
         return null;

@@ -46,7 +46,9 @@ EXTENSIONS
 
 Extensions written against the documented extension API are your own work.
 They are not derivative works of this software, and you may license and
-distribute them on whatever terms you choose.
+distribute them on whatever terms you choose. The same holds for programs that
+use this software only through its documented HTTP API, such as scripts,
+automations and tools of your own.
 
 The following extension materials are also licensed to you under the BSD
 Zero Clause License (0BSD), whose text is at the end of this file:
@@ -54,14 +56,19 @@ Zero Clause License (0BSD), whose text is at the end of this file:
   - the type definitions in docs/extensions.d.ts;
   - the code examples in the "Writing extensions" part of the user guide,
     docs/guide.html;
-  - the sample extension in extensions/bundled/hello-world/;
   - the extension test kit in tools/extension-kit/.
 
 You may copy them into an extension and distribute them on any terms. The
 restrictions above do not apply to them.
 
-The other extensions under extensions/bundled/ are part of this software and
-are covered by this license.
+The extensions under extensions/bundled/, the sample extension in
+extensions/bundled/hello-world/ among them, are licensed to you under the MIT
+License, whose text is at the end of this file and in each extension's own
+LICENSE file. You may copy, change and distribute them on its terms, which ask
+that the copyright notice and the license text stay with every copy. The
+restrictions above do not apply to them. A third-party component inside one of
+them, such as the Marcellus font in extensions/bundled/theme-midnight/, keeps
+its own license (see the NOTICE file).
 
 THIRD-PARTY COMPONENTS
 
@@ -74,7 +81,7 @@ TERMINATION
 If you breach this license, your rights under it end. They are reinstated if
 you stop the breach within 30 days of learning about it, unless the copyright
 holder has told you in writing that they are not. This does not affect the
-0BSD license for the extension materials listed under EXTENSIONS.
+0BSD and MIT licenses for the extension materials listed under EXTENSIONS.
 
 RESERVATION
 
@@ -105,3 +112,28 @@ SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
 RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
 CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+MIT LICENSE
+
+This applies to the extensions under extensions/bundled/ named under
+EXTENSIONS.
+
+Copyright (c) 2026 Sillyanonymous
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

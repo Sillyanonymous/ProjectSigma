@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Next Beat, the client half: its verbs above the composer or in a window, the suggestions, Director, Surprise Me,
 // the styles manager and the settings.
 import {

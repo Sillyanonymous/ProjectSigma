@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Σ's field: soft pools of the palette's light drifting slowly behind the app, still under reduced motion.
 
 const TAU = Math.PI * 2;

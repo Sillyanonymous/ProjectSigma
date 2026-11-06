@@ -242,6 +242,7 @@ function openExportChooser() {
     setTitle(`Export ${count.toLocaleString()} Character${count !== 1 ? 's' : ''}`);
 
     const linksDefault = !!CoreAPI.getSetting('exportAsLinks');
+    const charxDefault = !linksDefault && CoreAPI.getSetting('exportFormat') === 'charx';
     const defaultBadge = '<span class="btx-default-badge">Default</span>';
     const body = document.getElementById('batchTransferBody');
     const footer = document.getElementById('batchTransferFooter');
@@ -259,8 +260,15 @@ function openExportChooser() {
             <button class="btx-option" data-mode="pngs">
                 <i class="fa-solid fa-file-image"></i>
                 <div class="btx-option-text">
-                    <div class="btx-option-title">Character Cards (.png) ${linksDefault ? '' : defaultBadge}</div>
+                    <div class="btx-option-title">Character Cards (.png) ${linksDefault || charxDefault ? '' : defaultBadge}</div>
                     <div class="btx-option-desc">Download each card as a separate PNG file</div>
+                </div>
+            </button>
+            <button class="btx-option" data-mode="charx">
+                <i class="fa-solid fa-file-zipper"></i>
+                <div class="btx-option-text">
+                    <div class="btx-option-title">Character Cards with Gallery (.charx) ${charxDefault ? defaultBadge : ''}</div>
+                    <div class="btx-option-desc">Download each card as a V3 CHARX file holding its picture and every gallery file</div>
                 </div>
             </button>
             <button class="btx-option" data-mode="links">
@@ -285,7 +293,7 @@ function openExportChooser() {
                 runBundleExport(CoreAPI.getSelection(), includeWorlds);
                 return;
             }
-            runCardsExport(CoreAPI.getSelection(), mode === 'links' ? 'links' : 'png');
+            runCardsExport(CoreAPI.getSelection(), mode === 'links' || mode === 'charx' ? mode : 'png');
         });
     });
 

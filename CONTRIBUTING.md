@@ -23,10 +23,12 @@ events, storage, settings, windows, views, themes and providers. An extension is
 your own work under whatever license you choose, it survives updates, and it
 needs nobody's approval to ship. If you want the app to behave differently for
 you or for others, write an extension; the extension authors' guide is the last
-part of [the user guide](https://sillyanonymous.github.io/ProjectSigma/guide.html#extensions), and the sample in
-`extensions/bundled/hello-world/` is free to copy.
+part of [the user guide](https://sillyanonymous.github.io/ProjectSigma/guide.html#extensions), and every
+extension in `extensions/bundled/` is MIT licensed and free to copy, the sample in `extensions/bundled/hello-world/`
+among them.
 
-If the extension API cannot reach what you need, that is worth an issue too.
+If the extension API cannot reach what you need, that is worth an issue too: "Asking for a new door"
+in the extension authors' guide says what a request needs to get built.
 
 ## About the license
 

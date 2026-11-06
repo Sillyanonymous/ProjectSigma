@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Memory's numeric settings' ranges, loaded by both halves (the server imports ../client/limits.js), so
 // one change moves both.
 

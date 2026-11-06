@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Memory, the server half: each chat's running summary, written by the account's model and placed in
 // its prompt.
 import crypto from 'node:crypto';

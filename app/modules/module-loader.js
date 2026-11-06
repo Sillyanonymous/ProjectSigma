@@ -564,6 +564,28 @@ async function initModuleSystem() {
     } catch (err) {
         console.error('[ModuleLoader] Extension jobs failed:', err);
     }
+    // installed extensions with a newer version, for an admin who switched on hearing about them
+    try {
+        const extUpdates = await import('./extension-updates.js');
+        void CoreAPI.settingsReady().then(() => extUpdates.startExtensionUpdates({
+            apiRequest: CoreAPI.apiRequest,
+            readAnswer: CoreAPI.readAnswer,
+            getSetting: CoreAPI.getSetting,
+            escapeHtml: CoreAPI.escapeHtml,
+            showToast: CoreAPI.showToast,
+            registerNotificationSection: CoreAPI.registerNotificationSection,
+            refreshNotificationsUI: CoreAPI.refreshNotificationsUI,
+            openExtensions: () => {
+                // Settings brings the first row with an update into view once its list is drawn
+                document.dispatchEvent(new CustomEvent('cl-extension-updates-focus'));
+                CoreAPI.openSettingsToSection('extensions');
+            },
+            // Settings' Installed rows show the same answer the bell does
+            onChange: (state) => document.dispatchEvent(new CustomEvent('cl-extension-updates-changed', { detail: state })),
+        }));
+    } catch (err) {
+        console.error('[ModuleLoader] Extension updates failed:', err);
+    }
 
     window.debugLog?.('[ModuleLoader] Module system ready');
 }

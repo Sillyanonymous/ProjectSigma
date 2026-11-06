@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Translator, the client half: a message's stored translation, the verbs that ask for one, and each
 // chat's choices in a window.
 

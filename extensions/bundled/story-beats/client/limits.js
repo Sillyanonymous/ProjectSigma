@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Story Beats' ranges and words, loaded by both halves (the server imports ../client/limits.js), so one change moves both.
 
 export const SETTING_LIMITS = Object.freeze({

@@ -1980,7 +1980,7 @@ https://jannyai.com/characters/uuid_slug
                                 <div class="settings-group" id="browserFields">
                                     <div class="settings-group-title"><i class="fa-solid fa-window-restore"></i> Browser</div>
                                     <div class="settings-row">
-                                        <span class="settings-hint">Some sites are only reachable from a real browser: Cloudflare challenges everything else, and passing that challenge earns a <code>cf_clearance</code> cookie no server-side request can hold. Project Σ can run and manage that browser for you, or drive one you host yourself. Every provider that needs one shares it; today those are JanitorAI and JannyAI, and each one's section below has a Check that says whether the browser gets through to its site.</span>
+                                        <span class="settings-hint">Some sites are only reachable from a real browser: Cloudflare challenges everything else, and passing that challenge earns a <code>cf_clearance</code> cookie no server-side request can hold. Project Σ can run and manage that browser for you, or drive one you host yourself. Every provider that needs one shares it; today those are JanitorAI and JannyAI, and each one's section below has a Check that says whether the browser gets through to its site. Extensions you switch on can use it too; any sites they register are listed under Extension Sites below. That list is what each extension declared, not a limit: an extension has full access.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsBrowserMode">Browser:</label>
@@ -2012,6 +2012,13 @@ https://jannyai.com/characters/uuid_slug
                                     <div class="settings-row">
                                         <div id="browserChecks" class="browser-check-list hidden"></div>
                                     </div>
+                                </div>
+                                <div class="settings-group hidden" id="browserExtSites">
+                                    <div class="settings-group-title"><i class="fa-solid fa-puzzle-piece"></i> Extension Sites</div>
+                                    <div class="settings-row">
+                                        <span class="settings-hint">Extensions you switch on drive this browser on these sites, with every login it holds there. Press <strong>Check</strong> to see whether the browser gets through. Extensions are third-party code with full access: see <strong>Settings</strong> &gt; <strong>Extensions</strong>.</span>
+                                    </div>
+                                    <div id="browserExtSiteList"></div>
                                 </div>
                             </div>
                         </details>
@@ -2809,7 +2816,7 @@ https://jannyai.com/characters/uuid_slug
                                     <input type="search" id="extGitUrlInput" class="glass-input" placeholder="https:// git repository url" autocomplete="off">
                                     <button class="settings-action-btn primary" id="extInstallBtn"><i class="fa-solid fa-download"></i> Install</button>
                                 </div>
-                                <span class="settings-hint">Clones the repository into the server's extensions folder. An extension runs with full app privileges for every user on this server; install only code you trust. Folders placed in extensions/installed by hand appear after a refresh.</span>
+                                <span class="settings-hint">Clones the repository into the server's extensions folder. Install only what you have checked, and treat every update as new code. Folders placed in extensions/installed by hand appear after a refresh.</span>
                             </div>
                             <div class="settings-row">
                                 <div class="ext-install-row">
@@ -2822,7 +2829,17 @@ https://jannyai.com/characters/uuid_slug
                         <div class="settings-group">
                             <div class="settings-group-title ext-group-title"><i class="fa-solid fa-list"></i> Installed
                                 <span class="ext-count" id="extCountPill"></span>
+                                <button class="glass-btn icon-only ext-refresh-btn" id="extCheckUpdatesBtn" title="Check for Updates" aria-label="Check for Updates" hidden><i class="fa-solid fa-cloud-arrow-down"></i></button>
                                 <button class="glass-btn icon-only ext-refresh-btn" id="extRefreshBtn" title="Refresh both lists"><i class="fa-solid fa-rotate"></i></button>
+                            </div>
+                            <div class="settings-row">
+                                <span class="settings-hint settings-hint-warn"><i class="fa-solid fa-triangle-exclamation"></i> Installed extensions are third-party code with full access to this server, every account on it and the computer it runs on. Project Σ does not review them and is not responsible for what they do. Switch one on only if you trust it.</span>
+                            </div>
+                            <div class="settings-row" id="extNotifyUpdatesRow" hidden>
+                                <label>
+                                    <input type="checkbox" class="cl-switch-input" id="settingsExtNotifyUpdates"><span class="cl-switch" aria-hidden="true"></span> Tell me when an extension has an update
+                                </label>
+                                <span class="settings-hint">Once a day while the app is open, each installed extension's repository is asked whether it has a newer version, and what it finds shows in the notifications. Nothing is ever updated for you: Update on an extension's row does that.</span>
                             </div>
                             <div id="extListBody"></div>
                         </div>
@@ -3021,6 +3038,14 @@ https://jannyai.com/characters/uuid_slug
                                     <input type="checkbox" class="cl-switch-input" id="settingsExportAsLinks"><span class="cl-switch" aria-hidden="true"></span> Export as provider links
                                 </label>
                                 <span class="settings-hint">Copy provider URLs to clipboard instead of downloading PNGs. Unlinked characters are skipped. Useful for sharing or reimporting in another session.</span>
+                            </div>
+                            <div class="settings-row">
+                                <label for="settingsExportFormat">Export Character downloads:</label>
+                                <select id="settingsExportFormat" class="glass-select">
+                                    <option value="png" data-icon="fa-solid fa-file-image" selected>Card PNG</option>
+                                    <option value="charx" data-icon="fa-solid fa-file-zipper">CHARX (Card and Gallery)</option>
+                                </select>
+                                <span class="settings-hint">A card PNG holds the card and its picture. A CHARX holds the card as V3 with its picture and every gallery file, for apps that read V3 cards. Importing your own CHARX back gives the card exactly as it was.</span>
                             </div>
                         </div>
                     </div>

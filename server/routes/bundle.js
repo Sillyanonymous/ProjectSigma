@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import crypto from 'node:crypto';
 import { queryCharacters, getCharacter, buildExportCard } from '../db/characters-store.js';
 import { listChatsForChar, composeChatJsonl } from '../db/chats-store.js';
 import { listAttachments, attachmentDirFor, chatPictureLinks } from '../db/attachments-store.js';
@@ -11,38 +9,15 @@ import { listWorlds, getWorld } from '../db/worlds-store.js';
 import { listWorldsFor } from '../db/world-links-store.js';
 import { writeCardChunks } from '../lib/png-card.js';
 import { importBundle } from '../importer/bundle.js';
-import { ZipFileWriter } from '../lib/zip.js';
+import { ZipFileWriter, packPath, dropPack, sendPack } from '../lib/zip.js';
 import { boolOf, listOf } from '../lib/query-params.js';
 import { characterFilterOpts } from '../lib/character-query.js';
 import { requireArchiveType } from '../lib/request-guard.js';
-import { UUID_SOURCE } from '../lib/uuid.js';
 import { safeFileName } from '../lib/stored-file.js';
 
 export const bundleRouter = Router();
 
 const safeName = s => safeFileName(s, 'character');
-
-function tmpFile(suffix) {
-    return path.join(os.tmpdir(), `cl-bundle-${crypto.randomUUID()}${suffix}`);
-}
-
-function dropPack(zipPath) {
-    try { fs.unlinkSync(zipPath); } catch { /* gone already, or held open: the boot sweep takes it */ }
-}
-
-// a crash leaves a pack's temp file behind, so boot sweeps them (a day is past any live download)
-const STALE_PACK_MS = 24 * 60 * 60 * 1000;
-const PACK_NAME_RE = new RegExp(`^cl-bundle-${UUID_SOURCE}\\.zip$`);
-export function sweepStalePacks() {
-    const cutoff = Date.now() - STALE_PACK_MS;
-    let names;
-    try { names = fs.readdirSync(os.tmpdir()); } catch { return; }
-    for (const name of names) {
-        if (!PACK_NAME_RE.test(name)) continue;
-        const full = path.join(os.tmpdir(), name);
-        try { if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full); } catch { /* gone, or still held open */ }
-    }
-}
 
 // Manifest v2: the character uuid is the only identity
 // how many skipped ids the answer names (a header, so bounded); the count stays exact
@@ -74,7 +49,7 @@ bundleRouter.post('/export', async (req, res) => {
         } while (after);
     }
 
-    const zipPath = tmpFile('.zip');
+    const zipPath = packPath();
     const writer = new ZipFileWriter(zipPath);
     const manifest = { version: 2, generator: 'project-sigma', exportedAt: Date.now(), characters: [], worlds: [] };
     const worldNames = new Set();
@@ -186,15 +161,11 @@ bundleRouter.post('/export', async (req, res) => {
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="cl-transfer-${stamp}.zip"`);
-    res.setHeader('Content-Length', fs.statSync(zipPath).size);
     // the archive is whole before the headers go: the counts are exact, the skipped ids up to SKIPPED_NAMED
     res.setHeader('X-Bundle-Count', String(manifest.characters.length));
     res.setHeader('X-Bundle-Skipped-Count', String(skipped.length));
     res.setHeader('X-Bundle-Skipped', skipped.slice(0, SKIPPED_NAMED).join(','));
-    const stream = fs.createReadStream(zipPath);
-    stream.pipe(res);
-    stream.on('close', () => dropPack(zipPath));
-    stream.on('error', () => dropPack(zipPath));
+    sendPack(res, zipPath);
 });
 
 // a uid list knob (only, copy): absent or empty is no filter at all
@@ -205,7 +176,7 @@ bundleRouter.post('/import', (req, res, next) => {
     if (!requireArchiveType(req, res, ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'])) return;
     // read before the body streams: a junk flag is refused by name, never read as true
     const worlds = boolOf(req.query.worlds, 'worlds') ?? true;
-    const zipPath = tmpFile('.zip');
+    const zipPath = packPath();
     const out = fs.createWriteStream(zipPath);
     req.pipe(out);
     out.on('error', next);

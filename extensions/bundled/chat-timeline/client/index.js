@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Chat Timeline: every chat with a character as one branching tree, in a conversation window and in a
 // dialog of the app's own.
 import { mountTimeline } from './view.js';

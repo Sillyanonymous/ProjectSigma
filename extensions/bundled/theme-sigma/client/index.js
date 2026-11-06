@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Σ's client half: the palette, the look, the field, the tint, the details' hero and its settings.
 import { BUILT_IN, NAME_MAX, builtIn, parseChoice, tokensOf, tintTokens, dominantColor, hexToRgb, cleanPalette } from './palettes.js';
 import { createField } from './field.js';

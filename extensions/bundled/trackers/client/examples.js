@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Inspired by kaldigo's Tracker for SillyTavern; thanks to its author.
 
 // The four examples a reader starts a tracker from, complete on purpose: copied and switched on, one

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Anthropic, the server half: the Messages API as a kind of connection, translated to and from the
 // app's neutral vocabulary.
 

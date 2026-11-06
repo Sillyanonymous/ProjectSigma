@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Inspired by Pathweaver for SillyTavern by mattjaybe (MIT); thanks to its author.
 
 // How Next Beat reads a model's answer: a JSON object a suggestion, whole or streamed, and plain text when a model wrote none.

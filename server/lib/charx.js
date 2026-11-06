@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { readZipIndex, readZipEntryAsync, checkArchive, ZIP_IMPORT_LIMITS } from './zip.js';
+import { readZipIndex, readZipEntryAsync, checkArchive, ZIP_IMPORT_LIMITS, ZipFileWriter } from './zip.js';
 import { httpError } from './http-error.js';
+import { kindForFile, safeFileName } from './stored-file.js';
 
 // Character Card V3's zip container. embeded:// is the spec's spelling; a RisuAI download may put a JPEG ahead of the zip
 
@@ -73,4 +74,45 @@ export function storedAssets(assets) {
         out.push(a);
     }
     return out;
+}
+
+// ================================================================ writing one
+
+const ICON_PATH = 'assets/icon/image/main.png';
+const KIND_DIR = { image: 'image', video: 'video', audio: 'audio' };
+
+/**
+ * The assets a charx export lists: its icon, the card's entries that point outside the container, one per gallery file.
+ * @param {object[]|undefined} cardAssets the stored card's data.assets
+ * @param {{ displayName: string, path: string }[]} media the gallery files on disk
+ * @returns {{ assets: object[], readBack: object[], files: { path: string, source: string }[] }} readBack: the list as an import keeps it
+ */
+export function charxExportAssets(cardAssets, media) {
+    const own = (Array.isArray(cardAssets) ? cardAssets : []).filter(a => typeof a?.uri === 'string'
+        && !a.uri.startsWith(EMBEDDED) && !a.uri.startsWith('__asset:') && !(a.type === 'icon' && a.name === 'main'));
+    const taken = new Set([ICON_PATH.toLowerCase()]);
+    const files = media.map((m) => {
+        const ext = path.posix.extname(m.displayName).slice(1).toLowerCase();
+        const stem = ext ? m.displayName.slice(0, -(ext.length + 1)) : m.displayName;
+        const dir = `assets/other/${KIND_DIR[kindForFile(m.displayName)] || 'other'}`;
+        const base = safeFileName(m.displayName, 'file');
+        let entry = `${dir}/${base}`;
+        for (let n = 2; taken.has(entry.toLowerCase()); n++) entry = `${dir}/${n}-${base}`;
+        taken.add(entry.toLowerCase());
+        return { path: entry, source: m.path, asset: { type: 'other', uri: `${EMBEDDED}${entry}`, name: stem, ext } };
+    });
+    const assets = [{ type: 'icon', uri: `${EMBEDDED}${ICON_PATH}`, name: 'main', ext: 'png' }, ...own, ...files.map(f => f.asset)];
+    return { assets, readBack: storedAssets(assets), files: files.map(({ path: p, source }) => ({ path: p, source })) };
+}
+
+/** Write a charx to zipPath: card.json, the icon, then each file read from disk, yielding between files. */
+export async function writeCharx(zipPath, card, icon, files) {
+    const writer = new ZipFileWriter(zipPath);
+    writer.add('card.json', Buffer.from(JSON.stringify(card), 'utf8'));
+    writer.add(ICON_PATH, icon);
+    for (const f of files) {
+        writer.add(f.path, f.source);
+        await new Promise(r => setImmediate(r));
+    }
+    writer.finalize();
 }

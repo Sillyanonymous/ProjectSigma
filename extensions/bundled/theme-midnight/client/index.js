@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Midnight's client half: the palette on the page's root, the sky, the tint, its settings section,
 // commands and menu verb.
 import { BUILT_IN, AUTO_PHASES, SKIES, SKY_LABELS, DENSITIES, NAME_MAX, builtIn, parseChoice, phaseAt, tokensOf, tintTokens, dominantColor, hexToRgb, cleanPalette } from './palettes.js';

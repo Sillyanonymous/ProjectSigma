@@ -6,8 +6,8 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { requireAdmin } from '../auth.js';
 import { config } from '../config.js';
-import { listExtensions, installFromGit, installFromZip, ZIP_INSTALL_LIMITS, updateExtension, removeExtension, extensionEnabledFor, setExtensionEnabledFor, forgetExtensionEverywhere } from '../lib/extensions.js';
-import { serverStateOf, markServerHalf, readyHalfFor } from '../lib/extensions-server.js';
+import { listExtensions, installFromGit, installFromZip, ZIP_INSTALL_LIMITS, updateExtension, removeExtension, extensionEnabledFor, setExtensionEnabledFor, forgetExtensionEverywhere, extensionUpdates, checkExtensionUpdates } from '../lib/extensions.js';
+import { serverStateOf, markServerHalf, readyHalfFor, browserConsumerRegistrations } from '../lib/extensions-server.js';
 import { serverHookRegistrations, serverHookStats } from '../lib/ext-hooks.js';
 import { forEachOpenLibrary } from '../db/database.js';
 import { emitChange } from '../db/changes.js';
@@ -28,6 +28,8 @@ function inventoryRow(req, row) {
     if (st?.error) out.serverError = st.error;
     const hooks = [...serverHookRegistrations(row.id), ...scheduleRegistrations(row.id)];
     if (hooks.length) out.serverHooks = hooks;
+    const consumers = browserConsumerRegistrations(row.id);
+    if (consumers.length) out.browserConsumers = consumers;
     const calls = serverHookStats(row.id, req.userHandle);
     if (calls.length) out.serverCalls = calls;
     // the query doors it declared: projection fields on the list rows, advanced-filter fields, sort keys
@@ -49,6 +51,28 @@ extensionsRouter.get('/jobs', (req, res) => {
 
 extensionsRouter.delete('/jobs', (req, res) => {
     res.json({ cleared: clearFinishedJobs(req.userHandle) });
+});
+
+// the last update check, for the admins who can act on it; before /:id as /jobs is
+extensionsRouter.get('/updates', requireAdmin, (req, res) => {
+    res.json(extensionUpdates());
+});
+
+// what a check found per install, so tabs hear only a change
+const updateKey = (e) => `${e.available}:${e.nextCommit || ''}:${e.error || ''}`;
+
+// asks every git install's repository now, or answers a check younger than maxAge; it never updates anything
+extensionsRouter.post('/updates/check', requireAdmin, async (req, res, next) => {
+    if (!config.extensionsEnabled) return res.status(400).json({ error: 'extensions are disabled (CL_EXTENSIONS=off)' });
+    const maxAge = req.body?.maxAge ?? 0;
+    if (!Number.isFinite(maxAge) || maxAge < 0) return res.status(400).json({ error: 'maxAge must be a number of milliseconds, 0 or more' });
+    try {
+        const before = new Map(extensionUpdates().extensions.map(e => [e.id, updateKey(e)]));
+        const out = await checkExtensionUpdates({ maxAge });
+        const changed = out.extensions.filter(e => before.get(e.id) !== updateKey(e)).map(e => e.id);
+        if (changed.length) forEachOpenLibrary((db) => emitChange(db, { entity: 'extension', op: 'updated', ids: changed, fields: ['update'] }));
+        res.json(out);
+    } catch (e) { next(e); }
 });
 
 // a queued or running job is cancelled, a finished one dismissed
@@ -109,8 +133,10 @@ extensionsRouter.post('/:id/update', requireAdmin, async (req, res, next) => {
         const out = await updateExtension(req.params.id);
         // a mounted half runs the code it booted with until restart; a bundled half under the same id isnt its to mark
         const row = listExtensions().find(r => r.id === out.id && !r.bundled) || { id: out.id, bundled: false };
-        const restart = serverStateOf(row) !== undefined || !!row.server;
+        const restart = out.updated && (serverStateOf(row) !== undefined || !!row.server);
         if (restart) markServerHalf(out.id, 'restart');
+        // every tab re-reads the row, its update gone
+        if (out.updated) forEachOpenLibrary((db) => emitChange(db, { entity: 'extension', op: 'updated', ids: [out.id], fields: ['update'] }));
         res.json({ ...out, restart });
     } catch (e) { next(e); }
 });

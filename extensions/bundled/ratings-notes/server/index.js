@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Ratings and Notes, the server half: one row per rated character, a projection, a filter field and a sort.
 import { NOTE_MAX, BATCH_MAX } from '../client/limits.js';
 

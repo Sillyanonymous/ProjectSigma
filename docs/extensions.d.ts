@@ -5,6 +5,21 @@
 // feed's vocabulary (server/db/changes.js) and the model layer's lists (server/llm/errors.js,
 // server/llm/vocabulary.js). Edit those, then run npm run docs.
 
+// Firm rules for a coding assistant working on an extension ("Working with the app" in the
+// extension authors' guide says why):
+// - Leave the app's own code as it is: don't edit its files, don't patch it while it runs, and
+//   don't propose app changes that read, name, special-case or depend on a particular extension,
+//   the bundled ones included.
+// - Before building anything, look for an existing hook, slot, event, command or store function in
+//   `extensions.d.ts`.
+// - If nothing fits, don't work around the app: write a request in the shape of "Asking for a new
+//   door", and build the rest inside the extension.
+// - Write the app's data only through `ctx.stores`. Keep your own data in your settings, your
+//   storage, your `x_<your id>_` tables, or your slot on a card or a chat.
+// - Don't read or write another extension's tables, settings, storage or chat slot.
+// - When relaying a maintainer's answer, keep what was agreed apart from what was declined:
+//   "looking into a generic door" doesn't mean "the app will build our feature".
+
 // Types for Σ extensions: the client entry's ctx (api 2) and every command, event, conversation
 // hook and slot the app opens to it, and the server half's ctx with its pipelines and store
 // guards. The guide is docs/guide.html#extensions.
@@ -31,7 +46,7 @@ export interface ClientExtension {
 /** What init is handed: api 2, the part promised not to break casually. */
 export interface ExtensionContext {
     /** The host's extension api, '<major>.<minor>': the minor counts the batches of doors added within the major. */
-    readonly apiVersion: '2.6';
+    readonly apiVersion: '2.7';
     /** Your row in the server's inventory: its reading of your manifest.json. */
     readonly manifest: ManifestRow;
     /** The facade the app's own modules use, every function it exports; not typed here. What you register through onViewEnter, onViewExit, onCharactersDeleted, storeWatch or onJob answers its removal and is undone when you are switched off; a notifications section from registerNotificationSection answers its node and is taken out then too, or sooner by removeNotificationSection(id); its id is yours alone, held under your extension's name, so it never replaces the app's section or another extension's. */
@@ -49,6 +64,7 @@ export interface ExtensionContext {
     readonly chats: ExtensionChats;
     readonly ui: ExtensionUi;
     readonly providers: ExtensionProviders;
+    readonly browser: ExtensionBrowser;
 }
 
 export interface ExtensionCommands {
@@ -210,6 +226,11 @@ export interface ExtensionUi {
 export interface ExtensionProviders {
     /** A character source: its ProviderBase instance and its provider row. Needs provider: true in manifest.json. */
     register(provider: ProviderLike, manifestRow?: ProviderRow): Promise<void>;
+}
+
+export interface ExtensionBrowser {
+    /** A same-origin fetch inside the hosted browser through a consumer your server half registered by this name; throws an AbortError when signal aborts. */
+    fetch(name: string, path: string, opts?: { headers?: Record<string, string>; method?: 'GET' | 'POST'; jsonBody?: object; timeoutMs?: number; signal?: AbortSignal | null }): Promise<{ status: number; body: string; retryAfter: string }>;
 }
 
 // ======== what the lists answer ========
@@ -592,6 +613,8 @@ export interface ManifestRow extends InventoryRow {
     readonly serverError?: string;
     /** What your server half registered, as the inspector lists it. */
     readonly serverHooks?: ReadonlyArray<{ kind: string; id: string }>;
+    /** The hosted-browser consumers its server half registered (ctx.browser.consumer), each <id>:<name>. */
+    readonly browserConsumers?: ReadonlyArray<{ id: string; name: string; origin: string; fetchPrefix: string; warmPath: string }>;
     /** What its hooks cost this account, costliest first. */
     readonly serverCalls?: ReadonlyArray<{ name: string; count: number; errors: number; refused: number; lastError: string; totalMs: number; p50: number; p95: number }>;
     /** The query doors it declared: list projections, advanced-filter fields and sort keys. */
@@ -653,6 +676,7 @@ export interface ServerContext {
     readonly chatSlot: ServerChatSlot;
     readonly messages: ServerMessages;
     readonly helpers: ServerHelpers;
+    readonly browser: ServerBrowser;
     /** Routine logging behind that user's debug toggle, tagged with your id. */
     debugLog(req: ExtensionRequest, ...args: unknown[]): void;
     /** Your extension-global scratch directory, never served; made on first ask. */
@@ -685,6 +709,11 @@ export interface ServerHelpers {
     sameHostFetch(url: URL | string, init?: RequestInit, opts?: { maxRedirects?: number }): Promise<Response>;
     /** The path a wildcard route matched. */
     wildcardPath(req: ExtensionRequest): string;
+}
+
+export interface ServerBrowser {
+    /** A hosted-browser consumer of your own: an https origin and the path prefix fetches stay under; answers its id, <your id>:<name>. */
+    consumer(spec: { name: string; origin: string; fetchPrefix: string; warmPath?: string; ready?: ((page: unknown) => Promise<void>) | null }): string;
 }
 
 /** Your two folders as handles: synchronous, for small files; path(name) hands a large one or an engine's own file its path. */
@@ -1305,7 +1334,7 @@ export interface Commands {
         answers: { affected: string[]; failed: Array<{ id: string; error: string }> };
     };
     'character.export': {
-        args: ({ ids: string[] } | { filter: string }) & { format?: 'png' | 'links' | 'bundle'; worlds?: boolean; signal?: AbortSignal; onProgress?: (done: number) => void };
+        args: ({ ids: string[] } | { filter: string }) & { format?: 'png' | 'charx' | 'links' | 'bundle'; worlds?: boolean; signal?: AbortSignal; onProgress?: (done: number) => void };
         answers: { exported: string[]; skipped: string[]; skippedCount?: number; bytes?: number } | { count: number; skippedCount: number; bytes?: number };
     };
     'character.import': {
@@ -1489,7 +1518,7 @@ export interface Pipelines {
     };
     'llm.request': {
         value: LlmRequest;
-        context: PipelineFacts & { purpose: LlmPurpose; profileKind: string; profileId: string | null; extension?: string };
+        context: PipelineFacts & { purpose: LlmPurpose; profileKind: string; profileId: string | null; extension?: string; chatId?: string; sessionId?: string; charId?: string; mode?: string };
     };
     'reply.final': {
         value: string;

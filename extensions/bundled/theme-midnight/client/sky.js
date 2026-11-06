@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Midnight's sky: one canvas behind the app, at most 30 frames a second, still under reduced motion,
 // stopped while the tab is hidden.
 

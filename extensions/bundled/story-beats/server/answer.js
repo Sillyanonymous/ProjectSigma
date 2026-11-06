@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // How Story Beats reads a model's answer: its reasoning taken out, and what to say of one cut off at its token ceiling.
 
 const TAGS = 'think|thinking|thought|reasoning|reflection|scratchpad';

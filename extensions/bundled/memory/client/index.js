@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Memory, the client half: the open chat's memory in a conversation window, and the settings.
 import { SETTING_LIMITS, settingNumber } from './limits.js';
 

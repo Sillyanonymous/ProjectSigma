@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Story Beats' model: a chat's beats as its slot keeps them, their lifecycle, and the direction the prompt carries.
 import crypto from 'node:crypto';
 import { WEIGHTS, STATUSES, TITLE_MAX, DIRECTIVE_MAX, REASON_MAX, beatCount } from '../client/limits.js';

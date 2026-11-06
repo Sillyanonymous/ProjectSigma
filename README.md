@@ -58,7 +58,10 @@ guide is one page that opens in any browser: online at that link, in the app und
 - <img src="docs/assets/icons/puzzle-piece.svg" width="16" height="16" alt=""> [Extensions](https://sillyanonymous.github.io/ProjectSigma/guide.html#using-extensions). A bundled set (memory summaries, trackers, a translator, story beats,
   ratings and notes, library stats, and more), each off until you switch it on, and installable extensions from a git
   URL or a zip. The bundled set is vibe-coded: written entirely by AI as a stress test of the extension API, not reviewed
-  line by line, and meant as examples rather than core features.
+  line by line, and meant as examples rather than core features. An installed extension runs with full access to your
+  server, every account on it and the computer it runs on, and Project Σ does not review extensions or answer for what
+  they do: read [Before you install anything](https://sillyanonymous.github.io/ProjectSigma/guide.html#using-extensions/before-you-install-anything)
+  first.
 - <img src="docs/assets/icons/database.svg" width="16" height="16" alt=""> [Built to be trusted with your library](https://sillyanonymous.github.io/ProjectSigma/guide.html#data-and-backups). Optional accounts with a separate library
   each, scheduled database backups, a consistency checker, and a migration that brings a whole SillyTavern library
   across and verifies it. See also [accounts](https://sillyanonymous.github.io/ProjectSigma/guide.html#accounts-and-server).
@@ -98,7 +101,9 @@ npm install
 npm start
 ```
 
-Or let a launcher do it: double-click `Start Project Sigma.bat` on Windows, or run `sh start.sh` on Linux and macOS. It
+Or let a launcher do it: double-click `Start Project Sigma.bat` on Windows, or run `sh start.sh` on Linux, macOS and
+Android (in Termux; [the guide](https://sillyanonymous.github.io/ProjectSigma/guide.html#getting-started/running-it-on-an-android-phone)
+has the steps). It
 checks that Node.js is new enough, installs what Project Σ needs on the first run and again after an update, starts the
 server and opens your browser on it (`openBrowser: false` in `data/server.yaml` keeps it from that). Keep its window open
 while you use the app; closing it stops the server.
@@ -274,4 +279,5 @@ Source available for personal use; see [LICENSE](LICENSE) for the terms and [NOT
 components. The license is deliberately narrow for now, to protect the time and work behind the project while it finds
 its feet; the intent is to loosen it in the future. Forking the repository on GitHub to run and change for yourself is
 fine; a fork keeps this license, so it stays non-commercial and is not re-hosted or published elsewhere. The extension
-API is the open door: extensions are your own work, under whatever license you choose.
+API is the open door: extensions are your own work, under whatever license you choose, and the bundled extensions are
+MIT, so any of them can be the start of yours.

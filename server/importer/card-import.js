@@ -7,7 +7,7 @@ import { addCharSnapshot } from '../db/versions-store.js';
 import { invalidateAvatarThumbs } from '../lib/thumb-cache.js';
 import { PROVIDER_NAMESPACES, extractProviderLinks } from '../lib/provider-namespaces.js';
 import { readCardChunks, stripCardChunks } from '../lib/png-card.js';
-import { normalizeCard, cardSourceOf, liftOpState, IDENTITY_EXTENSIONS } from '../lib/card-normalize.js';
+import { normalizeCard, opStateSourceOf, liftOpState, IDENTITY_EXTENSIONS } from '../lib/card-normalize.js';
 import { parseStDate } from '../lib/st-date.js';
 import { runHook } from '../db/hook-seat.js';
 import { httpError } from '../lib/http-error.js';
@@ -53,8 +53,11 @@ function sameBytes(file, bytes) {
     try { return fs.readFileSync(file).equals(Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)); } catch { return false; }
 }
 
-/** Import one card from its parts ({ v3, v2 } and a picture, or a function answering one); opState lands only on a new row. */
-export function importCharacterParts(db, parsed, picture, { sourceName = null, filenameIsIdentity = false, excludeTags = [], createdAtFallback = null, force = null, paths = null, resolved = null, source = null, opState = null } = {}) {
+/**
+ * Import one card from its parts ({ v3, v2 } and a picture, or a function answering one); opState lands only on a new row.
+ * @param {object} [opts] raw: the file's own payloads when parsed is an amendment, so its root op state (date, favourite) still lands
+ */
+export function importCharacterParts(db, parsed, picture, { sourceName = null, filenameIsIdentity = false, excludeTags = [], createdAtFallback = null, force = null, paths = null, resolved = null, source = null, opState = null, raw = null } = {}) {
     if (!paths) throw new Error('importCharacterParts needs the importing users paths (opts.paths)');
     const normalized = normalizeCard(parsed);
     if (!normalized) return null;
@@ -65,8 +68,7 @@ export function importCharacterParts(db, parsed, picture, { sourceName = null, f
         return { excluded: true };
     }
 
-    const rawSource = cardSourceOf(parsed);
-    const lifted = liftOpState(card, rawSource);
+    const lifted = liftOpState(card, opStateSourceOf(raw || parsed));
 
     const aliases = [];
     // a filename is identity only where it was one (the ST directory): two cards both saved as character.png are two characters

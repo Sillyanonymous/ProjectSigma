@@ -144,7 +144,7 @@ const BB_FILTER_SECTIONS = [
     { key: 'content', title: 'Content:' },
 ];
 
-let bbFavoritesPage = 0;
+let bbFavoritesFetched = 0;
 let bbUploaderFetched = 0; // raw uploads consumed, the next uploadOffset (bbPosts is the FILTERED list)
 
 // tri-state tags both ride q (-tag excludes server-side); the client filter drops excludes again since APIs drift
@@ -1906,17 +1906,16 @@ async function loadBotbooruPosts(reset = false, append = false) {
             if (thisToken !== bbLoadToken || !bbDelegatesInitialized) return;
             if (myId == null) throw new Error('Could not resolve your Botbooru account (token may have expired)');
 
-            const page = append ? bbFavoritesPage + 1 : 1;
-            const items = await fetchBotbooruFavorites(myId, { page, perPage: 40 });
+            const page = await fetchBotbooruFavorites(myId, { limit: 40, offset: append ? bbFavoritesFetched : 0, hideAi: bbFeatureState.hideAi || undefined });
             if (thisToken !== bbLoadToken || !bbDelegatesInitialized) return;
-            await botbooruBrowseView.probeHits(items);
-            if (!items) throw new Error('Could not load your favorites');
-
-            // hasMore rides the RAW page fullness; filtering below only shrinks display
-            const fullPage = items.length === 40;
+            await botbooruBrowseView.probeHits(page?.items ?? null);
+            if (!page) throw new Error('Could not load your favorites');
+            const { items } = page;
             items.forEach(p => { p._isFavorited = true; });
 
+            // the filter bar shrinks the DISPLAY only; the raw count keeps the next offset honest
             const filtered = applyBotbooruClientQuery(items);
+            bbFavoritesFetched = (append ? bbFavoritesFetched : 0) + page.raw;
 
             if (append) {
                 const existing = new Set(bbPosts.map(p => p.id));
@@ -1926,9 +1925,9 @@ async function loadBotbooruPosts(reset = false, append = false) {
             } else {
                 bbPosts = filtered;
             }
-            bbFavoritesPage = page;
-            bbTotal = bbPosts.length;
-            bbHasMore = fullPage;
+            // a list without its total (the older bare array) has more while its pages come back full
+            bbTotal = page.total ?? bbFavoritesFetched;
+            bbHasMore = page.raw > 0 && (page.total == null ? page.raw === 40 : bbFavoritesFetched < page.total);
 
             renderBotbooruGrid(append);
             botbooruBrowseView.updateLoadMoreVisibility('botbooruLoadMore', bbHasMore, bbPosts.length > 0);

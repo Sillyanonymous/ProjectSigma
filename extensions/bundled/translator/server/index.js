@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Translator, the server half: the account's model translates a message, stored on it beside a digest;
 // a chat's choices live in its metadata.
 

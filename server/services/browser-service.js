@@ -202,7 +202,7 @@ let _managedFailedAt = 0;
  * Spawn the browser; a JS file (CL_BROWSER=launcher.mjs) runs under this node with the same flags.
  */
 function spawnBrowser(binary, args, opts) {
-    if (/\.(?:mjs|cjs|js)$/i.test(binary)) return spawn(process.execPath, [binary, ...args], opts);
+    if (/\.(?:mjs|cjs|js)$/i.test(binary)) return spawn(process.execPath, [binary, ...args], { ...opts, windowsHide: true });
     return spawn(binary, args, opts);
 }
 
@@ -492,15 +492,26 @@ function isSoftwareRenderer(renderer) {
 const _consumers = new Map();
 
 /**
- * @param {{id: string, origin: string, fetchPrefix: string, warmPath?: string, ready?: Function|null}} spec warmPath: where the warm page parks and the probe looks (default /)
- * @returns {{id: string, origin: string, fetchPrefix: string, warmPath: string, ready: Function|null}}
+ * @param {{id?: string, name?: string, origin: string, fetchPrefix: string, warmPath?: string, ready?: Function|null, owner?: string|null, refuses?: Function|null}} spec
+ *   a core one names its id, an extension's its owner and name (id <owner>:<name>); warmPath defaults to /; refuses(req): why not
+ * @returns {{id: string, name: string, origin: string, fetchPrefix: string, warmPath: string, ready: Function|null, owner: string|null, refuses: Function|null}}
  */
-export function registerBrowserConsumer({ id, origin, fetchPrefix, warmPath = '/', ready = waitForCloudflare } = {}) {
-    assertSlugId('browser consumer', id);
+export function registerBrowserConsumer({ id, name, origin, fetchPrefix, warmPath = '/', ready = waitForCloudflare, owner = null, refuses = null } = {}) {
+    if (owner === null) {
+        assertSlugId('browser consumer', id);
+        name = id;
+    } else {
+        // the extension loader checked the owner's grammar; a colon is no slug's, so this id never takes a core one
+        if (typeof owner !== 'string' || !owner || owner.includes(':')) throw new Error(`browser consumer: owner '${owner}' is not an extension id`);
+        if (id !== undefined) throw new Error(`extension '${owner}': a browser consumer is given a name, never an id`);
+        assertSlugId(`extension '${owner}' browser consumer name`, name);
+        id = `${owner}:${name}`;
+    }
+    if (refuses !== null && typeof refuses !== 'function') throw new Error(`browser consumer '${id}': refuses must be a function or null`);
     // the registry outlives an app instance (routes mounted twice in one process): the same spec is the same consumer
     const existing = _consumers.get(id);
     if (existing) {
-        if (existing.origin === origin && existing.fetchPrefix === fetchPrefix && existing.warmPath === warmPath && existing.ready === ready) return existing;
+        if (existing.origin === origin && existing.fetchPrefix === fetchPrefix && existing.warmPath === warmPath && existing.ready === ready && existing.owner === owner) return existing;
         throw new Error(`browser consumer '${id}' is already registered with another origin, prefix, warm path or ready hook`);
     }
     let parsed = null;
@@ -509,13 +520,26 @@ export function registerBrowserConsumer({ id, origin, fetchPrefix, warmPath = '/
     if (typeof fetchPrefix !== 'string' || !fetchPrefix.startsWith('/') || !fetchPrefix.endsWith('/')) throw new Error(`browser consumer '${id}': fetchPrefix must start and end with /`);
     if (typeof warmPath !== 'string' || !warmPath.startsWith('/')) throw new Error(`browser consumer '${id}': warmPath must start with /`);
     if (ready !== null && typeof ready !== 'function') throw new Error(`browser consumer '${id}': ready must be a function or null`);
-    const consumer = Object.freeze({ id, origin, fetchPrefix, warmPath, ready });
+    const consumer = Object.freeze({ id, name, origin, fetchPrefix, warmPath, ready, owner, refuses });
     _consumers.set(id, consumer);
     return consumer;
 }
 
 export function browserConsumer(id) { return _consumers.get(id) || null; }
 export function browserConsumerIds() { return [..._consumers.keys()]; }
+
+/** The consumers an extension registered, in registration order. */
+export function browserConsumersOf(owner) { return [..._consumers.values()].filter(c => c.owner === owner); }
+
+/** Drop an extension's consumers with its half, their parked pages closed, and a page still warming closed once it parks. */
+export function dropBrowserConsumers(owner) {
+    const gone = () => { /* a dead tab is gone already */ };
+    for (const c of browserConsumersOf(owner)) {
+        _consumers.delete(c.id);
+        for (const w of [..._warmPages.values()]) if (w.consumer.id === c.id) closeWarmPage(w.endpoint, w.consumer).catch(gone);
+        for (const [key, pending] of _warmPending) if (key.endsWith(`\n${c.id}`)) pending.then(w => closeWarmPage(w.endpoint, w.consumer), gone).catch(gone);
+    }
+}
 
 // ============================================================================================
 // Routes
@@ -536,6 +560,12 @@ function consumerOf(req, res) {
     const consumer = typeof id === 'string' ? browserConsumer(id) : null;
     if (!consumer) {
         res.status(400).json({ ok: false, error: 'consumer must name a registered browser consumer' });
+        return null;
+    }
+    // an extension's consumer answers as its own routes do: only while it runs, for an account that switched it on
+    const refusal = consumer.refuses?.(req) ?? null;
+    if (refusal) {
+        res.status(404).json({ ok: false, error: refusal });
         return null;
     }
     return consumer;

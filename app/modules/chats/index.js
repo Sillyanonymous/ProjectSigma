@@ -2702,7 +2702,8 @@ function convBeginEdit(seq, messageId = null) {
         convRevealNearest(wrap);
     });
     box.addEventListener('input', fit);
-    box.focus({ preventScroll: true });
+    // a phone's keyboard covers the page, and only the browser's own focus scroll keeps the box above it; a desktop keeps the list still
+    box.focus(CoreAPI.isMobileMode() ? undefined : { preventScroll: true });
     box.setSelectionRange(box.value.length, box.value.length);
 
     // a Cancel, a Save of nothing changed or one refused: the message stands as it was, so the close undoes the edit

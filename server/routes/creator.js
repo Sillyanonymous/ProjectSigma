@@ -213,7 +213,8 @@ creatorRouter.post('/sessions/:sid/generate', async (req, res) => {
         });
         snapshot = built.context;
 
-        const body = { messages: built.messages, stream: true, purpose: 'creator' };
+        // llm.request is told the session and its character, as reply.final is
+        const body = { messages: built.messages, stream: true, purpose: 'creator', scope: { sessionId: session.id, charId: session.charId } };
         if (profileId) body.profileId = profileId;
         const params = withReplyCeiling(db, req.body?.params, profileId);
         if (params) body.params = params;

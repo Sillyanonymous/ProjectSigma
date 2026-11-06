@@ -8,6 +8,9 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openPage } from './page.mjs';
+import { lintExtension, lintReport } from './lint.mjs';
+
+export { lintExtension, CHECKS } from './lint.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 // the server's modules read the data folder when first imported, so they load only after it is set
@@ -57,11 +60,18 @@ let started = false;
  * @param {Array<{ handle: string, password: string, admin?: boolean, displayName?: string }>} [opts.accounts] made before the boot, each signed in
  * @param {string} [opts.prefix] the temporary folder's name prefix
  * @param {(dataDir: string) => void | Promise<void>} [opts.setup] run on the data folder before the boot
+ * @param {boolean} [opts.lint] false skips the checks the kit runs on each extension's scripts before the boot
  */
-export async function startSigma({ extensions = [], accounts = null, prefix = 'sigma-kit', setup = null } = {}) {
+export async function startSigma({ extensions = [], accounts = null, prefix = 'sigma-kit', setup = null, lint = true } = {}) {
     if (started) throw new Error('startSigma: one server a process (the server reads its data folder once); run another test file for another');
-    // every folder is read before anything starts, so one the kit cannot install leaves this process free to start
+    // every folder is read and checked before anything starts, so one the kit refuses leaves this process free to start
     const folders = extensions.map(installable);
+    if (lint) {
+        for (const f of folders) {
+            const found = lintExtension(f.src);
+            if (found.length) throw new Error(lintReport(f.id, found));
+        }
+    }
     started = true;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
     const dataDir = path.join(tmpDir, 'data');

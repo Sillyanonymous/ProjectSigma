@@ -11,6 +11,7 @@ import { readZipIndex, readZipEntryAsync, checkArchive } from '../lib/zip.js';
 import { importCharacterBuffer } from './card-import.js';
 import { addAttachment, attachmentDirFor, setMessageAttachments } from '../db/attachments-store.js';
 import { imageSizeOf } from '../lib/image-size.js';
+import { nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
 
 function worldHash(data) {
@@ -223,9 +224,11 @@ function restoreEntry(db, c, { member, worlds, copyUids, paths, written }) {
 
     for (const file of c.galleryFiles || []) {
         const name = `gallery/${c.uid}/${file}`;
-        if (member(name) === null) continue;
-        if (mediaExistsByName(db, charId, file)) continue;
-        const item = addMediaFile(db, paths, charId, file, member(name));
+        const bytes = member(name);
+        if (bytes === null) continue;
+        // asked under the name the bytes earn, the one addMediaFile stores, so a second restore finds it
+        if (mediaExistsByName(db, charId, nameForBytes(file, bytes))) continue;
+        const item = addMediaFile(db, paths, charId, file, bytes);
         written.files.push(path.join(galleryDirFor(paths.galleryRoot, charId), item.file));
         tally.media++;
     }

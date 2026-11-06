@@ -9,12 +9,13 @@ import {
     defineHook, addHook, listHooks,
 } from './ext-registry.js';
 import { defineKey } from './keymap.js';
+import { browserFetch } from './providers/provider-utils.js';
 
 // re-exported on a line of its own: the kit's host splits this file on it
 export { guardExtensionCall };
 
 // '<major>.<minor>', the server's SERVER_EXT_API_VERSION: the minor moves with each batch of new doors
-export const EXT_API_VERSION = '2.6';
+export const EXT_API_VERSION = '2.7';
 
 // id -> { manifest, state: 'loaded'|'failed', error?, module?, styleLink? }
 const _status = new Map();
@@ -129,8 +130,8 @@ defineEvent('persona.changed', { legacy: 'cl-persona-changed', map: d => ({ scop
 defineEvent('library.ready', { legacy: 'cl-characters-loaded', map: () => ({}) });
 defineEvent('extensions.ready', { legacy: 'cl-extensions-settled', map: () => ({}) });
 defineEvent('ui.formFactorChanged', { legacy: 'cl-mobile-mode-change', map: d => ({ mobile: !!d?.mobile }) });
-// the DOM event fires on every refresh; the public one passes a payload on only when it differs
-defineEvent('notifications.changed', { legacy: 'cl-notifications-changed', map: d => ({ level: d?.level || 'none', visible: !!d?.visible }), dedupe: true });
+// the DOM event fires on every refresh; the public one hands on a change only, in three levels (the notice reads as none)
+defineEvent('notifications.changed', { legacy: 'cl-notifications-changed', map: d => ({ level: ['warning', 'activity'].includes(d?.level) ? d.level : 'none', visible: !!d?.visible }), dedupe: true });
 // emitted by the conversation (fireEvent), which loads after every extension: defined here so a
 // listener at init finds them
 defineEvent('generation.started');
@@ -576,6 +577,10 @@ function buildCtx(manifest) {
         // this extension's own server half, and the text a message shows with its digest (THE DOORS)
         server: serverDoor(id),
         messages: { shown: shownText, digest: digestOf },
+        // a fetch inside the hosted browser through a consumer the server half registered (ctx.browser.consumer there)
+        browser: Object.freeze({
+            fetch: (name, path, opts = {}) => browserFetch(`${id}:${name}`, path, { ...opts, endpoint: undefined }),
+        }),
         // stateless on purpose: a failed load throws rather than caching an empty doc the next save clobbers
         storage: {
             load: () => CoreAPI.storeRead(storeKey),

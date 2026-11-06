@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Auto-tagger, the client half: applies the server's suggestions through the import rules and the
 // tag command, then clears them.
 import { SETTING_LIMITS, settingNumber } from './limits.js';

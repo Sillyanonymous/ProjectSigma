@@ -4239,7 +4239,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
 
         // iOS never fires contextmenu on a press: a still half-second hold synthesizes one and
         // swallows the release's click
-        const ROW_SELECTOR = '.chat-card, .chat-hero, .chat-group-item';
+        const ROW_SELECTOR = '.chat-card, .chat-hero, .chat-group-item, #spritesGrid .sprite-item, #spritesGrid .audio-item';
         let pressTimer = 0, pressRow = null, pressX = 0, pressY = 0, swallowClickUntil = 0;
         const cancelPress = () => { clearTimeout(pressTimer); pressTimer = 0; pressRow = null; };
         document.addEventListener('touchstart', (e) => {
@@ -4262,8 +4262,9 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         }, { passive: true });
         document.addEventListener('touchend', cancelPress, { passive: true });
         document.addEventListener('touchcancel', cancelPress, { passive: true });
+        // the release's click lands wherever the finger was, and once the sheet is up that is its backdrop, not the row
         document.addEventListener('click', (e) => {
-            if (Date.now() < swallowClickUntil && e.target.closest(ROW_SELECTOR)) { e.stopPropagation(); e.preventDefault(); }
+            if (Date.now() < swallowClickUntil) { swallowClickUntil = 0; e.stopPropagation(); e.preventDefault(); }
         }, true);
 
         waitForMenu();

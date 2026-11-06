@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The timeline model, DOM-free: the server half builds and folds the tree with it, the client lays out its answer.
 
 const norm = (s) => String(s ?? '').replace(/\r\n/g, '\n').trim();

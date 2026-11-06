@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Inspired by kaldigo's Tracker for SillyTavern; thanks to its author.
 
 // A tracker definition and everything derived from it, for both halves; a new field kind is one entry

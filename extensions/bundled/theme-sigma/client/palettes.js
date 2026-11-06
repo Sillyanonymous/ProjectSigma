@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Σ's palettes: the five it ships and what a palette writes. Pure, no DOM.
 
 export const BUILT_IN = [

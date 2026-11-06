@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Library Stats, the server half: counts and rankings answer at once; the activity is read in a job
 // into a snapshot.
 import { PARTS } from '../client/parts.js';

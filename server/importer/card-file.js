@@ -4,10 +4,11 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp from 'sharp';
-import { isPng, readCardChunks, stripCardChunks } from '../lib/png-card.js';
-import { readZipEntryAsync } from '../lib/zip.js';
+import { isPng, readCardChunks, stripCardChunks, embeddedAssets } from '../lib/png-card.js';
+import { readZipEntryAsync, readZipEntryHead } from '../lib/zip.js';
 import { openCharx, charxAssets, charxIcon, charxMediaName, storedAssets } from '../lib/charx.js';
 import { normalizeCard } from '../lib/card-normalize.js';
+import { kindForFile, sniffMediaExt, nameForBytes } from '../lib/stored-file.js';
 import { addMediaFile, mediaExistsByName, sanitizeDisplayName } from '../db/media-store.js';
 import { accountHandles } from '../db/server-store.js';
 import { userPaths } from '../config.js';
@@ -24,6 +25,16 @@ const STAGE_TTL_MS = 60 * 60 * 1000;
 function galleryNameOf(asset) {
     const name = charxMediaName(asset);
     return sanitizeDisplayName(name) ? name : path.posix.basename(asset.entry.name);
+}
+
+// a PNG's embedded file by its name, the extension the bytes' own (RisuAI may recompress them), else the card's
+function embeddedNameOf(asset) {
+    const ext = sniffMediaExt(asset.bytes) || (asset.ext ? `.${asset.ext.replace(/^\./, '')}`.toLowerCase() : '');
+    const name = asset.name.trim();
+    const given = path.extname(name).toLowerCase();
+    const stem = given && (given === ext || kindForFile(name) !== 'file') ? name.slice(0, -given.length) : name;
+    const full = `${stem}${ext || given}`;
+    return sanitizeDisplayName(stem) ? full : `asset ${asset.index}${ext}`;
 }
 // the plain route's limit: a PNG is read whole
 const PNG_MAX_BYTES = 100 * 1024 * 1024;
@@ -53,16 +64,18 @@ async function readCardFile(file) {
     if (!opened) return null;
     if (opened.format === 'png') {
         const parsed = readCardChunks(opened.buffer);
-        return { format: 'png', card: parsed ? normalizeCard(parsed) : null, picture: true, media: [] };
+        const card = parsed ? normalizeCard(parsed) : null;
+        const media = card ? embeddedAssets(opened.buffer, card).map(a => ({ name: embeddedNameOf(a), size: a.bytes.length })) : [];
+        return { format: 'png', card, picture: true, media };
     }
     const card = normalizeCard(partsOf(opened.charx.card));
     if (card && card.data.assets !== undefined) card.data.assets = storedAssets(card.data.assets);
     const assets = charxAssets(opened.charx);
     const icon = charxIcon(assets);
-    return {
-        format: 'charx', card, picture: !!icon,
-        media: assets.filter(a => a !== icon).map(a => ({ name: galleryNameOf(a), size: a.entry.size })),
-    };
+    // named from each file's first bytes, as the commit names it, one file at a time so a large archive opens one handle
+    const media = [];
+    for (const a of assets) if (a !== icon) media.push({ name: nameForBytes(galleryNameOf(a), await readZipEntryHead(file, a.entry)), size: a.entry.size });
+    return { format: 'charx', card, picture: !!icon, media };
 }
 
 /** Why an amended card would not import, or null (none given is none wrong): checked before a stage is claimed. */
@@ -86,10 +99,14 @@ export async function importCardFile(db, paths, file, { card = null, sourceName 
     if (!opened) return null;
     const opts = { sourceName, force: onExisting, paths, source, resolved };
     if (opened.format === 'png') {
-        const parsed = card ? partsOf(card) : readCardChunks(opened.buffer);
+        const own = readCardChunks(opened.buffer);
+        const parsed = card ? partsOf(card) : own;
         if (!parsed) return null;
-        const result = importCharacterParts(db, parsed, () => stripCardChunks(opened.buffer), opts);
-        return result && { ...result, media: 0 };
+        const result = importCharacterParts(db, parsed, () => stripCardChunks(opened.buffer), { ...opts, raw: card ? own : null });
+        if (!result || result.excluded) return result;
+        // the embedded files stay in the picture too, so an export still carries them for RisuAI
+        const files = embeddedAssets(opened.buffer, normalizeCard(parsed)).map(a => ({ name: embeddedNameOf(a), read: async () => a.bytes }));
+        return { ...result, ...await addGalleryFiles(db, paths, result, files) };
     }
     const assets = charxAssets(opened.charx);
     const icon = charxIcon(assets);
@@ -98,26 +115,31 @@ export async function importCardFile(db, paths, file, { card = null, sourceName 
     const picture = icon ? await pictureOf(await readZipEntryAsync(file, icon.entry)) : await placeholderPng();
     // each file is read, and so checked, before the character exists: a lying archive is refused whole
     for (const a of assets) if (a !== icon) await readZipEntryAsync(file, a.entry);
-    const result = importCharacterParts(db, partsOf(incoming), picture, opts);
+    const result = importCharacterParts(db, partsOf(incoming), picture, { ...opts, raw: card ? partsOf(opened.charx.card) : null });
     if (!result || result.excluded) return result;
+    const files = assets.filter(a => a !== icon).map(a => ({ name: galleryNameOf(a), head: () => readZipEntryHead(file, a.entry), read: () => readZipEntryAsync(file, a.entry) }));
+    return { ...result, ...await addGalleryFiles(db, paths, result, files) };
+}
+
+// a card file's other files as gallery rows; a skip adds only to an identical character, and only what it lacks
+async function addGalleryFiles(db, paths, result, files) {
     let media = 0, mediaFailed = 0;
-    if (!result.skipped || result.reason === 'identical') {
-        for (const a of assets) {
-            if (a === icon) continue;
-            const name = galleryNameOf(a);
+    if (result.skipped && result.reason !== 'identical') return { media, mediaFailed };
+    for (const f of files) {
+        // the character has landed: a file that cannot be read or written is counted, never a failed
+        // import the caller would send again
+        try {
+            // the name the first bytes earn, the one addMediaFile stores, so a re-import finds the file without reading it whole
+            const name = nameForBytes(f.name, f.head ? await f.head() : await f.read());
             if (result.skipped && mediaExistsByName(db, result.id, name)) continue;
-            // the character has landed: a file that cannot be written is counted, never a failed
-            // import the caller would send again
-            try {
-                addMediaFile(db, paths, result.id, name, await readZipEntryAsync(file, a.entry));
-                media++;
-            } catch (err) {
-                mediaFailed++;
-                console.error(`[import] ${name} did not join the gallery of ${result.id}:`, err.message);
-            }
+            addMediaFile(db, paths, result.id, name, await f.read());
+            media++;
+        } catch (err) {
+            mediaFailed++;
+            console.error(`[import] ${f.name} did not join the gallery of ${result.id}:`, err.message);
         }
     }
-    return { ...result, media, mediaFailed };
+    return { media, mediaFailed };
 }
 
 // ================================================================ the stage

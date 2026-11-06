@@ -18,6 +18,7 @@ import { addHook, addMacro, addPromptBlock, addListener, dropExtensionHooks, Ext
 import { llmDoor } from './ext-llm.js';
 import { runJob, addSchedule, listExtensionJobs, dropExtensionJobs } from './ext-jobs.js';
 import { stageCardBody } from '../importer/card-file.js';
+import { registerBrowserConsumer, browserConsumersOf, dropBrowserConsumers } from '../services/browser-service.js';
 import { readChatForPrompt, readChatNames, promptVisible } from '../llm/prompt.js';
 import { chatExists, getChatRow, patchChat, chatMetadataOf } from '../db/chats-store.js';
 
@@ -55,6 +56,21 @@ function releaseHalf(id) {
     dropExtensionJobs(id);
     dropExtensionQuery(id);
     dropExtensionMigrations(id);
+    dropBrowserConsumers(id);
+}
+
+// why a half serves none of this request: removed, failed, or off for the account (its routes and its browser consumers alike)
+function halfRefusal(id, row, req) {
+    const st = _states.get(id);
+    if (st?.state === 'removed') return `extension '${id}' was removed`;
+    if (st?.state === 'failed') return `extension '${id}' failed: ${st.error}`;
+    if (!extensionEnabledFor(req.db, row)) return `extension '${id}' is not switched on for this account`;
+    return null;
+}
+
+/** A half's browser consumers as its inventory row lists them. */
+export function browserConsumerRegistrations(id) {
+    return browserConsumersOf(id).map(c => ({ id: c.id, name: c.name, origin: c.origin, fetchPrefix: c.fetchPrefix, warmPath: c.warmPath }));
 }
 
 // a half failing after the mount fails for everyone; the message names no account, only the log does
@@ -232,6 +248,13 @@ export function buildServerCtx(row, stores, mount = { open: true }) {
         messages: Object.freeze({ shown: shownText, digest: digestOf }),
         // the hardened transport helpers first-party provider services run on
         helpers: { guardProxyTarget, sessionSlot, sameHostFetch, wildcardPath },
+        // a hosted-browser consumer of its own (<id>:<name>), served by /provider-services/browser/* as its routes are
+        browser: Object.freeze({
+            consumer: (spec = {}) => registerBrowserConsumer({
+                origin: spec.origin, fetchPrefix: spec.fetchPrefix, warmPath: spec.warmPath ?? '/', ...(spec.ready !== undefined ? { ready: spec.ready } : {}),
+                name: spec.name, owner: id, refuses: (req) => halfRefusal(id, row, req),
+            }).id,
+        }),
         // routine logs ride the same per-user debugMode gate as everything else
         debugLog: (req, ...args) => debugLogAs(`[ext:${id}]`, req, ...args),
         // extension-global scratch (caches) beside the installs, at <extensions dir>/.data/<id>:
@@ -322,10 +345,8 @@ export async function mountServerExtensions(parent) {
             }
             // the gate: a removed or failed half stops answering at once, and serves only accounts that switched it on
             parent.use(`/${row.id}`, (req, res, next) => {
-                const st = _states.get(row.id);
-                if (st?.state === 'removed') return res.status(404).json({ error: `extension '${row.id}' was removed` });
-                if (st?.state === 'failed') return res.status(404).json({ error: `extension '${row.id}' failed: ${st.error}` });
-                if (!extensionEnabledFor(req.db, row)) return res.status(404).json({ error: `extension '${row.id}' is not switched on for this account` });
+                const refusal = halfRefusal(row.id, row, req);
+                if (refusal) return res.status(404).json({ error: refusal });
                 // switched on by a raw settings write: its tables exist before its first request
                 readyHalfFor(req.db, row.id);
                 if (_states.get(row.id)?.state === 'failed') return res.status(404).json({ error: `extension '${row.id}' failed: ${_states.get(row.id).error}` });

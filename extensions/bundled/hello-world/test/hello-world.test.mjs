@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: 0BSD
+// SPDX-License-Identifier: MIT
 
 // Testing an extension with the kit: the real server, in process, on a temporary home. Run:
 //     node --test extensions/bundled/hello-world/test/hello-world.test.mjs

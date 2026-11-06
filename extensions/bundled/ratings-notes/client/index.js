@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Ratings and Notes, the client half: a grid chip, a details tab and a selection verb. The chip reads
 // row.ext, never the server.
 import { NOTE_MAX, BATCH_MAX } from './limits.js';

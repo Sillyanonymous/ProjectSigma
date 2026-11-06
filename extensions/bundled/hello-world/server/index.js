@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: 0BSD
+// SPDX-License-Identifier: MIT
 
 // The Hello World tour, the server half: every server door once. What would change an account's data
 // waits for a setting, off at first.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Next Beat, the server half: suggestions for where a chat goes next, surprises the narrator brings in
 // later, and the reader's style library.
 import crypto from 'node:crypto';

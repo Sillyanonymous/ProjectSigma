@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The Trackers window's body: the open chat's trackers, a tab each, their state, verbs and picker; every
 // verb is a request and a re-read.
 import { stateHtml, setAvatarResolver } from './render.js';

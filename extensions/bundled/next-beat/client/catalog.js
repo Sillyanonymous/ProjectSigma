@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Inspired by Pathweaver for SillyTavern by mattjaybe (MIT); thanks to its author.
 
 // Next Beat's built-in directions and genres, a reader's style icons and the settings' ranges, loaded by both halves.

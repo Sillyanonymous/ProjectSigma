@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Library Stats, the client half: the library by the numbers, read on entry and again after a change
 // that can move a part.
 import { PARTS } from './parts.js';

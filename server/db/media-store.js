@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { emitChange } from './changes.js';
 import { encodeCursor, decodeCursor } from './cursor.js';
-import { kindForFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor } from '../lib/stored-file.js';
+import { kindForFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor, nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
 
 // files are <user>/gallery/{char-uuid}/{media-uuid}.ext; callers pass req.paths so no write lands in another users home
@@ -66,7 +66,7 @@ export function findMediaByUrlHash(db, charId, urlHash) {
     return row ? rowToItem(row) : null;
 }
 
-/** Whether the character holds a row under this name, asked as the row keeps it (sanitized, as addMediaFile stores it). */
+/** Whether the character holds a row under this name, sanitized; a caller holding the bytes asks by `nameForBytes` first, as addMediaFile names. */
 export function mediaExistsByName(db, charId, displayName) {
     const display = sanitizeDisplayName(displayName);
     if (!display) return false;
@@ -100,8 +100,10 @@ export function adoptMediaSource(db, mediaId, sourceUrl, urlHash) {
 
 /** Store uploaded bytes as a media row + uid-named file. */
 export function addMediaFile(db, paths, charId, filename, bytes, { sourceUrl = null, urlHash = null } = {}) {
-    const display = sanitizeDisplayName(filename);
-    if (!display) throw httpError(400, 'bad filename');
+    const given = sanitizeDisplayName(filename);
+    if (!given) throw httpError(400, 'bad filename');
+    // the bytes decide the kind: an mp4 named .png lands as .mp4 and shows as video
+    const display = nameForBytes(given, bytes);
     const taken = db.prepare('SELECT 1 FROM media WHERE char_id = ? AND display_name = ?');
     const finalDisplay = uniqueDisplayName(display, (name) => !!taken.get(charId, name));
     const physical = mintPhysicalName(finalDisplay);
@@ -134,17 +136,25 @@ export function addMediaFile(db, paths, charId, filename, bytes, { sourceUrl = n
  * Idempotent by (char, display_name): a re-run skips instead of duplicating.
  */
 export function importMediaFile(db, paths, charId, sourcePath) {
-    const display = sanitizeDisplayName(path.basename(sourcePath));
-    if (!display) return null;
-    if (db.prepare('SELECT 1 FROM media WHERE char_id = ? AND display_name = ?').get(charId, display)) {
-        return { skipped: true };
-    }
+    const given = sanitizeDisplayName(path.basename(sourcePath));
+    if (!given) return null;
+    // the name the first bytes earn, read before the re-run check so a skip still reads no more than them
+    const head = Buffer.alloc(16);
+    const fd = fs.openSync(sourcePath, 'r');
+    let headLen;
+    try { headLen = fs.readSync(fd, head, 0, 16, 0); } finally { fs.closeSync(fd); }
+    let display = nameForBytes(given, head.subarray(0, headLen));
+    const taken = db.prepare('SELECT size FROM media WHERE char_id = ? AND display_name = ?');
+    const named = taken.get(charId, display);
+    // the row under that name is this file when the sizes agree; another file the bytes renamed onto it lands beside it
+    if (named && named.size === fs.statSync(sourcePath).size) return { skipped: true };
 
     // read, not copied: the bytes are needed for the content hash, which keeps the row inside dedup
     const bytes = fs.readFileSync(sourcePath);
     // identical bytes under a different name (the shared-vs-unique legacy folder
     // overlap) skip like the download ladder would
     if (findMediaByContent(db, charId, contentHashFor(bytes))) return { skipped: true, reason: 'content' };
+    if (named) display = uniqueDisplayName(display, (name) => !!taken.get(charId, name));
     const physical = mintPhysicalName(display);
     const dir = galleryDirFor(paths.galleryRoot, charId);
     fs.mkdirSync(dir, { recursive: true });

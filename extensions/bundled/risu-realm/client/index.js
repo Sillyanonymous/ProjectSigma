@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // RisuAI Realm: RisuAI's character hub as a provider, claiming the row the app's provider manifest
 // declares for it.
 import realmProvider from './realm-provider.js';

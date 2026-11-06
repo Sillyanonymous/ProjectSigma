@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Story Beats, the server half: a chat's beats in its slot, their direction in its prompt, the director and the planner.
 import {
     settingNumber, STRATEGIES, WEIGHTS, BEAT_LIMITS, within, TITLE_MAX, DIRECTIVE_MAX, BEATS_MAX, ADD_MAX, NOTES_MAX, TURNS_MAX, TURN_MAX, LOG_MAX,

@@ -1150,6 +1150,7 @@ const DEFAULT_SETTINGS = {
     customCSS: '',
     customCSSMode: 'raw',
     exportAsLinks: false,
+    exportFormat: 'png',
     showProviderTagline: true,
     allowRichTagline: false,
     displayNamePreference: 'card',
@@ -1187,8 +1188,10 @@ const DEFAULT_SETTINGS = {
     // the hours automatic backups start in, on the server's clock; the same hour twice is any time
     backupWindowStart: 3,
     backupWindowEnd: 6,
-    // the search index tidied in the background once it drifts, a large one in the backup's quiet hours
+    // the search index tidied in the background while the library sits idle, once its lookups have slowed
     autoTidySearchIndex: true,
+    // an admin hears when an installed extension has a newer version; off, nothing asks a repository unasked
+    notifyExtensionUpdates: false,
 };
 
 // The shipped place and size of every window that has one, in percent; keyed like windowGeometry,
@@ -4226,6 +4229,12 @@ function buildConfirmContentHtml(blocks) {
                 if (rows) out.push(`<div class="cl-confirm-kv">${rows}</div>`);
                 break;
             }
+            case 'ack': {
+                // the reader switches it on before the confirm button works
+                const t = String(b.text ?? '');
+                if (t) out.push(`<label class="cl-confirm-ack"><input type="checkbox" class="cl-switch-input cl-confirm-ack-input"><span class="cl-switch" aria-hidden="true"></span><span>${escapeHtml(t)}</span></label>`);
+                break;
+            }
             case 'note': {
                 const tone = ['info', 'warning', 'danger'].includes(b.tone) ? b.tone : 'info';
                 const icon = b.icon || (tone === 'info' ? 'fa-solid fa-circle-info' : 'fa-solid fa-triangle-exclamation');
@@ -4260,11 +4269,12 @@ function showConfirm({
         overlay.className = 'cl-confirm-overlay hidden';
         overlay.innerHTML = `
             <div class="confirm-modal-content">
-                <div class="cl-confirm-main">
+                <div class="cl-confirm-main" tabindex="-1">
                     <div class="cl-confirm-badge"><i id="clConfirmIcon" class="fa-solid fa-circle-question"></i></div>
                     <div class="cl-confirm-text">
                         <h3 id="clConfirmTitle"></h3>
                         <div id="clConfirmMessage" class="cl-confirm-message"></div>
+                        <div id="clConfirmAcks" class="cl-confirm-acks" hidden></div>
                         <input type="search" id="clConfirmInput" class="glass-input cl-confirm-input hidden"
                             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                     </div>
@@ -4277,21 +4287,40 @@ function showConfirm({
             </div>`;
         document.body.appendChild(overlay);
 
-        const cancelFn = () => { overlay.classList.add('hidden'); overlay._resolve?.(false); };
+        // a text field never takes the focus back on a phone, where it would raise the keyboard again
+        const typingOnPhone = (el) => !!el?.matches?.('input:not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable]') && isMobileMode();
+        // the answer, and the focus back where it was before the dialog asked
+        const close = (answer) => {
+            overlay.classList.add('hidden');
+            const back = overlay._returnFocus;
+            overlay._returnFocus = null;
+            overlay._resolve?.(answer);
+            if (back?.isConnected && !typingOnPhone(back)) back.focus?.({ preventScroll: true });
+        };
+        // the body takes the keyboard only while it scrolls, so its hidden lines can be read without a mouse
+        overlay._syncScrollStop = () => {
+            const m = document.getElementById('clConfirmMessage');
+            if (m) m.tabIndex = m.scrollHeight > m.clientHeight + 1 ? 0 : -1;
+        };
+        const syncScrollStop = overlay._syncScrollStop;
+        const cancelFn = () => close(false);
         // With an input asked for, the answer IS the text: an empty box is a cancel, never ''.
         const confirmFn = () => {
+            // an ack not yet switched on holds the answer, Enter included
+            if (document.getElementById('clConfirmConfirmBtn')?.disabled) return;
             const field = document.getElementById('clConfirmInput');
             if (overlay._wantsInput) {
                 const value = (field?.value || '').trim();
                 if (!value) { field?.focus(); return; }
-                overlay.classList.add('hidden');
-                overlay._resolve?.(value);
+                close(value);
                 return;
             }
-            overlay.classList.add('hidden');
-            overlay._resolve?.(true);
+            close(true);
         };
-        const extraFn = () => { overlay.classList.add('hidden'); overlay._resolve?.('extra'); };
+        const extraFn = () => {
+            if (document.getElementById('clConfirmExtraBtn')?.disabled) return;
+            close('extra');
+        };
 
         document.getElementById('clConfirmCancelBtn').addEventListener('click', cancelFn);
         document.getElementById('clConfirmConfirmBtn').addEventListener('click', confirmFn);
@@ -4300,6 +4329,29 @@ function showConfirm({
             if (e.key === 'Enter') { e.preventDefault(); confirmFn(); }
         });
         overlay.addEventListener('click', e => { if (e.target === overlay) cancelFn(); });
+        // Tab wraps inside the dialog while it asks, so the page behind it is out of reach; a body that scrolls is a stop
+        overlay.addEventListener('keydown', e => {
+            if (e.key !== 'Tab') return;
+            syncScrollStop();
+            const stops = [...overlay.querySelectorAll('button, input, .cl-confirm-message[tabindex="0"]')].filter(el => !el.disabled && !el.closest('[hidden], .hidden'));
+            if (!stops.length) return;
+            const at = stops.indexOf(document.activeElement);
+            const next = at === -1 ? stops[e.shiftKey ? stops.length - 1 : 0]
+                : !e.shiftKey && at === stops.length - 1 ? stops[0]
+                    : e.shiftKey && at === 0 ? stops[stops.length - 1] : null;
+            if (!next) return;
+            e.preventDefault();
+            next.focus();
+        });
+        // a click on plain text or a held button drops the focus to the page behind; it comes back to where it was
+        overlay.addEventListener('focusout', e => {
+            if (overlay.contains(e.relatedTarget) || typingOnPhone(e.target)) return;
+            const left = e.target;
+            setTimeout(() => {
+                if (overlay.classList.contains('hidden') || overlay.contains(document.activeElement)) return;
+                (left.isConnected && !left.disabled ? left : document.getElementById('clConfirmCancelBtn'))?.focus({ preventScroll: true });
+            }, 0);
+        });
 
         // Escape and back resolve as cancel; tier -1 closes the confirm, the topmost interrupt, before
         // the tier-0 overlay under it.
@@ -4322,8 +4374,15 @@ function showConfirm({
         iconEl.style.color = iconColor || '';
     }
     if (titleEl) titleEl.textContent = title;
+    // the acks sit under the scrolling body, beside the buttons they hold, so a long message never hides them
+    const blocks = Array.isArray(content) ? content : [];
+    const ackEl = document.getElementById('clConfirmAcks');
+    if (ackEl) {
+        ackEl.innerHTML = buildConfirmContentHtml(blocks.filter(b => b?.type === 'ack'));
+        ackEl.hidden = !ackEl.innerHTML;
+    }
     if (msgEl) {
-        const blocksHtml = buildConfirmContentHtml(content);
+        const blocksHtml = buildConfirmContentHtml(blocks.filter(b => b?.type !== 'ack'));
         if (blocksHtml) {
             const lead = message ? `<p class="cl-confirm-p">${escapeHtml(message)}</p>` : '';
             msgEl.innerHTML = lead + blocksHtml;
@@ -4343,6 +4402,15 @@ function showConfirm({
         extraBtn.textContent = extraLabel;
         extraBtn.classList.toggle('hidden', !extraLabel);
     }
+    // every ack switched on before either answer that acts works; with none they work at once
+    const acks = ackEl ? [...ackEl.querySelectorAll('.cl-confirm-ack-input')] : [];
+    const sync = () => {
+        const held = acks.some(a => !a.checked);
+        if (confirmBtn) confirmBtn.disabled = held;
+        if (extraBtn) extraBtn.disabled = held;
+    };
+    for (const a of acks) a.addEventListener('change', sync);
+    sync();
     overlay.classList.toggle('cl-confirm-three', !!extraLabel);
 
     // Optional text answer; the default lands via .value, never innerHTML, so markup in a name stays text.
@@ -4358,7 +4426,10 @@ function showConfirm({
         // a re-entrant open must cancel the pending question, not orphan its awaiter
         overlay._resolve?.(false);
         overlay._resolve = resolve;
+        // a confirm opened over this one hands the focus back to where the first one found it
+        if (overlay.classList.contains('hidden')) overlay._returnFocus = document.activeElement || null;
         overlay.classList.remove('hidden');
+        overlay._syncScrollStop?.();
         // The field is the point when there is one, so it takes focus and pre-selects,
         // which makes a rename a type-over instead of a select-all-then-type.
         if (input && inputEl) { inputEl.focus(); inputEl.select(); }
@@ -6680,7 +6751,10 @@ async function fetchCharacterImages(char) {
     }
 
     try {
-        renderGalleryImages((await listCharacterMedia(char.id)).map(mediaItem));
+        const rows = (await listCharacterMedia(char.id)).map(mediaItem);
+        // another character opened during the read keeps its own gallery
+        if (activeChar && activeChar.id !== char.id) return;
+        renderGalleryImages(rows);
     } catch (e) {
         console.error("Error fetching media:", e);
         grid.innerHTML = modalLoadErrorHtml('Failed to load gallery.');
@@ -6870,9 +6944,11 @@ function renderGalleryImages(files) {
             });
         }
         
-        audioFiles.forEach(({ name: fileName, url: audioUrl }) => {
+        audioGrid.addEventListener('contextmenu', _handleGalleryGridMenu);
+        audioFiles.forEach(({ name: fileName, url: audioUrl, mediaId }) => {
             const audioItem = document.createElement('div');
             audioItem.className = 'audio-item';
+            Object.assign(audioItem.dataset, { mediaId: mediaId || '', url: audioUrl, name: fileName });
             audioItem.innerHTML = `
                 <div class="audio-item-icon">
                     <i class="fa-solid fa-music"></i>
@@ -6930,6 +7006,7 @@ function renderGalleryImages(files) {
         _galleryState = { visualMedia, galleryMedia, imagesGrid, imagesSection, currentPage: 0, paginationEls: [] };
         
         imagesGrid.addEventListener('click', _handleGalleryGridClick);
+        imagesGrid.addEventListener('contextmenu', _handleGalleryGridMenu);
         
         if (visualMedia.length > GALLERY_PAGE_SIZE) {
             const paginationTop = _createGalleryPagination();
@@ -6962,6 +7039,79 @@ function _handleGalleryGridClick(e) {
     } else {
         const media = _galleryState.galleryMedia[index];
         if (media) window.open(media.url, '_blank');
+    }
+}
+
+// a gallery file's menu, on a right-click and on a phone's long-press (which the app shows as its sheet)
+function _handleGalleryGridMenu(e) {
+    const tile = e.target.closest('.sprite-item, .audio-item');
+    const menu = window.ModuleLoader?.get('context-menu');
+    if (!tile || !menu) return;
+    const index = parseInt(tile.dataset.galleryIndex, 10);
+    const media = tile.classList.contains('audio-item')
+        ? { mediaId: tile.dataset.mediaId, url: tile.dataset.url, name: tile.dataset.name }
+        : _galleryState?.galleryMedia[index];
+    if (!media?.mediaId) return;
+    const char = activeChar;
+    menu.showItems(e, [
+        ...(tile.classList.contains('sprite-item') ? [{ icon: 'fa-solid fa-expand', label: 'Open', action: () => _handleGalleryGridClick({ target: tile }) }] : []),
+        { icon: 'fa-solid fa-download', label: 'Download', action: () => downloadGalleryMedia(media) },
+        { type: 'separator' },
+        { icon: 'fa-solid fa-trash', label: 'Delete', className: 'danger', action: async () => { if (await deleteGalleryMedia(media) && char?.id === activeChar?.id) void refreshGalleryAfterChange(char); } },
+    ]);
+}
+
+// the file as stored, under its gallery name; fetched as a blob, so a detached page saves it rather than navigating to it
+async function downloadGalleryMedia(media) {
+    try {
+        const resp = await fetch(media.url);
+        if (!resp.ok) throw new Error(`the server answered ${resp.status}`);
+        downloadBlobAsFile(await resp.blob(), media.name || 'file');
+    } catch (err) {
+        showToast(`Not downloaded: ${err.message}`, 'error');
+    }
+}
+
+/**
+ * Delete one file from a character's gallery, asked first; answers whether it went.
+ * @param {{mediaId: number|string, name: string}} media
+ */
+async function deleteGalleryMedia(media) {
+    const ok = await showConfirm({
+        title: 'Delete this file?',
+        message: `"${media.name}" is deleted from this character's gallery and from disk. This cannot be undone.`,
+        confirmLabel: 'Delete', danger: true,
+    });
+    if (!ok) return false;
+    try {
+        await readAnswer(await apiRequest(`/media/${encodeURIComponent(media.mediaId)}`, 'DELETE'));
+    } catch (err) {
+        showToast(`Not deleted: ${err.message}`, 'error');
+        return false;
+    }
+    showToast('Deleted from the gallery', 'success');
+    return true;
+}
+
+// the gallery read again with no loading flash, on the page the reader was on and the audio list as they left it
+async function refreshGalleryAfterChange(char) {
+    const page = _galleryState?.currentPage || 0;
+    const audioOpen = !!document.querySelector('#spritesGrid .audio-files-grid:not(.collapsed)');
+    clearMediaLocalizationCache(char.id);
+    let rows;
+    try {
+        rows = (await listCharacterMedia(char.id)).map(mediaItem);
+    } catch {
+        if (activeChar?.id === char.id) fetchCharacterImages(char);
+        return;
+    }
+    // another character opened during the read keeps its own gallery
+    if (activeChar?.id !== char.id) return;
+    renderGalleryImages(rows);
+    if (page && _galleryState?.paginationEls?.length) _renderGalleryPage(page, false);
+    if (audioOpen) {
+        document.querySelector('#spritesGrid .audio-files-grid')?.classList.remove('collapsed');
+        document.querySelector('#spritesGrid .gallery-audio-section .gallery-section-title.collapsible')?.classList.add('expanded');
     }
 }
 
@@ -12164,10 +12314,12 @@ function refreshNotificationsUI() {
     const anyVisible = statuses.some(s => s.visible);
     const warning = statuses.find(s => s.visible && s.level === 'warning');
     const activity = statuses.find(s => s.visible && s.level === 'activity');
+    // something to read, nothing running or wrong: the bell looks as at rest, the phone's More shows a dot
+    const notice = statuses.find(s => s.visible && s.level === 'notice');
     // Other chrome (the phone's More button and its sheet row) reads the level from here
     // rather than re-deriving it from the sections.
     document.dispatchEvent(new CustomEvent('cl-notifications-changed', {
-        detail: { level: warning ? 'warning' : activity ? 'activity' : 'none', visible: anyVisible },
+        detail: { level: warning ? 'warning' : activity ? 'activity' : notice ? 'notice' : 'none', visible: anyVisible },
     }));
     container?.classList.toggle('hidden', !anyVisible);
     // A dropdown hosted by another surface (the phone's notifications sheet) is that
@@ -14863,18 +15015,13 @@ function isPngBytes(buffer) {
     const head = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
     return head.length === 8 && PNG_SIGNATURE.every((b, i) => head[i] === b);
 }
-// by its bytes, never its name: a card PNG saved as .charx is still a PNG
-async function isPngFile(file) {
-    return isPngBytes(await file.slice(0, 8).arrayBuffer());
-}
 
 // file -> the stage its duplicate check made, so the import that follows commits that stage
 // rather than sending the file a second time
 const _stagedCardFiles = new WeakMap();
 
 /**
- * Stages a card file the page doesnt read (a charx): the server reads it and answers its card;
- * staged once per file.
+ * Stages a local card file (a PNG or a charx) so the server's one reader decides its card; staged once per file.
  * @returns {Promise<{stageId: string, format: string, card: Object, picture: boolean, media: {name: string, size: number}[]}>}
  */
 async function stageCardFile(file) {
@@ -14896,14 +15043,13 @@ async function dropStagedCardFile(file) {
     try { await apiRequest(`/characters/import/stage/${encodeURIComponent(staged.stageId)}`, 'DELETE'); } catch { /* the hour takes it */ }
 }
 
-/** The card a local file holds, for the import modal's duplicate check: a PNG read here, anything else staged. Null for none. */
+/** The card a local file holds, for the import modal's duplicate check, read through the file's stage. */
 async function readLocalCardFile(file) {
-    if (await isPngFile(file)) return await extractCharacterDataFromPng(await file.arrayBuffer());
     return (await stageCardFile(file)).card || null;
 }
 
 /**
- * One local card file in, behind character.import: read or staged, enriched by its provider, posted.
+ * One local card file in, behind character.import: staged, enriched by its provider, committed.
  * Asks nothing; onExisting picks copy or replace.
  * @param {File|Blob} file - The card file (a PNG or a charx)
  * @param {{onExisting?: 'copy'|{replace: string}|null}} [opts]
@@ -14912,26 +15058,16 @@ async function readLocalCardFile(file) {
 async function importLocalCharacterNow(file, { onExisting = null, staged: given = null } = {}) {
     const fileName = given ? String(given.name || '') : file.name;
     try {
-        const png = given ? false : await isPngFile(file);
-        const arrayBuffer = png ? await file.arrayBuffer() : null;
-        const staged = given || (png ? null : await stageCardFile(file));
-        if (staged && !given) _stagedCardFiles.delete(file);
+        const staged = given || await stageCardFile(file);
+        if (!given) _stagedCardFiles.delete(file);
 
-        let cardData = png ? await extractCharacterDataFromPng(arrayBuffer) : staged.card;
-        if (!cardData) {
-            throw new Error('No character card data found in PNG. Is this a V2 character card?');
-        }
-        
-        // Normalize V1 cards (flat object with name/description at top level) to V2 wrapper
-        if (!cardData.data && cardData.name) {
-            cardData = { spec: 'chara_card_v2', spec_version: '2.0', data: cardData };
-        }
-        if (!cardData.data) cardData.data = {};
-        if (!cardData.data.extensions) cardData.data.extensions = {};
-        
+        // the card the server read, its V3 chunk first; a stage always answers one
+        let cardData = staged.card;
+        if (!cardData?.data || typeof cardData.data !== 'object') throw new Error('the staged file holds no character card');
+
         const characterName = cardData.data.name || String(fileName || '').replace(/\.(png|charx)$/i, '');
 
-        let needsReembed = false;
+        let amended = false;
 
         // Each registered provider checks its own extension metadata first (instant), then may search its
         // API to detect and enrich an unlinked card.
@@ -14946,7 +15082,7 @@ async function importLocalCharacterNow(file, { onExisting = null, staged: given 
                             cardData = enrichment.cardData;
                         }
                         providerResult = enrichment.providerInfo;
-                        needsReembed = true;
+                        amended = true;
                         debugLog(`[Local Import] Enriched by ${provider.name}:`, providerResult);
                         break;
                     }
@@ -14967,20 +15103,13 @@ async function importLocalCharacterNow(file, { onExisting = null, staged: given 
         const source = providerResult?.providerId || null;
         const replaceId = onExisting && typeof onExisting === 'object' ? String(onExisting.replace) : null;
         let result;
-        if (png) {
-            const pngToUpload = needsReembed ? embedCharacterDataInPng(arrayBuffer, cardData) : arrayBuffer;
-            const qs = `${source ? `&source=${encodeURIComponent(source)}` : ''}${onExisting === 'copy' ? '&onExisting=copy' : ''}`;
-            const endpoint = replaceId
-                ? `/characters/${encodeURIComponent(replaceId)}/replace${source ? `?source=${encodeURIComponent(source)}` : ''}`
-                : `/characters/import?name=${encodeURIComponent(fileName)}${qs}`;
-            result = await readAnswer(await apiRequest(endpoint, 'POST', pngToUpload, { raw: true, headers: { 'Content-Type': 'image/png' } }));
-        } else if (replaceId) {
+        if (replaceId) {
             result = await readAnswer(await apiRequest(`/characters/${encodeURIComponent(replaceId)}/replace`, 'POST',
-                { stage: staged.stageId, card: needsReembed ? cardData : undefined, source: source || undefined }));
+                { stage: staged.stageId, card: amended ? cardData : undefined, source: source || undefined }));
         } else {
             // the staged card imports as the server read it unless a provider amended it
             result = await readAnswer(await apiRequest(`/characters/import/stage/${encodeURIComponent(staged.stageId)}`, 'POST',
-                { card: needsReembed ? cardData : undefined, source: source || undefined, onExisting: onExisting === 'copy' ? 'copy' : undefined }));
+                { card: amended ? cardData : undefined, source: source || undefined, onExisting: onExisting === 'copy' ? 'copy' : undefined }));
         }
         debugLog('[Local Import] Answer:', result);
         // imports never overwrite: a duplicate comes back skipped (id = the match) and the caller decides;
@@ -15216,106 +15345,104 @@ function createTextChunk(keyword, text) {
 }
 
 /**
- * Extract character card data from a PNG file
- * Reads the 'chara' tEXt, iTXt or zTXt chunk and decodes the base64 JSON
+ * A PNG's card by the server's rule: V3 first, fields only V2 holds kept; any text chunk type, any keyword case
  * @param {ArrayBuffer} pngBuffer - The PNG file data
  * @returns {Promise<Object|null>} The parsed character card object, or null if not found/invalid
  */
 async function extractCharacterDataFromPng(pngBuffer) {
     try {
-        const bytes = new Uint8Array(pngBuffer);
-
         if (!isPngBytes(pngBuffer)) {
             debugLog('[PNG Extract] Invalid PNG signature');
             return null;
         }
-
-        // Read the V2 'chara' chunk, the canonical complete one; a V3 'ccv3' is provider-dependent and may
-        // be incomplete.
+        const bytes = new Uint8Array(pngBuffer);
+        const found = {};
         let pos = 8;
-
-        while (pos < bytes.length) {
-            const view = new DataView(bytes.buffer, pos);
-            const length = view.getUint32(0, false);
-            const typeBytes = bytes.slice(pos + 4, pos + 8);
-            const type = String.fromCharCode(...typeBytes);
-            const chunkEnd = pos + 12 + length;
-
-            if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
-                // Check keyword (null-terminated string at start of data)
-                const dataStart = pos + 8;
-                let keyword = '';
-                let keywordEnd = dataStart;
-
-                for (let i = dataStart; i < dataStart + Math.min(20, length); i++) {
-                    if (bytes[i] === 0) {
-                        keywordEnd = i;
-                        break;
-                    }
-                    keyword += String.fromCharCode(bytes[i]);
-                }
-
-                if (keyword.toLowerCase() === 'chara') {
-                    debugLog('[PNG Extract] Found chara chunk, type:', type);
-
-                    // Extract the base64 data after the null terminator
-                    let textStart = keywordEnd + 1;
-                    const textEnd = dataStart + length;
-                    let slice;
-
-                    if (type === 'zTXt') {
-                        // compression method 0 (deflate) is the only one the spec defines
-                        if (bytes[textStart] !== 0) return null;
-                        slice = await inflatePngText(bytes.subarray(textStart + 1, textEnd));
-                        if (!slice) {
-                            debugLog('[PNG Extract] zTXt chara chunk would not inflate within the cap');
-                            return null;
-                        }
-                    } else {
-                        // For iTXt, skip compression flag, compression method, language tag, and translated keyword
-                        if (type === 'iTXt') {
-                            textStart += 2;
-                            while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
-                            textStart++;
-                            while (textStart < dataStart + length && bytes[textStart] !== 0) textStart++;
-                            textStart++;
-                        }
-                        slice = bytes.subarray(textStart, textEnd);
-                    }
-
-                    // Build base64 string in chunks (avoid spread operator stack overflow on large data)
-                    let base64Data = '';
-                    const chunkSz = 32768;
-                    for (let ci = 0; ci < slice.length; ci += chunkSz) {
-                        base64Data += String.fromCharCode.apply(null, slice.subarray(ci, Math.min(ci + chunkSz, slice.length)));
-                    }
-
-                    try {
-                        const jsonString = decodeURIComponent(escape(atob(base64Data)));
-                        const cardData = JSON.parse(jsonString);
-                        debugLog('[PNG Extract] Successfully extracted card data:', {
-                            spec: cardData.spec,
-                            spec_version: cardData.spec_version,
-                            name: cardData.data?.name
-                        });
-                        return cardData;
-                    } catch (decodeError) {
-                        debugLog('[PNG Extract] Failed to decode chara data:', decodeError.message);
-                        return null;
-                    }
+        while (pos + 12 <= bytes.length) {
+            const length = new DataView(bytes.buffer, bytes.byteOffset + pos, 4).getUint32(0, false);
+            const type = String.fromCharCode(bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]);
+            if (type === 'IEND') break;
+            if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
+                const data = bytes.subarray(pos + 8, pos + 8 + length);
+                const nul = data.indexOf(0);
+                const keyword = nul > 0 && nul < 80 ? String.fromCharCode(...data.subarray(0, nul)).toLowerCase() : '';
+                // a keyword read once is never read again; a chunk that does not read leaves room for a later one
+                if ((keyword === 'chara' || keyword === 'ccv3') && found[keyword] === undefined) {
+                    const card = await readPngCardPayload(type, data, nul);
+                    if (card) found[keyword] = card;
                 }
             }
-
-            pos = chunkEnd;
+            pos += 12 + length;
         }
-
-        debugLog('[PNG Extract] No chara chunk found in PNG');
-        return null;
-
+        const card = pickPngCardPayload(found.ccv3, found.chara);
+        if (!card) debugLog('[PNG Extract] No card chunk found in PNG');
+        return card;
     } catch (error) {
         debugLog('[PNG Extract] Error extracting character data:', error.message);
         return null;
     }
+}
+
+// one text chunk's card JSON (base64, per the card specs); null when it does not read as one
+async function readPngCardPayload(type, data, nul) {
+    try {
+        let text;
+        if (type === 'tEXt') text = data.subarray(nul + 1);
+        else if (type === 'zTXt') {
+            // compression method 0 (deflate) is the only one the spec defines
+            if (data[nul + 1] !== 0) return null;
+            text = await inflatePngText(data.subarray(nul + 2));
+        } else {
+            // iTXt: compression flag, method, language tag \0, translated keyword \0, then the text
+            const flag = data[nul + 1], method = data[nul + 2];
+            const lang = data.indexOf(0, nul + 3);
+            const translated = lang < 0 ? -1 : data.indexOf(0, lang + 1);
+            if (translated < 0) return null;
+            const raw = data.subarray(translated + 1);
+            if (flag === 0) text = raw;
+            else if (flag === 1 && method === 0) text = await inflatePngText(raw);
+            else return null;
+        }
+        if (!text) return null;
+        // built in pieces: a spread of a whole card overflows the stack
+        let base64 = '';
+        for (let i = 0; i < text.length; i += 32768) base64 += String.fromCharCode.apply(null, text.subarray(i, i + 32768));
+        const json = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+        const card = JSON.parse(json);
+        return card && typeof card === 'object' && !Array.isArray(card) ? card : null;
+    } catch {
+        return null;
+    }
+}
+
+const PNG_CARD_V1_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'creator_notes', 'system_prompt', 'post_history_instructions', 'alternate_greetings', 'character_book', 'tags', 'creator', 'character_version', 'extensions'];
+const isPlainPngObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+// a payload's data as the server reads it: a wrapper's own, its root mirrors filling gaps; a flat card's root fields
+function pngCardData(source) {
+    if (!isPlainPngObject(source)) return null;
+    const wrapped = source.spec === 'chara_card_v3' || source.spec === 'chara_card_v2';
+    const data = wrapped ? { ...(source.data || {}) } : {};
+    for (const field of PNG_CARD_V1_FIELDS) if (data[field] === undefined && source[field] !== undefined) data[field] = source[field];
+    return data;
+}
+
+// the server's choice (cardSourceOf): V3 when it names a card, a field or extensions key only V2 carries kept beside it; else V2
+function pickPngCardPayload(v3, v2) {
+    const names = (source) => { const name = pngCardData(source)?.name; return typeof name === 'string' && name !== ''; };
+    const fallback = names(v2) ? v2 : null;
+    if (!names(v3)) return fallback;
+    if (!fallback) return v3;
+    const own = isPlainPngObject(v3.data) ? v3.data : {};
+    const data = { ...own };
+    const v2Data = pngCardData(fallback);
+    for (const [key, value] of Object.entries(v2Data)) {
+        if (key !== 'extensions' && data[key] === undefined && v3[key] === undefined) data[key] = value;
+    }
+    const v2Ext = isPlainPngObject(v2Data.extensions) ? v2Data.extensions : {};
+    const v3Ext = isPlainPngObject(own.extensions) ? own.extensions : isPlainPngObject(v3.extensions) ? v3.extensions : {};
+    if (Object.keys(v2Ext).length) data.extensions = { ...v2Ext, ...v3Ext };
+    return { ...v3, data };
 }
 
 // a zTXt payload is deflate, and a few bytes can inflate without end, so the read stops at the server's cap
@@ -15644,15 +15771,10 @@ startImportBtn?.addEventListener('click', async () => {
                 } else {
                     // Local mode: the file's card for the duplicate check (a staged file keeps its
                     // stage for the import that follows)
-                    let cardData = await readLocalCardFile(item.file);
+                    const cardData = await readLocalCardFile(item.file);
 
                     if (shouldStop()) { await dropStagedCardFile(item.file); wasCancelled = true; break; }
-                    
-                    // Normalize V1 (flat) cards to V2 wrapper
-                    if (cardData && !cardData.data && cardData.name) {
-                        cardData = { spec: 'chara_card_v2', data: cardData };
-                    }
-                    
+
                     if (cardData && cardData.data) {
                         const characterName = cardData.data.name || displayName;
                         const characterCreator = cardData.data.creator || '';
@@ -15713,7 +15835,7 @@ startImportBtn?.addEventListener('click', async () => {
             continue;
         }
 
-        if (shouldStop()) { wasCancelled = true; break; }
+        if (shouldStop()) { await dropStagedCardFile(item.file); wasCancelled = true; break; }
 
         updateLogEntry(logEntry, `Importing ${displayName}`, 'pending');
         
@@ -22623,7 +22745,10 @@ document.addEventListener('keydown', (e) => {
         const el = document.getElementById(id);
         return el && !el.classList.contains('hidden');
     })) return;
-    
+    // an open confirm keeps its keys, so PageDown scrolls a long one instead of the grid behind it
+    const confirmOverlay = document.getElementById('clConfirmOverlay');
+    if (confirmOverlay && !confirmOverlay.classList.contains('hidden')) return;
+
     const scrollContainer = document.querySelector('.gallery-content');
     if (!scrollContainer) return;
     

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: MIT */
 /* Memory's window: what it covers, a note when needed, the memory's text, then the switch and the verbs */
 .mem {
     display: flex;

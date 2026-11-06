@@ -85,6 +85,17 @@ replaced; see https://github.com/libvips/libvips for the corresponding
 source.
 
 
+CHARACTER ART IN THE SCREENSHOTS
+--------------------------------
+
+The screenshots in docs/assets/screenshots/, shown in README.md and in the
+user guide (docs/guide.html), include characters made by other people: their
+pictures, names and card text. These belong to their creators, appear only as
+examples of the app in use, and are not covered by LICENSE. A creator who
+wants a character taken out of a screenshot can ask in the project's issue
+tracker.
+
+
 ACKNOWLEDGEMENTS
 ----------------
 

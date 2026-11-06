@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Lore Search, the server half: every book's entries in an FTS5 index of its own, kept by the books' stamps.
 
 const ROWS = 'x_lore_search_rows';

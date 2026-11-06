@@ -53,6 +53,15 @@ function resolveDraft(db, profileId, draft) {
     return { profile, adapter };
 }
 
+// the purposes whose routes stamp a scope; a raw call is a tool's, so a body naming a chat is never read
+const SCOPED_PURPOSES = new Set(['chat', 'assistant', 'creator']);
+const SCOPE_KEYS = ['chatId', 'sessionId', 'charId', 'mode'];
+function scopeFacts(scope) {
+    const out = {};
+    if (scope && typeof scope === 'object') for (const k of SCOPE_KEYS) if (typeof scope[k] === 'string' && scope[k]) out[k] = scope[k];
+    return out;
+}
+
 // Body -> the adapter request. Validation throws bad_request before any I/O. A resolved
 // profile handed in (the test probe's draft) stands in for the stored row.
 function buildRequest(db, body, resolved = null) {
@@ -64,6 +73,8 @@ function buildRequest(db, body, resolved = null) {
     const req = runHook('llm.request', { messages: body.messages, model: body.model || undefined, params }, {
         db, purpose, profileKind: profile.kind, profileId: profile.id ?? null,
         ...(purpose === 'extension' ? { extension: String(body.extension || '') } : {}),
+        // which chat or session the call is for, read only under a purpose a route stamps, as `extension` is
+        ...(SCOPED_PURPOSES.has(purpose) ? scopeFacts(body.scope) : {}),
     });
     return { profile, adapter, req };
 }

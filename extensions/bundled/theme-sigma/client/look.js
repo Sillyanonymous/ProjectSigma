@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Σ's look: each choice, its values (the default first) and the root class each writes; pure, for node.
 
 /**

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { emitChange } from './changes.js';
-import { kindForFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor } from '../lib/stored-file.js';
+import { kindForFile, sanitizeDisplayName, mintPhysicalName, uniqueDisplayName, contentHashFor, nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
 import { invalidateAttachmentThumbs } from '../lib/thumb-cache.js';
 
@@ -64,8 +64,9 @@ export function findAttachmentByContent(db, owner, hash) {
  */
 export function addAttachment(db, paths, owner, filename, bytes, { width = null, height = null } = {}) {
     const col = ownerColumn(owner);
-    const display = sanitizeDisplayName(filename);
-    if (!display) throw httpError(400, 'bad filename');
+    const given = sanitizeDisplayName(filename);
+    if (!given) throw httpError(400, 'bad filename');
+    const display = nameForBytes(given, bytes);
     const kind = kindForFile(display);
     if (!GALLERY_KINDS.has(kind)) throw httpError(415, 'a chat\'s gallery holds pictures and video');
     const hash = contentHashFor(bytes);

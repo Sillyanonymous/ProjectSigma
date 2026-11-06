@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Trackers, the server half: per-turn state kept by the account's model and put in the chat's prompt
 // as of the reply's message.
 import crypto from 'node:crypto';

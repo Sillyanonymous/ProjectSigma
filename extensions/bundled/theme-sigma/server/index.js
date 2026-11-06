@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Σ, the server half: the account's own palettes, one JSON file each in its folder.
 import crypto from 'node:crypto';
 import { PALETTE_FIELDS as FIELDS, FIELD_RULES, PALETTE_ID as ID_RE } from '../client/palettes.js';

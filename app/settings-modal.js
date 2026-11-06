@@ -338,6 +338,7 @@ function setupSettingsModal() {
     const debugModeCheckbox = document.getElementById('settingsDebugMode');
     const showInfoTabCheckbox = document.getElementById('settingsShowInfoTab');
     const exportAsLinksCheckbox = document.getElementById('settingsExportAsLinks');
+    const exportFormatSelect = document.getElementById('settingsExportFormat');
     const showProviderTaglineCheckbox = document.getElementById('settingsShowProviderTagline');
     const allowRichTaglineCheckbox = document.getElementById('settingsAllowRichTagline');
     const browseSnapSectionsCheckbox = document.getElementById('settingsBrowseSnapSections');
@@ -373,6 +374,7 @@ function setupSettingsModal() {
     const backupWindowStartSelect = document.getElementById('settingsBackupWindowStart');
     const backupWindowEndSelect = document.getElementById('settingsBackupWindowEnd');
     const autoTidySearchIndexCheckbox = document.getElementById('settingsSearchIndexAutoTidy');
+    const extNotifyUpdatesCheckbox = document.getElementById('settingsExtNotifyUpdates');
 
     if (!settingsBtn || !settingsModal) return;
 
@@ -1694,6 +1696,9 @@ function setupSettingsModal() {
         if (exportAsLinksCheckbox) {
             exportAsLinksCheckbox.checked = getSetting('exportAsLinks') || false;
         }
+        if (exportFormatSelect) {
+            exportFormatSelect.value = getSetting('exportFormat') === 'charx' ? 'charx' : 'png';
+        }
         if (showProviderTaglineCheckbox) {
             showProviderTaglineCheckbox.checked = getSetting('showProviderTagline') !== false;
         }
@@ -1781,6 +1786,7 @@ function setupSettingsModal() {
         refreshBackupPanel();
         if (autoTidySearchIndexCheckbox) autoTidySearchIndexCheckbox.checked = getSetting('autoTidySearchIndex') !== false;
         refreshSearchIndexPanel();
+        if (extNotifyUpdatesCheckbox) extNotifyUpdatesCheckbox.checked = getSetting('notifyExtensionUpdates') === true;
         refreshMigratePanel();
 
         // Provider Order & Defaults
@@ -2012,8 +2018,49 @@ function setupSettingsModal() {
     async function initExtensionsPanel() {
         const adminGroup = document.getElementById('extAdminGroup');
         if (adminGroup) adminGroup.hidden = !currentUser?.admin;
+        // hearing about updates and asking for them are an admin's, as updating is
+        for (const id of ['extNotifyUpdatesRow', 'extCheckUpdatesBtn']) {
+            const el = document.getElementById(id);
+            if (el) el.hidden = !currentUser?.admin;
+        }
+        syncExtCheckButton();
         await renderExtensionList();
     }
+
+    // the last update check as the notifications module read it, so the rows and the bell say the same
+    let extUpdates = null;
+    const extUpdateOf = (id) => extUpdates?.extensions?.find(x => x.id === id) || null;
+    function syncExtCheckButton() {
+        const btn = document.getElementById('extCheckUpdatesBtn');
+        if (!btn) return;
+        const busy = !!extUpdates?.checking;
+        btn.disabled = busy;
+        // the words show on a phone, where an icon has no title to say what it does
+        btn.innerHTML = busy ? '<i class="fa-solid fa-circle-notch fa-spin"></i><span class="ext-check-label">Checking</span>'
+            : '<i class="fa-solid fa-cloud-arrow-down"></i><span class="ext-check-label">Check for Updates</span>';
+    }
+    // the notifications' Open Extensions: the first row with an update is brought into view once the list is drawn
+    let extFocusUpdate = false;
+    document.addEventListener('cl-extension-updates-focus', () => { extFocusUpdate = true; });
+    document.addEventListener('cl-extension-updates-changed', (e) => {
+        extUpdates = e.detail || null;
+        syncExtCheckButton();
+        // a list on screen repaints once the answer is in; a hidden one reads it when it shows
+        if (!extUpdates?.checking && document.getElementById('extListBody')?.offsetParent) void renderExtensionList();
+    });
+    document.getElementById('extCheckUpdatesBtn')?.addEventListener('click', () => document.dispatchEvent(new CustomEvent('cl-extension-updates-check')));
+    // the Extensions page's switches take effect at once, so this one does too
+    extNotifyUpdatesCheckbox?.addEventListener('change', () => setSetting('notifyExtensionUpdates', extNotifyUpdatesCheckbox.checked));
+
+// a row's word on its install's entry in the last update check: the version coming, the chip, the verb's title, a phone's button
+function extUpdateParts(next, id) {
+    const nextLabel = next?.available ? (next.nextVersion ? `v${next.nextVersion}` : 'a newer version') : '';
+    const chip = next?.available ? '<span class="ext-chip ext-chip-update">update available</span>'
+        : next?.error ? `<span class="ext-chip" title="${escapeHtml(next.error)}">update check failed</span>` : '';
+    const verbTitle = next?.available ? `Update to ${nextLabel}` : 'Update to the latest version';
+    const button = nextLabel ? `<div class="ext-row-update"><button type="button" class="cl-btn cl-btn-primary cl-btn-sm" data-ext-update="${escapeHtml(id)}">${escapeHtml(verbTitle)}</button></div>` : '';
+    return { nextLabel, chip, verbTitle, button };
+}
 
 // what a manifest's contributes entries read as in the manager row
 const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action': 'chat actions', 'message.action': 'message actions', 'character.action': 'character actions', 'app.action': 'menu actions', 'character.card.badge': 'grid card badges', 'character.details.tab': 'a character details tab', 'character.bulk.action': 'actions on a selection', 'shell.view': 'a view of its own', 'lore.entry.action': 'lorebook entry actions', 'chat.card.action': 'chat card actions', 'composer.action': 'composer buttons' };
@@ -2108,6 +2155,9 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             const why = e.error || (status?.state === 'failed' ? status.error : '') || (e.serverState === 'failed' ? e.serverError : '');
             // the dev loop's verb: this tab's copy of its code, fetched fresh; nothing on the server moves
             const reloadable = tabPart && !e.error && (on || !!status);
+            // what the last update check found for an install; only an admin can act on it
+            const updatable = isAdmin && e.git && !e.reserved;
+            const { nextLabel, chip: updateChip, verbTitle, button: updateButton } = extUpdateParts(isAdmin && !e.bundled ? extUpdateOf(e.id) : null, e.id);
             const serverChip = !e.server ? ''
                 : e.serverState === 'loaded' ? '<span class="ext-chip ext-chip-ok">server on</span>'
                 : e.serverState === 'failed' ? `<span class="ext-chip ext-chip-error" title="${escapeHtml(e.serverError || '')}">server failed</span>`
@@ -2116,22 +2166,23 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             const verbs = [
                 inspectable ? `<button class="glass-btn icon-only ext-row-verb${inspecting ? ' is-active' : ''}" data-ext-inspect="${escapeHtml(e.id)}" title="Inspect: what it registered and what its calls cost" aria-expanded="${inspecting}"><i class="fa-solid fa-gauge-high"></i></button>` : '',
                 reloadable ? `<button class="glass-btn icon-only ext-row-verb" data-ext-reload="${escapeHtml(e.id)}" title="Reload its code in this tab, as its folder now holds it" aria-label="Reload ${escapeHtml(e.name || e.id)}"><i class="fa-solid fa-rotate-right"></i></button>` : '',
-                isAdmin && e.git && !e.reserved ? `<button class="glass-btn icon-only ext-row-verb" data-ext-update="${escapeHtml(e.id)}" title="Update (git pull)"><i class="fa-solid fa-arrows-rotate"></i></button>` : '',
+                updatable ? `<button class="glass-btn icon-only ext-row-verb" data-ext-update="${escapeHtml(e.id)}" title="${escapeHtml(verbTitle)}"><i class="fa-solid fa-arrows-rotate"></i></button>` : '',
                 isAdmin && !e.bundled && !e.reserved ? `<button class="glass-btn icon-only ext-row-verb" data-ext-remove="${escapeHtml(e.id)}" title="Remove from the server"><i class="fa-solid fa-trash"></i></button>` : '',
             ].join('');
-            const meta = [chip, serverChip, e.author ? `<span class="ext-row-author">${escapeHtml(e.author)}</span>` : ''].filter(Boolean).join('');
+            const meta = [chip, serverChip, updateChip, e.author ? `<span class="ext-row-author">${escapeHtml(e.author)}</span>` : ''].filter(Boolean).join('');
             return `
-            <div class="ext-row${e.error ? ' ext-row-broken' : ''}${hasSettings ? ' has-settings' : ''}${opened ? ' is-open' : ''}" data-ext="${escapeHtml(e.id)}" data-ext-key="${escapeHtml(extRowKey(e))}">
+            <div class="ext-row${e.error ? ' ext-row-broken' : ''}${hasSettings ? ' has-settings' : ''}${opened ? ' is-open' : ''}${nextLabel ? ' has-update' : ''}" data-ext="${escapeHtml(e.id)}" data-ext-key="${escapeHtml(extRowKey(e))}">
                 <div class="ext-row-head">
                     <div class="ext-row-tile"><i class="fa-solid ${e.provider ? 'fa-plug' : 'fa-puzzle-piece'}"></i></div>
                     <div class="ext-row-id">
                         <div class="ext-row-title">
                             <span class="ext-row-name">${escapeHtml(e.name || e.id)}</span>
-                            ${e.version ? `<span class="ext-row-version">v${escapeHtml(e.version)}</span>` : ''}
+                            ${e.version ? `<span class="ext-row-version">v${escapeHtml(e.version)}${nextLabel ? ` &rarr; ${escapeHtml(nextLabel)}` : ''}</span>` : ''}
                         </div>
                         ${meta ? `<div class="ext-row-meta">${meta}</div>` : ''}
                         ${e.description ? `<p class="ext-row-desc">${escapeHtml(e.description)}</p>` : ''}
                         ${why ? `<p class="ext-row-err">${escapeHtml(why)}</p>` : ''}
+                        ${updatable ? updateButton : ''}
                         ${Array.isArray(e.contributes) && e.contributes.length ? `<div class="ext-row-adds"><i class="fa-solid fa-puzzle-piece"></i><span>Adds ${escapeHtml(e.contributes.map(c => EXT_CONTRIBUTION_LABELS[c] || c).join(', '))}</span></div>` : ''}
                     </div>
                     <div class="ext-row-actions">
@@ -2161,6 +2212,12 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             const el = (e.bundled ? bundledBody : body).querySelector(`[data-ext-section="${CSS.escape(e.id)}"]`);
             if (el) window.ExtensionHost.renderSettingsSection(e.id, el);
         }
+        if (extFocusUpdate) {
+            extFocusUpdate = false;
+            body.querySelector('.ext-row.has-update')?.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
+        }
+        // a switch, an update or a removal changes which sites the Hosted Browser lists
+        if (document.getElementById('settingsBrowserSection')?.open) void renderBrowserExtSites(data.extensions);
     }
 
     document.getElementById('extRefreshBtn')?.addEventListener('click', renderExtensionList);
@@ -2168,8 +2225,20 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     // is the boundary, then the host's verb
     async function installExtension(btn, source, installed = () => {}) {
         const sure = await showConfirm({
-            title: 'Install extension?',
-            message: 'An extension runs with FULL ACCESS to the app and this server, for every user who enables it. There is no permission system. Install only code from an author you trust.',
+            title: 'Install a third-party extension?',
+            message: 'Project Σ does not review, check or vouch for extensions. Whatever an extension does is on its author and on whoever installs it, not on Project Σ.',
+            content: [
+                { type: 'note', tone: 'danger', text: 'An extension is code that runs inside Project Σ with no limits. There is no permission system and no sandbox.' },
+                { type: 'text', text: 'Once installed, it can:' },
+                { type: 'list', items: [
+                    'read, change or delete every character, chat, lorebook and file on this server, for every account',
+                    'see the API keys, passwords and logins saved here, and act on the sites the Hosted Browser is signed in to',
+                    'reach anything the computer running the server can reach, on its network and on the internet',
+                ] },
+                { type: 'note', tone: 'warning', text: 'If it has a server part, that part starts at the next server restart, whether or not anyone switches it on, and runs on the server with access to every account.' },
+                { type: 'text', text: 'Read its code before installing, even when you trust the author: accounts get taken over and projects change hands.' },
+                { type: 'ack', text: 'I understand the risk, and I have checked this extension or accept it on its author\'s word.' },
+            ],
             icon: 'fa-solid fa-triangle-exclamation',
             confirmLabel: 'Install', danger: true,
         });
@@ -2216,6 +2285,19 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
         // the checkbox means "runs for me"; the server keeps the rule and answers the row
         const wantOn = ev.target.checked;
         const toggle = ev.target;
+        // an installed extension is someone else's code running as you: switching it on is said plainly first
+        if (wantOn && toggle.closest('#extListBody')) {
+            const row = extRows.get(id);
+            // where its code runs is what the row declares: a page part, a server part, or both
+            const where = row?.client || row?.style ? (row?.server ? ' in your browser and on the server, where its server part already runs' : ' in your browser') : row?.server ? ' on the server, where its server part already runs' : '';
+            const sure = await showConfirm({
+                title: 'Switch on a third-party extension?',
+                message: `Switching "${row?.name || id}" on lets it act as you${where}, with everything your account can do: read and change your characters, chats and settings, and use your saved keys and logins. Project Σ does not review extensions and is not responsible for what they do.`,
+                icon: 'fa-solid fa-triangle-exclamation',
+                confirmLabel: 'Switch On', danger: true,
+            });
+            if (!sure) { toggle.checked = false; return; }
+        }
         toggle.disabled = true;
         const out = window.ExtensionHost?.setEnabled
             ? await window.ExtensionHost.setEnabled(id, wantOn)
@@ -2257,7 +2339,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                 ? await window.ExtensionHost.reload(rel.dataset.extReload)
                 : { ok: false, error: 'the extension host did not start; reload the page' };
             rel.disabled = false;
-            const server = out.server ? ' Its server half keeps the code the server started with: restart the server for changes to it.' : '';
+            const server = out.server ? ' Its server part keeps the code the server started with: restart the server for changes to it.' : '';
             showToast(!out.ok ? `Could not reload it: ${out.error}`
                 : out.error ? `Reloaded, and it failed to load: ${out.error}`
                     : `${out.loaded ? 'Reloaded.' : 'Reloaded; it loads when switched on.'}${server}`,
@@ -2278,14 +2360,40 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             return;
         }
         if (upd) {
-            // a git pull can take minutes, and a second one meanwhile fails on the repository's lock
+            // an update is new code from the repository, said before it lands
+            const row = extRows.get(upd);
+            const next = extUpdateOf(upd);
+            const at = (version, commit) => [version ? `v${version}` : '', commit ? `commit ${commit}` : ''].filter(Boolean).join(', ');
+            const versions = [{ key: 'Installed', value: at(row?.version, next?.commit) }, { key: 'Update', value: at(next?.nextVersion, next?.nextCommit) || 'the latest in its repository' }].filter(v => v.value);
+            const sure = await showConfirm({
+                title: `Update "${row?.name || upd}"?`,
+                message: 'An update replaces this extension\'s code with whatever its author published, and new code can do things the old code never did.',
+                content: [
+                    { type: 'kv', items: versions },
+                    { type: 'note', tone: 'warning', text: 'Check what changed in its repository between these two before updating if you can, even for an author you trust: an account taken over or a project handed on can ship harmful code in an update.' },
+                ],
+                icon: 'fa-solid fa-triangle-exclamation',
+                confirmLabel: 'Update', danger: true,
+            });
+            if (!sure) return;
+            // an update reaches the repository and can take a while: the button holds until it answers
             const btn = ev.target.closest('[data-ext-update]');
             const original = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
             try {
                 const out = await readAnswer(await apiRequest(`/extensions/${encodeURIComponent(upd)}/update`, 'POST'));
-                showToast(out?.restart ? 'Updated. Reload to apply; the server half runs the new code after a server restart.' : 'Updated. Reload to apply.', 'success');
+                const to = out?.to?.version ? ` to v${out.to.version}` : '';
+                // the row claims nothing about its update until the check is read again on the update's record
+                if (out?.updated && extUpdates) extUpdates = { ...extUpdates, extensions: extUpdates.extensions.filter(x => x.id !== upd) };
+                if (out?.updated === false) showToast('Already on the latest version', 'info');
+                else {
+                    // this tab runs the new code at once, the reload verb's way; another tab picks it up on its next load
+                    const ran = window.ExtensionHost?.reload ? await window.ExtensionHost.reload(upd) : null;
+                    const server = out?.restart ? ' Its server part runs the new code after a server restart.' : '';
+                    if (ran?.ok && ran.error) showToast(`Updated${to}, and it failed to load: ${ran.error}`, 'error');
+                    else showToast(`Updated${to}.${ran?.ok ? '' : ' Reload the page to use it.'}${server}`, 'success');
+                }
                 renderExtensionList();
             } catch (e) {
                 showToast(`Update failed: ${e.message}`, 'error');
@@ -2296,7 +2404,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
         } else if (rem) {
             const sure = await showConfirm({
                 title: 'Remove extension?',
-                message: `"${rem}" is deleted from the server for every user.`,
+                message: `"${extRows.get(rem)?.name || rem}" is deleted from the server for every account.`,
                 confirmLabel: 'Remove', danger: true,
             });
             if (!sure) return;
@@ -2775,6 +2883,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             debugMode: debugModeCheckbox ? debugModeCheckbox.checked : false,
             showInfoTab: showInfoTabCheckbox ? showInfoTabCheckbox.checked : false,
             exportAsLinks: exportAsLinksCheckbox ? exportAsLinksCheckbox.checked : false,
+            exportFormat: exportFormatSelect ? (exportFormatSelect.value || 'png') : 'png',
             showProviderTagline: showProviderTaglineCheckbox ? showProviderTaglineCheckbox.checked : true,
             allowRichTagline: allowRichTaglineCheckbox ? allowRichTaglineCheckbox.checked : false,
             browseSnapSections: browseSnapSectionsCheckbox ? browseSnapSectionsCheckbox.checked : false,
@@ -2795,6 +2904,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             backupWindowStart: backupWindowStartSelect ? Number(backupWindowStartSelect.value) : getDefaultSetting('backupWindowStart'),
             backupWindowEnd: backupWindowEndSelect ? Number(backupWindowEndSelect.value) : getDefaultSetting('backupWindowEnd'),
             autoTidySearchIndex: autoTidySearchIndexCheckbox ? autoTidySearchIndexCheckbox.checked : true,
+            notifyExtensionUpdates: extNotifyUpdatesCheckbox ? extNotifyUpdatesCheckbox.checked : false,
             ...readHistoryCountsFromUI(),
             ...readProviderOrderFromUI(),
             infiniteScroll: readInfiniteScrollFromUI(),
@@ -3578,7 +3688,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     // Whether a browser is configurable, not whether one is up: managed mode starts it lazily.
     const browserReady = () => browserMode() === 'managed' || !!browserEndpoint();
 
-    async function runBrowserProbe(btn, el, { consumer = null, okMsg, failMsg }) {
+    async function runBrowserProbe(btn, el, { consumer = null, okMsg, failMsg, onRefusal = null }) {
         const managed = browserMode() === 'managed';
         const endpoint = browserEndpoint();
         const original = btn.innerHTML;
@@ -3594,7 +3704,9 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                 { signal: AbortSignal.timeout(120000) });
             data = await resp.json().catch(() => null);
             renderBrowserChecks(el, data?.checks, data?.checks?.length ? null : (data?.error || 'The service did not answer'));
-            showToast(data?.ok ? okMsg : failMsg, data?.ok ? 'success' : 'warning');
+            // a refusal ran no check at all, so the toast says the refusal rather than blaming the browser
+            const refused = !data?.ok && !data?.checks?.length && !!data?.error;
+            showToast(data?.ok ? okMsg : refused ? (await onRefusal?.(data)) || data.error : failMsg, data?.ok ? 'success' : 'warning');
         } catch (err) {
             renderBrowserChecks(el, [], err?.name === 'TimeoutError' ? 'The browser did not answer in time.' : err.message);
         } finally {
@@ -3666,12 +3778,50 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             browserModeSelect._customSelect?.update?.();
         }
         applyBrowserMode();
+        if (document.getElementById('settingsBrowserSection')?.open) void renderBrowserExtSites();
     }
 
     // Expanding the <details> is when the user looks at the status, so re-read it then.
     document.getElementById('settingsBrowserSection')?.addEventListener('toggle', (e) => {
         if (e.target.open) refreshBrowserSettingsUi();
     });
+
+    // the hosted-browser consumers of the extensions this account runs, each with a Check; redrawn by every extension list read
+    async function renderBrowserExtSites(rows = null) {
+        const group = document.getElementById('browserExtSites');
+        const list = document.getElementById('browserExtSiteList');
+        if (!group || !list) return [];
+        if (!rows) {
+            try { rows = (await readAnswer(await apiRequest('/extensions', 'GET')))?.extensions || []; } catch { rows = []; }
+        }
+        // an updated half keeps serving its old code until the restart, consumers included
+        const sites = rows.filter(r => r.enabled && ['loaded', 'restart'].includes(r.serverState))
+            .flatMap(r => (r.browserConsumers || []).map(c => ({ ...c, extName: r.name || r.id, host: new URL(c.origin).host })));
+        group.classList.toggle('hidden', !sites.length);
+        // the same sites keep their rows, so a Check still running, or its answer, survives a reread
+        const drawn = JSON.stringify(sites.map(c => [c.id, c.origin, c.fetchPrefix, c.extName]));
+        if (list.dataset.drawn === drawn) return sites;
+        list.dataset.drawn = drawn;
+        list.innerHTML = sites.map((c, i) => `
+            <div class="settings-row u-gap-sm">
+                <button class="settings-action-btn browser-ext-site-btn" data-ext-site="${i}"><i class="fa-solid fa-plug-circle-check"></i> Check ${escapeHtml(c.host)}</button>
+                <span class="settings-hint browser-ext-site-hint">Used by ${escapeHtml(c.extName)} for ${escapeHtml(c.host + c.fetchPrefix)}</span>
+            </div>
+            <div class="settings-row"><div class="browser-check-list hidden" data-ext-site-checks="${i}"></div></div>`).join('');
+        for (const btn of list.querySelectorAll('[data-ext-site]')) {
+            const site = sites[Number(btn.dataset.extSite)];
+            btn.onclick = async () => {
+                if (!browserReady()) { showToast('Set up the hosted browser above first', 'warning'); return; }
+                await runBrowserProbe(btn, list.querySelector(`[data-ext-site-checks="${btn.dataset.extSite}"]`), {
+                    consumer: site.id, okMsg: `The browser gets through to ${site.host}`, failMsg: `The browser cannot reach ${site.host} yet`,
+                    // switched off or removed since the list was drawn (another tab or device): the list is read again
+                    onRefusal: async () => ((await renderBrowserExtSites()).some(s => s.id === site.id) ? null
+                        : `${site.extName} no longer runs for your account, so its site is off the list`),
+                });
+            };
+        }
+        return sites;
+    }
 
     function applyBrowserMode() {
         const managed = browserMode() === 'managed';

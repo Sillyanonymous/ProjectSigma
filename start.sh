@@ -18,7 +18,10 @@ fi
 # install on the first run and again whenever package-lock.json changes, as it does with an update
 if ! node -e "const fs=require('fs');const h=require('crypto').createHash('sha256').update(fs.readFileSync('package-lock.json')).digest('hex');let s='';try{s=fs.readFileSync('node_modules/.sigma-installed','utf8')}catch{}process.exit(s===h?0:1)"; then
     echo "Installing what Project Sigma needs. The first time takes a minute or two."
-    if ! npm ci --no-audit --no-fund; then
+    # sharp has no native build for Android, so there npm takes its WebAssembly build from the lockfile
+    NPM_CPU=""
+    if [ "$(node -p process.platform)" = "android" ]; then NPM_CPU="--cpu=wasm32"; fi
+    if ! npm ci --no-audit --no-fund $NPM_CPU; then
         echo
         echo "The install failed; the lines above say why."
         exit 1
@@ -27,6 +30,12 @@ if ! node -e "const fs=require('fs');const h=require('crypto').createHash('sha25
         echo
         echo "The install finished, but the database driver did not build."
         echo "Run \"npm rebuild better-sqlite3\" in this folder and read what it says."
+        exit 1
+    fi
+    if ! node -e "require('sharp')" >/dev/null 2>&1; then
+        echo
+        echo "The install finished, but the image library (sharp) did not load."
+        echo "Run node -e \"require('sharp')\" in this folder and read what it says."
         exit 1
     fi
     node -e "const fs=require('fs');fs.writeFileSync('node_modules/.sigma-installed',require('crypto').createHash('sha256').update(fs.readFileSync('package-lock.json')).digest('hex'))"

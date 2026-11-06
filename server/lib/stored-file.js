@@ -53,3 +53,45 @@ export function kindForFile(file) {
     if (AUDIO_EXT.has(ext)) return 'audio';
     return 'file';
 }
+
+// what the first bytes say, for CDNs that say nothing: an octet-stream with a bare path would never thumbnail
+const MAGIC = [
+    { ext: '.png', test: b => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
+    { ext: '.jpg', test: b => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+    { ext: '.gif', test: b => b.length > 6 && b.toString('latin1', 0, 4) === 'GIF8' },
+    { ext: '.webp', test: b => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP' },
+    { ext: '.wav', test: b => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE' },
+    { ext: '.avif', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^avi[fs]/.test(b.toString('latin1', 8, 12)) },
+    { ext: '.m4a', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^M4[ABP] $/.test(b.toString('latin1', 8, 12)) },
+    { ext: '.mov', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && b.toString('latin1', 8, 12) === 'qt  ' },
+    // a HEIC photo or a camera's raw is an ftyp file too, and no kind the app shows: unknown, never a video
+    { ext: null, test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^(hei[cxms]|hev[cx]|mif1|msf1|crx )$/.test(b.toString('latin1', 8, 12)) },
+    { ext: '.mp4', test: b => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp' },
+    { ext: '.webm', test: b => b.length > 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 },
+    { ext: '.ogg', test: b => b.length > 4 && b.toString('latin1', 0, 4) === 'OggS' },
+    { ext: '.mp3', test: b => b.length > 3 && (b.toString('latin1', 0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0 && [0x02, 0x04].includes(b[1] & 0x06))) },
+];
+export function sniffMediaExt(bytes) {
+    if (!Buffer.isBuffer(bytes)) return null;
+    for (const m of MAGIC) if (m.test(bytes)) return m.ext;
+    return null;
+}
+
+/**
+ * The name the bytes earn: one whose kind they contradict takes their extension; unknown bytes keep it.
+ * @param {string} name
+ * @param {Buffer} bytes the file, or at least its first 16 bytes
+ */
+export function nameForBytes(name, bytes) {
+    const ext = sniffMediaExt(bytes);
+    if (!ext) return name;
+    const named = kindForFile(name);
+    // an MP4-family box holds sound or picture alike, and its first bytes cannot tell which: a name saying either stands
+    if (FTYP_EXTS.has(ext) && (named === 'audio' || named === 'video')) return name;
+    if (named === kindForFile(`x${ext}`)) return name;
+    const given = path.extname(name);
+    // a media extension, or a short word one (a cut '.pn', a '.bin'), gives way; a dot inside a name ('Dr. Smith') stays
+    const swap = given && (named !== 'file' || /^\.[a-z][a-z0-9]{0,4}$/i.test(given));
+    return `${swap ? name.slice(0, -given.length) : name}${ext}`;
+}
+const FTYP_EXTS = new Set(['.mp4', '.m4a', '.mov']);

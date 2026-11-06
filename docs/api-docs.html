@@ -894,7 +894,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-get">GET</span>
             <span class="path">/api/characters/{id}/export</span>
-            <span class="summary-text">Card PNG with chunks freshly embedded from the library (tags/links/identity re-emitted)</span>
+            <span class="summary-text">The character as a card file freshly built from the library (tags/links/identity re-emitted): a card PNG, or a CHARX holding the card as V3 with its picture and every gallery file</span>
         </summary>
         <div class="op-body">
 
@@ -906,12 +906,22 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td class="dim">path</td>
             <td>string</td>
             <td>character uuid</td>
+        </tr>
+        <tr>
+            <td><code>format</code></td>
+            <td class="dim">query</td>
+            <td><code>png</code> | <code>charx</code></td>
+            <td>png (the default) or charx. A charx of a V2 card says V3 in its card.json and records what the export added in extensions.cl.charx, so importing that file back gives the card as stored (identical); a file another app has changed since comes in as the V3 card it became</td>
         </tr></tbody></table></div>
 
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
-            <td>string (binary)</td>
-            <td>PNG attachment</td>
+            <td><code class="ctype">image/png</code> string (binary)<br><code class="ctype">application/zip</code> string (binary)</td>
+            <td>the file as an attachment</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>a format other than png or charx</td>
         </tr><tr>
             <td><span class="code code-4xx">404</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -1199,7 +1209,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>name</code></td>
             <td class="dim">query</td>
             <td>string</td>
-            <td>display name</td>
+            <td>display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension</td>
         </tr>
         <tr>
             <td><code>sourceUrl</code></td>
@@ -1404,7 +1414,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>name</code></td>
             <td class="dim">query</td>
             <td>string</td>
-            <td>display name</td>
+            <td>display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension</td>
         </tr></tbody></table></div>
             <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">*/*</code><div>string (binary)</div></div>
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
@@ -1674,7 +1684,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>name</code></td>
             <td class="dim">query</td>
             <td>string</td>
-            <td>display name; the extension decides the stored format</td>
+            <td>display name; the bytes decide what the file is (a video named .png is refused), and the stored name takes their extension</td>
         </tr>
         <tr>
             <td><code>sourceUrl</code></td>
@@ -8757,11 +8767,68 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </div>
     </details>
 
+    <details class="op" id="op-get--api-extensions-updates">
+        <summary>
+            <span class="method m-get">GET</span>
+            <span class="path">/api/extensions/updates</span>
+            <span class="summary-text">The last update check (admin): for each git-installed extension, whether its repository holds a newer commit, the version that commit's manifest names, or why the repository could not be asked. Held in memory, so checkedAt is null until a check runs after a restart</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>{checkedAt, checking, extensions}</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-post--api-extensions-updates-check">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/extensions/updates/check</span>
+            <span class="summary-text">Ask every git-installed extension's repository for its latest commit now (admin), or answer a check younger than maxAge milliseconds as it is; a second ask joins the one running. It never updates anything. What changed since the last check is announced as extension records</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+            <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">application/json</code><div><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>maxAge</code></td>
+            <td>number</td>
+            <td>answer the last check as it is when it is younger than this many milliseconds; 0 or absent always asks</td>
+        </tr></tbody></table></div></div>
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>{checkedAt, checking, extensions}</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>maxAge not a number of 0 or more / extensions disabled</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
     <details class="op" id="op-post--api-extensions-id-update">
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/extensions/{id}/update</span>
-            <span class="summary-text">git pull --ff-only a git-installed extension (admin). A server half keeps running the code it booted with, so restart is true when the extension has one (its inventory serverState reads restart until the server restarts)</span>
+            <span class="summary-text">Bring a git-installed extension to its repository's latest commit (admin): the install is reset to that commit, so a rewritten history or an edit inside its folder never blocks an update. A new version that would not load is refused and the install stays as it was. updated is false when it was on that commit already. A server half keeps running the code it booted with, so restart is true when an update reached an extension that has one (its inventory serverState reads restart until the server restarts)</span>
         </summary>
         <div class="op-body">
 
@@ -8778,11 +8845,11 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
             <td>object</td>
-            <td>{id, restart}</td>
+            <td>{id, updated, from, to, restart}</td>
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>not a git install / pull failed / extensions disabled</td>
+            <td>not a git install / the repository could not be reached / the new version would not load / extensions disabled</td>
         </tr><tr>
             <td><span class="code code-4xx">403</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -8925,7 +8992,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>name</code></td>
             <td class="dim">query</td>
             <td>string</td>
-            <td>display name</td>
+            <td>display name; when the bytes are another kind of file than its extension says (a video named .png), the stored name takes the bytes' extension</td>
         </tr></tbody></table></div>
             <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">*/*</code><div>string (binary)</div></div>
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
@@ -10992,6 +11059,11 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>serverHooks</code></td>
             <td>array&lt;object&gt;</td>
             <td>what the server half registered: its store guards, pipeline filters, macros, prompt blocks, job schedules and change listener, each group in the order the half registered it</td>
+        </tr>
+        <tr>
+            <td><code>browserConsumers</code></td>
+            <td>array&lt;object&gt;</td>
+            <td>the hosted-browser consumers the server half registered, each id &lt;extension&gt;:&lt;name&gt;, served by /api/provider-services/browser/* only for accounts that switched the extension on</td>
         </tr>
         <tr>
             <td><code>serverQuery</code></td>

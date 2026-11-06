@@ -542,7 +542,8 @@ chatsRouter.post('/:id/generate', async (req, res) => {
         commitBuild(db, chatId, built.commit);
         // a Continue on the greeting re-reads its target, which the build just rewrote, or it conflicts
         if (targetSeq === 0 && built.commit.firstMessage !== null) targetData = messageRowAt(db, chatId, 0)?.data ?? targetData;
-        const body = { messages: built.messages, stream: true, purpose: 'chat' };
+        // llm.request is told the chat and the mode, as reply.final is
+        const body = { messages: built.messages, stream: true, purpose: 'chat', scope: { chatId, mode } };
         if (profileId) body.profileId = profileId;
         // samplers are the connection's, never the preset's: the profile's defaults under this request's overrides
         if (req.body?.params) body.params = req.body.params;

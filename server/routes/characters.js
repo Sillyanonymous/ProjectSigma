@@ -14,6 +14,10 @@ import { scanDuplicates, matchCharacter, matchNamesForHint } from '../db/duplica
 import { requireArchiveType, skipIfGone } from '../lib/request-guard.js';
 import { boolOf, pageOf, PAGE_DEFAULT, PAGE_MAX, PROBE_MAX_KEYS, IDS_MAX, FIELDS_APPLY_MAX } from '../lib/query-params.js';
 import { safeFileName } from '../lib/stored-file.js';
+import { listMedia, galleryDirFor } from '../db/media-store.js';
+import { charxExportAssets, writeCharx } from '../lib/charx.js';
+import { liftForCharx } from '../lib/card-normalize.js';
+import { packPath, dropPack, sendPack } from '../lib/zip.js';
 import { startDeleteJob, startFavoriteJob, startFlagsJob } from '../lib/character-jobs.js';
 import { clientIdOf } from '../lib/feed.js';
 
@@ -346,18 +350,37 @@ charactersRouter.put('/:id/avatar', express.raw({ type: ['image/*', 'application
     res.json({ ok: true });
 });
 
-charactersRouter.get('/:id/export', (req, res) => {
-    const built = buildExportCard(req.db, req.params.id);
+charactersRouter.get('/:id/export', async (req, res) => {
+    const format = req.query.format === undefined ? 'png' : String(req.query.format);
+    if (format !== 'png' && format !== 'charx') return res.status(400).json({ error: "format is 'png' or 'charx'" });
+    const char = getCharacter(req.db, req.params.id);
+    const built = char && buildExportCard(req.db, req.params.id, char);
     if (!built) return res.status(404).json({ error: 'character not found' });
     const avatarPath = path.join(req.paths.avatarsDir, `${req.params.id}.png`);
     if (!fs.existsSync(avatarPath)) return res.status(404).json({ error: 'avatar file missing' });
 
-    const png = writeCardChunks(fs.readFileSync(avatarPath), built.card);
     const safeName = safeFileName(built.name, 'character');
     // headers are Latin1-only; ascii fallback + RFC 5987 filename* carries the real name
     const asciiName = safeName.replace(/[^\x20-\x7e]/g, '_') || 'character';
-    res.set('Content-Type', 'image/png');
-    res.set('Content-Disposition',
-        `attachment; filename="${asciiName}.png"; filename*=UTF-8''${encodeURIComponent(safeName)}.png`);
-    res.send(png);
+    const disposition = `attachment; filename="${asciiName}.${format}"; filename*=UTF-8''${encodeURIComponent(safeName)}.${format}`;
+    if (format === 'png') {
+        res.set('Content-Disposition', disposition);
+        res.set('Content-Type', 'image/png');
+        return res.send(writeCardChunks(fs.readFileSync(avatarPath), built.card));
+    }
+    // the card as V3 with its picture and every gallery file, the change recorded so a re-import reads it as stored
+    const galleryDir = galleryDirFor(req.paths.galleryRoot, req.params.id);
+    const media = listMedia(req.db, req.params.id).map(m => ({ displayName: m.displayName, path: path.join(galleryDir, m.file) })).filter(m => fs.existsSync(m.path));
+    const { assets, readBack, files } = charxExportAssets(built.card.data.assets, media);
+    const card = liftForCharx(built.card, { createdAt: char.createdAt, updatedAt: char.updatedAt, assets, readBack });
+    const zipPath = packPath();
+    try {
+        await writeCharx(zipPath, card, stripCardChunks(fs.readFileSync(avatarPath), { assets: true }), files);
+    } catch (err) {
+        dropPack(zipPath);
+        throw err;
+    }
+    res.set('Content-Disposition', disposition);
+    res.set('Content-Type', 'application/zip');
+    sendPack(res, zipPath);
 });
