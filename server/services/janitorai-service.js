@@ -3,9 +3,10 @@ import { debugLog } from './shared.js';
 import { CDP_NAV_TIMEOUT } from '../lib/cdp.js';
 import { withPage, resolveBrowserEndpoint, registerBrowserConsumer, CF_CHALLENGE_RE } from './browser-service.js';
 import { runOnLane, laneStatus } from './janitorai-jobs.js';
+import { closeSignal } from '../lib/request-guard.js';
 import {
-    JANITORAI_ORIGIN, JANITORAI_UUID_RE, janitoraiCall, JANITORAI_COOKIE, readJanitoraiToken,
-    injectJanitoraiSession, extractHiddenDefinition,
+    JANITORAI_ORIGIN, JANITORAI_UUID_RE, janitoraiCall, isJanitoraiSessionCookie, readJanitoraiToken, janitoraiNoSessionReason,
+    injectJanitoraiSession, janitoraiSessionNeedsPush, extractHiddenDefinition,
 } from './janitorai-page.js';
 import {
     recoverLockedDefinition, setRecoverPhase, cancelRecoverJob, isRecoverCancelled, clearRecoverJob,
@@ -19,9 +20,8 @@ import {
 // a request's lane identity: the account, and whether the caller still waits (a closed socket left the queue)
 const laneUser = (req) => req.userHandle || 'default';
 function laneMeta(req, res, characterId, kind) {
-    let gone = false;
-    res.on('close', () => { if (!res.writableEnded) gone = true; });
-    return { characterId, kind, user: laneUser(req), abandoned: () => gone };
+    const gone = closeSignal(res);
+    return { characterId, kind, user: laneUser(req), abandoned: () => gone.aborted };
 }
 
 export function registerJanitoraiBrowserRoutes(router) {
@@ -46,7 +46,8 @@ export function registerJanitoraiBrowserRoutes(router) {
                 await new Promise(r => setTimeout(r, 6000));
 
                 // already signed in: janitorai serves no form, and re-driving one would only risk the session
-                const existing = readJanitoraiToken(await page.cookies([JANITORAI_ORIGIN]));
+                const before = await page.cookies([JANITORAI_ORIGIN]);
+                const existing = readJanitoraiToken(before);
                 if (existing.token) return { session: existing.cookie };
 
                 // React reverts a plain el.value = x on the next render, so use the native setter and fire input
@@ -84,9 +85,8 @@ export function registerJanitoraiBrowserRoutes(router) {
                 const after = await page.cookies([JANITORAI_ORIGIN]);
                 const { token, cookie } = readJanitoraiToken(after);
                 if (!token) {
-                    // the session cookies we see split refused from unreadable; exact name and chunks only (PKCE verifiers share the prefix)
-                    const chunkName = new RegExp(`^${JANITORAI_COOKIE}\\.\\d+$`);
-                    const seen = after.map(c => c.name).filter(n => n === JANITORAI_COOKIE || chunkName.test(n));
+                    // the session cookies we see split refused from unreadable; session-shaped names only, never the PKCE verifiers beside them
+                    const seen = after.map(c => c.name).filter(isJanitoraiSessionCookie);
                     if (seen.length) {
                         throw new Error(`Signed in, but the session cookie could not be read (${seen.join(', ')}). Please report this.`);
                     }
@@ -97,12 +97,11 @@ export function registerJanitoraiBrowserRoutes(router) {
                             const text = [...document.querySelectorAll('[role="alert"], [class*="error" i], [class*="Error"]')]
                                 .map(el => (el.textContent || '').trim())
                                 .filter(t => t && t.length < 160 && !seen.has(t) && seen.add(t));
-                            return { path: location.pathname, title: document.title, message: text[0] || '' };
+                            const human = document.querySelector('input[name="cf-turnstile-response"]');
+                            return { path: location.pathname, title: document.title, message: text[0] || '', turnstile: human ? (human.value ? 'passed' : 'pending') : 'none' };
                         })()`).catch(() => null);
-                    const said = state?.message
-                        ? ` JanitorAI said: "${state.message}".`
-                        : (state?.title ? ` The page was "${state.title}".` : '');
-                    throw new Error(`Login did not produce a session.${said}`);
+                    const had = new Set(before.map(c => c.name));
+                    throw new Error(janitoraiNoSessionReason(state, after.map(c => c.name).filter(n => !had.has(n))));
                 }
                 return { session: cookie };
             });
@@ -161,12 +160,11 @@ export function registerJanitoraiBrowserRoutes(router) {
                 await new Promise(r => setTimeout(r, 3500));
 
                 // prefer our own self-refreshing token; a browser session is the fallback, never a requirement
-                const browserToken = readJanitoraiToken(await page.cookies([JANITORAI_ORIGIN])).token;
-                const token = clientToken || browserToken;
-
-                // the session must exist as a cookie too, not just a Bearer, or the chat has no composer
-                if (clientToken && !browserToken) {
-                    await injectJanitoraiSession(page, clientToken, refreshToken);
+                const browser = readJanitoraiToken(await page.cookies([JANITORAI_ORIGIN]));
+                const token = clientToken || browser.token;
+                // the chat page needs the session as a cookie with its user, the calls' own account, or it reads every chat as private
+                if (janitoraiSessionNeedsPush(browser, clientToken)) {
+                    await injectJanitoraiSession(page, token, clientToken ? refreshToken : browser.refreshToken);
                 }
 
                 const detailRes = await page.evaluate(janitoraiCall('GET', `/hampter/characters/${characterId}`, null, token));
@@ -223,10 +221,11 @@ export function registerJanitoraiBrowserRoutes(router) {
                 await page.goto(`${JANITORAI_ORIGIN}/`, { timeout: CDP_NAV_TIMEOUT });
                 await new Promise(r => setTimeout(r, 3500));
 
-                const browserToken = readJanitoraiToken(await page.cookies([JANITORAI_ORIGIN])).token;
-                const token = clientToken || browserToken;
-                if (clientToken && !browserToken) {
-                    await injectJanitoraiSession(page, clientToken, refreshToken);
+                const browser = readJanitoraiToken(await page.cookies([JANITORAI_ORIGIN]));
+                const token = clientToken || browser.token;
+                // the chat page needs the session as a cookie with its user, the calls' own account, or it reads every chat as private
+                if (janitoraiSessionNeedsPush(browser, clientToken)) {
+                    await injectJanitoraiSession(page, token, clientToken ? refreshToken : browser.refreshToken);
                 }
                 if (!token) throw new Error('This needs a JanitorAI account. Sign in under Settings > Online > JanitorAI.');
 

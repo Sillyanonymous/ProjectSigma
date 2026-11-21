@@ -4,6 +4,7 @@ import seedrandom from 'seedrandom';
 import { BRANCH_MARK, createEngine, isFalseBoolean, mayHoldMacros, MacroError, normalize, topLevelMacros, trimScoped } from './macro-engine.js';
 import { CHAT_CARD_OVERRIDES } from '../db/chats-store.js';
 import { parseStDate } from '../lib/st-date.js';
+import { hiddenFromPrompt } from '../lib/regex/engine.js';
 import { DEFAULT_MAIN_PROMPT, exampleTexts } from './preset.js';
 
 // ================================================================ the definitions table
@@ -49,7 +50,7 @@ const VARIABLE_MAX = 1000000;
 
 // ---------------------------------------------------------------- utility
 
-define('//', { aliases: ['comment'], args: [arg()], list: true, strict: false, handler: () => '' });
+define('//', { aliases: ['comment'], args: [arg()], handler: () => '' });
 define('space', { args: [arg(INTEGER, true, { max: REPEAT_MAX })], handler: ({ unnamedArgs: [count] }) => ' '.repeat(Number(count ?? 1)) });
 define('newline', { args: [arg(INTEGER, true, { max: REPEAT_MAX })], handler: ({ unnamedArgs: [count] }) => '\n'.repeat(Number(count ?? 1)) });
 define('noop', { handler: () => '' });
@@ -246,19 +247,19 @@ define('hasExtension', { args: [arg()], handler: ({ unnamedArgs: [id], env }) =>
 
 // a reply still being written: its swipe points past the swipes it holds
 const inProgress = (m) => !!m.swipes && m.swipe_id >= m.swipes.length;
-const hidden = (m) => !!(m.is_system || m.extra?.hidden);
 
 // where the newest finished message ACCEPT takes sits in the chat, null for none
 function newestAt(env, accept = () => true) {
     const k = env.chat.messages.findLastIndex(m => !inProgress(m) && accept(m));
     return k < 0 ? null : k;
 }
-const mesAt = (env, k) => (k === null ? '' : env.chat.messages[k]?.mes ?? '');
+// a message as its text scripts write it when the chat says how, as ST stored it
+const mesAt = (env, k) => (k === null ? '' : (env.chat.written ? env.chat.written(env.chat.messages[k]) : env.chat.messages[k]?.mes) ?? '');
 
 define('lastMessage', { handler: ({ env }) => mesAt(env, newestAt(env)) });
 define('lastMessageId', { handler: ({ env }) => String(newestAt(env) ?? '') });
-define('lastUserMessage', { handler: ({ env }) => mesAt(env, newestAt(env, m => m.is_user && !hidden(m))) });
-define('lastCharMessage', { handler: ({ env }) => mesAt(env, newestAt(env, m => !m.is_user && !hidden(m))) });
+define('lastUserMessage', { handler: ({ env }) => mesAt(env, newestAt(env, m => m.is_user && !hiddenFromPrompt(m))) });
+define('lastCharMessage', { handler: ({ env }) => mesAt(env, newestAt(env, m => !m.is_user && !hiddenFromPrompt(m))) });
 define('firstIncludedMessageId', {
     handler: ({ env }) => {
         const v = env.chat.metadata?.lastInContextMessageId;
@@ -313,8 +314,8 @@ define('idleDuration', {
     handler: ({ env }) => {
         // the user's turn before the newest shown message, hidden ones passed over
         const messages = env.chat.messages;
-        const newest = messages.findLastIndex(m => !hidden(m));
-        const turn = messages.findLast((m, k) => k < newest && m.is_user && !hidden(m));
+        const newest = messages.findLastIndex(m => !hiddenFromPrompt(m));
+        const turn = messages.findLast((m, k) => k < newest && m.is_user && !hiddenFromPrompt(m));
         if (!turn?.send_date) return 'just now';
         const sent = messageMoment(turn.send_date, env) ?? moment.invalid();
         return moment.duration(readerTime(env).diff(sent)).humanize();
@@ -446,7 +447,7 @@ export function unansweredMacros(text, env) {
 /** Every name and alias the vocabulary answers, lower-case; an extension's macro may take none of them. */
 export const BUILTIN_MACROS = Object.freeze([...DEFINITIONS.keys()]);
 
-/** The definitions, primary names only, for the vocabulary check against ST's registry. */
+/** The built-in definitions by primary name, with their aliases and argument shape. */
 export const MACRO_DEFINITIONS = Object.freeze(PRIMARY.map(d => Object.freeze({
     name: d.name, aliases: d.aliases, minArgs: d.minArgs, maxArgs: d.maxArgs, list: d.list,
     strict: d.strict, delay: d.delay, args: d.args,
@@ -533,6 +534,7 @@ export function buildMacroEnv({
         chat: {
             messages: chat,
             metadata,
+            written: more.written || null,
             // ST's chat hash, computed once from the chat's name and kept in the metadata for a real
             // build to commit, as ST caches it
             idHash() {
@@ -576,15 +578,16 @@ function lazyTexts(written, alternates, version, finish) {
     return texts;
 }
 
-/** Expand every macro in text with env; original answers the first {{original}} only. */
-export function expandMacros(text, env, { original } = {}) {
+/** Expand every macro in text with env; original answers the first {{original}} only; escape rewrites each top-level value; charName overrides the character. */
+export function expandMacros(text, env, { original, escape, charName } = {}) {
     if (typeof text !== 'string' || !text) return '';
     if (!mayHoldMacros(text)) return text;
     let originalLeft = original;
     const call = {
         ...env,
+        ...(typeof charName === 'string' && charName ? { charName } : {}),
         contentHash: stringHash(text),
         original: original === undefined ? undefined : () => { const once = originalLeft ?? ''; originalLeft = ''; return once; },
     };
-    return engine.evaluate(text, call);
+    return engine.evaluate(text, call, escape ? { value: escape } : undefined);
 }

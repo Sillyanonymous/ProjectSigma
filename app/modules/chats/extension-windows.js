@@ -14,23 +14,18 @@ let _context = () => ({ chatId: null, character: null });
 // told after every sync: what draws from the doors' state besides the header (ie. Chat settings' Extensions group)
 const _synced = new Set();
 
-/** The setting that hides a window per form factor: its desktop header opener, its phone Windows tile. */
-export const HIDE_SETTING = Object.freeze({ header: 'chatExtHiddenHeader', phone: 'chatExtHiddenPhone' });
-const HIDE_KEYS = new Set(Object.values(HIDE_SETTING));
+// the setting that hides a window's phone Windows tile; the desktop header's arrangement hides its openers (header-layout.js)
+const PHONE_HIDDEN = 'chatExtHiddenPhone';
 
-function hiddenSet(scope) {
-    const v = CoreAPI.getSetting(HIDE_SETTING[scope]);
+/** The window keys hidden from the phone's Windows tiles, as a fresh set the caller may change. */
+export function phoneHidden() {
+    const v = CoreAPI.getSetting(PHONE_HIDDEN);
     return new Set(Array.isArray(v) ? v : []);
 }
 
-/** Whether a window is hidden in one scope; the settings window reads it per switch. */
-export function isHidden(key, scope) {
-    return hiddenSet(scope).has(key);
-}
-
-// read at every sync, so a viewport flip and a Chat settings toggle land on the next open
-function currentScope() {
-    return document.documentElement.classList.contains('cl-mobile') ? 'phone' : 'header';
+/** Whether a window's phone tile is hidden; the settings window reads it per switch. */
+export function isHidden(key) {
+    return phoneHidden().has(key);
 }
 
 /** The registered windows whose when() holds for the open conversation, in registration order; Chat settings lists these. */
@@ -39,9 +34,11 @@ export function liveSpecs() {
     return getChatWindows().filter(s => windowShows(s, { chatId: c.chatId ?? null, character: c.character ?? null }));
 }
 
-/** The registered windows the current form factor shows, in registration order. */
+/** The registered windows the current form factor shows, in registration order; the header's arrangement hides its own. */
 export function shownSpecs() {
-    const hidden = hiddenSet(currentScope());
+    // read at every sync, so a viewport flip and a Chat settings toggle land on the next open
+    if (!document.documentElement.classList.contains('cl-mobile')) return liveSpecs();
+    const hidden = phoneHidden();
     return liveSpecs().filter(s => !hidden.has(s.key));
 }
 
@@ -91,11 +88,10 @@ function ensureWindow(spec) {
         close: () => closeWindow(spec.key),
         follow: (detail) => { if (entry.rendered && typeof spec.follow === 'function') guard(spec, 'follow', () => spec.follow(detail, windowContext(entry))); },
     });
-    // openers after the first-party cluster behind one separator, in registration order, all ahead of More
+    // the opener joins ahead of More; the header's arrangement gives it its place
     const more = right.querySelector('.chat-conv-more');
-    const place = (html) => (more ? more.insertAdjacentHTML('beforebegin', html) : right.insertAdjacentHTML('beforeend', html));
-    if (!right.querySelector('.cxw-sep')) place('<span class="cxw-sep" aria-hidden="true"></span>');
-    place(`<button type="button" id="${entry.buttonId}" class="cxw-open-btn" data-ext-window="${esc(spec.key)}" title="${esc(spec.label)}" aria-label="${esc(spec.label)}"><i class="fa-solid ${esc(spec.icon)}"></i></button>`);
+    const html = `<button type="button" id="${entry.buttonId}" class="cxw-open-btn" data-ext-window="${esc(spec.key)}" title="${esc(spec.label)}" aria-label="${esc(spec.label)}"><i class="fa-solid ${esc(spec.icon)}"></i></button>`;
+    if (more) more.insertAdjacentHTML('beforebegin', html); else right.insertAdjacentHTML('beforeend', html);
     _entries.set(spec.key, entry);
     return entry;
 }
@@ -127,11 +123,10 @@ function removeWindow(key) {
     _entries.delete(key);
 }
 
-// every SHOWN window keeps its opener, however many; what the header cannot fit waits behind More (fitRow)
+// every live window keeps its opener; where it sits and whether the reader hid it is the header's arrangement
 function syncHeader() {
-    const shownKeys = new Set(shownSpecs().map(s => s.key));
-    for (const entry of _entries.values()) document.getElementById(entry.buttonId)?.classList.toggle('hidden', !shownKeys.has(entry.spec.key));
-    document.querySelector('.cxw-sep')?.classList.toggle('hidden', ![..._entries.keys()].some(k => shownKeys.has(k)));
+    const live = new Set(liveSpecs().map(s => s.key));
+    for (const entry of _entries.values()) document.getElementById(entry.buttonId)?.classList.toggle('hidden', !live.has(entry.spec.key));
     CoreAPI.refitRow(headerRight());
 }
 
@@ -150,7 +145,7 @@ export function syncWindows() {
 }
 
 /**
- * Hear every sync of the doors: a window registered or gone, a when() asked again, a Header or Phone list written.
+ * Hear every sync of the doors: a window registered or gone, a when() asked again, the Phone list written.
  * @returns {Function} the unsubscribe
  */
 export function onDoorsSynced(fn) {
@@ -158,10 +153,10 @@ export function onDoorsSynced(fn) {
     return () => _synced.delete(fn);
 }
 
-// another tab's Header or Phone list, or an extension's setting a when() reads, after the shell adopted it
+// another tab's Phone list, or an extension's setting a when() reads, after the shell adopted it
 function patchDoorsFromFeed(records) {
     const asks = windowsAsk();
-    if (records && !records.some(r => r.all || (r.ids || []).some(k => HIDE_KEYS.has(k) || (asks && String(k).startsWith('ext:'))))) return;
+    if (records && !records.some(r => r.all || (r.ids || []).some(k => k === PHONE_HIDDEN || (asks && String(k).startsWith('ext:'))))) return;
     syncWindows();
 }
 
@@ -221,4 +216,4 @@ export function init({ context } = {}) {
     syncWindows();
 }
 
-export default { init, syncWindows, onDoorsSynced, openWindow, closeWindow, toggleWindow, doors, liveSpecs, shownSpecs, isHidden, windowShellHtml, HIDE_SETTING };
+export default { init, syncWindows, onDoorsSynced, openWindow, closeWindow, toggleWindow, doors, liveSpecs, shownSpecs, isHidden, windowShellHtml };

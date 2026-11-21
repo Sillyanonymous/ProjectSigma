@@ -728,7 +728,7 @@ function filterManageList() {
 }
 
 function positionPickerAtButton(btn, picker) {
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = CoreAPI.uiZoom();
     const rect = btn.getBoundingClientRect();
     picker.style.position = 'fixed';
     picker.style.left = `${rect.left / zoom}px`;

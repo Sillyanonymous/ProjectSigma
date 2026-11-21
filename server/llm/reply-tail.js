@@ -4,6 +4,7 @@ import { LlmError, LENGTH_FINISH_REASONS } from './errors.js';
 import { sseOpen, sseWrite } from './sse.js';
 import { settingValue } from '../db/settings-store.js';
 import { profileParams } from '../db/llm-profiles-store.js';
+import { closeSignal } from '../lib/request-guard.js';
 
 /** The error a finished stream ends with instead of done (streamed text not stored, or no text), or null. */
 export function replyFailure({ content, stored, finishReason, expectsRow = true }) {
@@ -62,11 +63,10 @@ export function openReply(db, res, store) {
     };
     // a hang-up lands here, never in the catch. it discards the fragment unless chatKeepInterrupted
     // (a stop and a dropped socket look the same)
-    res.on('close', () => {
-        if (res.writableEnded) return;
+    closeSignal(res).addEventListener('abort', () => {
         if (settingValue(db, 'chatKeepInterrupted', false) === true) commit('stopped');
         controller.abort();
-    });
+    }, { once: true });
     return {
         signal: controller.signal,
         get content() { return content; },

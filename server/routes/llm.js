@@ -7,6 +7,7 @@ import { normalizeParams } from '../llm/params.js';
 import { sseOpen, sseWrite } from '../llm/sse.js';
 import { listProfiles, getProfile, createProfile, patchProfile, deleteProfile, duplicateProfile, resolveChatProfile, toProfile } from '../db/llm-profiles-store.js';
 import { httpError } from '../lib/http-error.js';
+import { closeSignal } from '../lib/request-guard.js';
 
 // HTTP + validation only. Generation logic lives in server/llm/service.js,
 // wire shapes in server/llm/adapters/. Keys are write-only: no response ever
@@ -143,16 +144,14 @@ llmRouter.post('/test-vision', async (req, res) => {
 
 llmRouter.post('/chat', async (req, res) => {
     const db = req.db;
-    const controller = new AbortController();
-    // res 'close' + !writableEnded = the CLIENT went away mid-call (req 'close'
-    // fires on normal body completion in modern node and must not be used here)
-    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    // the CLIENT going away mid-call (a req 'close' fires on normal body completion in modern node, so never that)
+    const gone = closeSignal(res);
 
     if (req.body?.stream === true) {
         // normalized SSE: chunk({text}|{reasoning}) / done / error - the client
         // never sees a provider shape, and mid-stream failures are typed events
         try {
-            const events = chatStream(db, { ...req.body, purpose: 'tool' }, controller.signal);
+            const events = chatStream(db, { ...req.body, purpose: 'tool' }, gone);
             let opened = false;
             for await (const event of events) {
                 if (!opened) { sseOpen(res); opened = true; }
@@ -169,7 +168,7 @@ llmRouter.post('/chat', async (req, res) => {
     }
 
     try {
-        res.json(await chat(db, { ...req.body, purpose: 'tool' }, controller.signal));
+        res.json(await chat(db, { ...req.body, purpose: 'tool' }, gone));
     } catch (err) {
         if (err?.name === 'AbortError') return;
         answerReplyFailure(res, err);

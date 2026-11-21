@@ -26,63 +26,6 @@ export function stripBlocks(text, fences = ['cl-lore-edits', 'cl-chat-edits', 'c
     return out.join('\n').trim();
 }
 
-/** Side-by-side diff for a review card: lines find hunks, each hunk is one word diff of removed vs added lines. */
-export function diffSideBySideHtml(before, after) {
-    // an empty side has no lines, not one empty line (which would pair with a blank line as context)
-    const lines = (s) => { const t = String(s ?? ''); return t ? t.split('\n') : []; };
-    const rows = CoreAPI.computeLineDiff(lines(before), lines(after));
-    const groups = [];
-    for (const r of rows) {
-        const last = groups[groups.length - 1];
-        if (r.type === 'context') groups.push({ ctx: r.line });
-        else if (last && !('ctx' in last)) (r.type === 'removed' ? last.old : last.new).push(r.line);
-        else groups.push({ old: r.type === 'removed' ? [r.line] : [], new: r.type === 'added' ? [r.line] : [] });
-    }
-    const hunkAt = (i) => i >= 0 && i < groups.length && !('ctx' in groups[i]);
-    if (!groups.some((g, i) => hunkAt(i))) return '';
-    // one side of a hunk, its tokens back into lines; a run of marked tokens is one span
-    const linesOf = (tokens, mark, word) => {
-        const lines = [[]];
-        for (const t of tokens) {
-            if (!t.text.includes('\n')) { lines[lines.length - 1].push(t); continue; }
-            t.text.split('\n').forEach((part, k) => {
-                if (k) lines.push([]);
-                if (part) lines[lines.length - 1].push({ type: t.type, text: part });
-            });
-        }
-        return lines.map(l => {
-            const runs = [];
-            for (const t of l) {
-                const on = t.type === mark;
-                if (runs.length && runs[runs.length - 1].on === on) runs[runs.length - 1].text += t.text;
-                else runs.push({ on, text: t.text });
-            }
-            return { marked: runs.some(r => r.on), html: runs.map(r => r.on ? `<span class="${word}">${esc(r.text)}</span>` : esc(r.text)).join('') };
-        });
-    };
-    const cell = (l, cls) => l ? `<div class="cas-diff-cell ${l.marked ? cls : 'is-ctx'}">${l.html}</div>` : '<div class="cas-diff-cell is-empty"></div>';
-    const gap = '<div class="cas-diff-gap">…</div><div class="cas-diff-gap">…</div>';
-    const out = [];
-    let elided = false;
-    groups.forEach((g, i) => {
-        if ('ctx' in g) {
-            if (!hunkAt(i - 1) && !hunkAt(i + 1)) { elided = true; return; }
-            if (elided) { out.push(gap); elided = false; }
-            out.push(`<div class="cas-diff-cell is-ctx">${esc(g.ctx)}</div><div class="cas-diff-cell is-ctx">${esc(g.ctx)}</div>`);
-            return;
-        }
-        const d = CoreAPI.computeWordDiff(g.old.join('\n'), g.new.join('\n'));
-        const left = g.old.length ? linesOf(d.old, 'removed', 'cas-diff-word-del') : [];
-        const right = g.new.length ? linesOf(d.new, 'added', 'cas-diff-word-add') : [];
-        for (let k = 0; k < Math.max(left.length, right.length); k++) out.push(cell(left[k], 'is-del') + cell(right[k], 'is-add'));
-    });
-    if (elided) out.push(gap);
-    return `<div class="cas-diff cas-diff-split">
-        <div class="cas-diff-col-head is-del">Now</div><div class="cas-diff-col-head is-add">Proposed</div>
-        ${out.join('')}
-    </div>`;
-}
-
 // ========================================
 // THE LIVE PAINT
 // ========================================
@@ -1130,9 +1073,9 @@ export function createPictureTray({ strip, removeTitle = 'Not with this message'
             if (failed) CoreAPI.showToast(`${failed} picture${failed === 1 ? '' : 's'} could not be attached`, 'error');
             return added;
         },
-        /** A feed's attachment records: a picture removed leaves the strip, so no send names it. */
+        /** A feed's attachment records: a picture removed leaves the strip, so no send names it; a re-read (null) names none. */
         dropRemoved(records) {
-            const gone = new Set(records.filter(r => r.op === 'deleted').flatMap(r => r.ids || []));
+            const gone = new Set((records || []).filter(r => r.op === 'deleted').flatMap(r => r.ids || []));
             if (gone.size) tray.drop(p => p.kind === 'attachment' && gone.has(p.id));
         },
         removeAt(i) { items = items.filter((_, k) => k !== i); paint(); },
@@ -1146,16 +1089,14 @@ export function createPictureTray({ strip, removeTitle = 'Not with this message'
     return tray;
 }
 
-/** The tray follows a removal from another tab and from this one (the gallery window's Remove): two patchers, one per origin. */
+/** The tray follows a removal from another tab and from this one (the gallery window's Remove): one patcher for every origin. */
 export function followPictureRemovals(tray) {
-    registerFeedPatcher('attachment', (records) => tray.dropRemoved(records));
-    registerFeedPatcher('attachment', (records) => tray.dropRemoved(records), { own: true });
+    registerFeedPatcher('attachment', (records) => tray.dropRemoved(records), { own: 'both' });
 }
 
 /** A connection written in this tab or another may move a panel's sight: reread() reads it again. */
 export function followConnectionWrites(reread) {
-    registerFeedPatcher('llmProfile', () => reread());
-    registerFeedPatcher('llmProfile', () => reread(), { own: true });
+    registerFeedPatcher('llmProfile', () => reread(), { own: 'both' });
 }
 
 /** Pictures into a chat's gallery, held in the tray for the next send; still() false (the chat left mid-upload) holds nothing over. */

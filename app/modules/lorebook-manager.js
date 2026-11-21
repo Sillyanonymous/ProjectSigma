@@ -3,7 +3,7 @@
 
 import CoreAPI from './core-api.js';
 import { fetchWithProxy } from './providers/provider-utils.js';
-import { newWorldEntry as newEntry, convertCharacterBookToNative, sanitizeWorldName, importBookToShelf, ENTRY_NUMBER_BLANKS } from './lorebook-shelf.js';
+import { newWorldEntry as newEntry, convertCharacterBookToNative, sanitizeWorldName, importBookToShelf, ENTRY_NUMBER_BLANKS, TRIGGER_TYPES, MATCH_SOURCES } from './lorebook-shelf.js';
 import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActions, runAction as extRunAction, loreEntryContext } from './extension-host.js';
 import { defineCommand } from './ext-registry.js';
 
@@ -41,22 +41,6 @@ const TRISTATE_OPTIONS = [
     ['', 'Use Global'],
     ['true', 'Yes'],
     ['false', 'No'],
-];
-
-// Matching-source toggles ST scans beyond the chat log (newer WI feature).
-const MATCH_SOURCES = [
-    ['matchPersonaDescription', 'Persona description'],
-    ['matchCharacterDescription', 'Character description'],
-    ['matchCharacterPersonality', 'Character personality'],
-    ['matchCharacterDepthPrompt', 'Character depth prompt'],
-    ['matchScenario', 'Scenario'],
-    ['matchCreatorNotes', 'Creator notes'],
-];
-
-// ST's GENERATION_TYPE_TRIGGERS vocabulary; an empty triggers array means every kind
-const TRIGGER_TYPES = [
-    ['normal', 'Normal'], ['continue', 'Continue'], ['impersonate', 'Impersonate'],
-    ['swipe', 'Swipe'], ['regenerate', 'Regenerate'], ['quiet', 'Quiet'],
 ];
 
 // Nullable numeric fields: empty input means "inherit the global WI setting".
@@ -155,11 +139,6 @@ function createModal() {
                             <button class="lb-newbook-btn lb-split-caret" id="lbNewCaret" title="More ways to create" aria-label="More ways to create">
                                 <i class="fa-solid fa-caret-down"></i>
                             </button>
-                            <div class="lb-split-menu hidden" id="lbNewMenu">
-                                <button class="dropdown-item" id="lbAiBtn">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Generate with AI
-                                </button>
-                            </div>
                         </div>
                         <button class="lb-import-btn" id="lbImportBtn" title="Import a lorebook file (.json)">
                             <i class="fa-solid fa-file-import"></i> Import
@@ -796,7 +775,7 @@ async function selectWorld(fileId) {
 function lbNavAllowed() {
     const modal = document.getElementById('lorebookModal');
     if (!modal || modal.classList.contains('hidden')) return false;
-    if (document.querySelector('.cl-modal.visible, .confirm-modal:not(.hidden), .cl-confirm-overlay:not(.hidden)')) return false;
+    if (document.querySelector('.cl-modal.visible, .confirm-modal:not(.hidden), .cl-confirm-overlay:not(.hidden), #clContextMenu.visible')) return false;
     const cm = document.getElementById('charModal');
     if (cm && !cm.classList.contains('hidden')) return false;
     return true;
@@ -863,15 +842,7 @@ function renderEditor() {
                         <button class="lb-icon-btn lb-action-desktop" data-action="duplicate-world" title="Duplicate"><i class="fa-solid fa-clone"></i></button>
                         <button class="lb-icon-btn lb-action-desktop" data-action="export-world" title="Export JSON"><i class="fa-solid fa-file-export"></i></button>
                         <button class="lb-icon-btn danger lb-action-desktop" data-action="delete-world" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                        <div class="lb-editor-overflow lb-action-mobile">
-                            <button class="lb-icon-btn" data-action="editor-overflow" aria-label="More actions" title="More"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-                            <div class="lb-split-menu lb-editor-overflow-menu hidden" id="lbEditorOverflowMenu">
-                                <button class="dropdown-item" data-action="rename-world"><i class="fa-solid fa-pen"></i> Rename</button>
-                                <button class="dropdown-item" data-action="duplicate-world"><i class="fa-solid fa-clone"></i> Duplicate</button>
-                                <button class="dropdown-item" data-action="export-world"><i class="fa-solid fa-file-export"></i> Export JSON</button>
-                                <button class="dropdown-item lb-overflow-danger" data-action="delete-world"><i class="fa-solid fa-trash"></i> Delete</button>
-                            </div>
-                        </div>
+                        <button class="lb-icon-btn lb-action-mobile" data-action="editor-overflow" aria-label="More actions" title="More"><i class="fa-solid fa-ellipsis-vertical"></i></button>
                     </div>
                 </div>
                 <div class="lb-editor-meta">
@@ -1013,7 +984,7 @@ function renderBindingsStrip() {
         <div class="lb-bindings">
             ${bindGroupHtml('fa-user', 'Characters', charChips + charMore, addBtn('link-chars', 'Link to characters'))}
             ${bindGroupHtml('fa-comment', 'Chats', chatChips + chatMore, addBtn('bind-chats', 'Bind to chats'))}
-            ${bindGroupHtml('fa-masks-theater', 'Personas', personaChips, `<span class="lb-persona-add-wrap">${addBtn('add-persona', 'Bind to a persona')}<div class="lb-split-menu hidden" id="lbPersonaMenu"></div></span>`)}
+            ${bindGroupHtml('fa-masks-theater', 'Personas', personaChips, addBtn('add-persona', 'Bind to a persona'))}
             ${bindGroupHtml('fa-globe', 'Global', globalCtl, '')}
         </div>`;
 }
@@ -1041,8 +1012,8 @@ function entryRowHtml(e) {
     return `
         <div class="lb-entry-head" data-action="toggle-entry" data-uid="${esc(e.uid)}">
             <label class="lb-switch" title="${e.disable ? 'Disabled' : 'Enabled'}" data-stop>
-                <input type="checkbox" data-field="disable" data-uid="${esc(e.uid)}" data-type="bool-inv" ${e.disable ? '' : 'checked'}>
-                <span class="lb-switch-track"></span>
+                <input type="checkbox" class="cl-switch-input" data-field="disable" data-uid="${esc(e.uid)}" data-type="bool-inv" ${e.disable ? '' : 'checked'} aria-label="${esc(entryTitle(e))} on">
+                <span class="cl-switch is-sm" aria-hidden="true"></span>
             </label>
             <div class="lb-entry-summary">
                 <div class="lb-entry-title-line">
@@ -1195,14 +1166,14 @@ function renderEntryBody(e) {
     const keyDriven = state !== 'constant'; // constant always fires, keywords are irrelevant
 
     const stateSeg = `
-        <div class="lb-state-seg" role="group" aria-label="Entry status">
-            <button class="lb-state-opt${state === 'normal' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="normal" title="Activates when a keyword is found in chat">
+        <div class="lb-state-seg cl-seg" role="group" aria-label="Entry status">
+            <button class="lb-state-opt cl-seg-btn${state === 'normal' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="normal" title="Activates when a keyword is found in chat">
                 <i class="fa-solid fa-circle"></i> Normal
             </button>
-            <button class="lb-state-opt${state === 'constant' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="constant" title="Always inserted into the prompt">
+            <button class="lb-state-opt cl-seg-btn${state === 'constant' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="constant" title="Always inserted into the prompt">
                 <i class="fa-solid fa-anchor"></i> Constant
             </button>
-            <button class="lb-state-opt${state === 'vectorized' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="vectorized" title="Activates when the message matches by vector similarity">
+            <button class="lb-state-opt cl-seg-btn${state === 'vectorized' ? ' active' : ''}" data-action="set-state" data-uid="${esc(uid)}" data-state="vectorized" title="Activates when the message matches by vector similarity">
                 <i class="fa-solid fa-cube"></i> Vectorized
             </button>
         </div>`;
@@ -1531,6 +1502,14 @@ function startCreate() {
     renderWorldList();
 }
 
+// the other ways to create, on the context menu's list under New's caret
+function openNewMenu(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    CoreAPI.getModule('context-menu')?.showItems?.(e, [
+        { icon: 'fa-solid fa-wand-magic-sparkles', label: 'Generate with AI', action: () => aiOpenGenerate('new') },
+    ], { x: r.left, y: r.bottom });
+}
+
 async function commitCreate(name) {
     creatingNew = false;
     // Use the name the server will store, so our state and the server agree.
@@ -1625,6 +1604,17 @@ function exportWorld() {
     CoreAPI.downloadBlobAsFile(blob, `${currentWorld}.json`);
 }
 
+// the book's verbs a phone folds under the editor's kebab, on the context menu's list
+function openEditorOverflow(e, btn) {
+    const r = btn.getBoundingClientRect();
+    CoreAPI.getModule('context-menu')?.showItems?.(e, [
+        { icon: 'fa-solid fa-pen', label: 'Rename', action: () => startRename() },
+        { icon: 'fa-solid fa-clone', label: 'Duplicate', action: () => duplicateWorld() },
+        { icon: 'fa-solid fa-file-export', label: 'Export JSON', action: () => exportWorld() },
+        { icon: 'fa-solid fa-trash', label: 'Delete', className: 'danger', action: () => deleteWorld() },
+    ], { x: r.left, y: r.bottom });
+}
+
 async function deleteWorld() {
     if (!currentWorld) return;
     const deletedName = currentWorld;
@@ -1717,30 +1707,28 @@ async function toggleGlobalBinding() {
     CoreAPI.showToast(on ? `"${currentWorld}" is no longer global.` : `"${currentWorld}" is now active in every chat.`, 'success');
 }
 
-async function openPersonaMenu() {
+// the personas not carrying the book, read at open, on the context menu's list under the +
+async function openPersonaMenu(e, btn) {
     if (!currentWorld) return;
-    const menu = document.getElementById('lbPersonaMenu');
-    if (!menu) return;
-    if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
-    menu.innerHTML = '<div class="lb-persona-menu-note">Loading...</div>';
-    menu.classList.remove('hidden');
+    const r = btn.getBoundingClientRect();
+    let personas = null;
     try {
         const resp = await CoreAPI.apiRequest('/personas', 'GET');
-        const personas = resp.ok ? (await resp.json())?.personas : null;
-        if (!Array.isArray(personas)) throw new Error('list failed');
-        const bound = new Set((usageMap.get(currentWorld)?.personas || []).map(p => p.id));
-        const free = personas.filter(p => !bound.has(p.id));
-        menu.innerHTML = free.length
-            ? free.map(p => `<button class="dropdown-item" data-action="persona-pick" data-persona-id="${esc(p.id)}"><i class="fa-solid fa-masks-theater"></i> ${esc(p.name)}</button>`).join('')
-            : `<div class="lb-persona-menu-note">${personas.length ? 'Every persona already carries this book.' : 'No personas yet. Create one from a chat\'s Personas panel.'}</div>`;
-    } catch {
-        menu.innerHTML = '<div class="lb-persona-menu-note">Could not load personas.</div>';
+        personas = resp.ok ? (await resp.json())?.personas : null;
+    } catch { personas = null; }
+    if (!btn.isConnected) return;
+    if (!Array.isArray(personas)) { CoreAPI.showToast('Could not load personas.', 'error'); return; }
+    const bound = new Set((usageMap.get(currentWorld)?.personas || []).map(p => p.id));
+    const free = personas.filter(p => !bound.has(p.id));
+    if (!free.length) {
+        CoreAPI.showToast(personas.length ? 'Every persona already carries this book.' : 'No personas yet. Create one from a chat\'s Personas panel.', 'info');
+        return;
     }
+    CoreAPI.getModule('context-menu')?.showItems?.(e, free.map(p => ({ icon: 'fa-solid fa-masks-theater', label: p.name, action: () => bindPersona(p.id) })), { x: r.left, y: r.bottom });
 }
 
 async function bindPersona(personaId) {
     if (!currentWorld || !personaId) return;
-    document.getElementById('lbPersonaMenu')?.classList.add('hidden');
     const ok = await CoreAPI.applyPersonaWorlds(personaId, { add: [currentWorld] });
     if (!ok) { CoreAPI.showToast('Failed to bind the persona', 'error'); return; }
     await refreshUsage();
@@ -2523,19 +2511,8 @@ function attachEvents() {
     });
 
     document.getElementById('lbNewBtn')?.addEventListener('click', startCreate);
-    // "New" is a split button: the caret reveals secondary create actions (Generate with AI).
-    document.getElementById('lbNewCaret')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        document.getElementById('lbNewMenu')?.classList.toggle('hidden');
-    });
-    document.getElementById('lbAiBtn')?.addEventListener('click', () => {
-        document.getElementById('lbNewMenu')?.classList.add('hidden');
-        aiOpenGenerate('new');
-    });
-    document.addEventListener('click', (e) => {
-        const menu = document.getElementById('lbNewMenu');
-        if (menu && !menu.classList.contains('hidden') && !e.target.closest('.lb-split-btn')) menu.classList.add('hidden');
-    });
+    // "New" is a split button: the caret opens the other ways to create
+    document.getElementById('lbNewCaret')?.addEventListener('click', openNewMenu);
     document.getElementById('lbImportBtn')?.addEventListener('click', () => document.getElementById('lbImportInput')?.click());
     document.getElementById('lbImportInput')?.addEventListener('change', (e) => {
         importFiles(e.target.files);
@@ -2584,13 +2561,6 @@ function attachEvents() {
         // the note commits on blur (Escape cancels first in keydown, so this no-ops then)
         content.addEventListener('focusout', (e) => { if (e.target?.id === 'lbBookNoteInput') commitBookNote(); });
     }
-
-    document.addEventListener('click', (e) => {
-        const menu = document.getElementById('lbEditorOverflowMenu');
-        if (menu && !menu.classList.contains('hidden') && !e.target.closest('.lb-editor-overflow')) menu.classList.add('hidden');
-        const pMenu = document.getElementById('lbPersonaMenu');
-        if (pMenu && !pMenu.classList.contains('hidden') && !e.target.closest('.lb-persona-add-wrap')) pMenu.classList.add('hidden');
-    });
 
     const linkModal = document.getElementById('lbLinkModal');
     document.getElementById('lbLinkCloseBtn')?.addEventListener('click', closeLinkPicker);
@@ -2695,9 +2665,6 @@ function onContentClick(e) {
     const action = actionEl.dataset.action;
     const uid = actionEl.dataset.uid !== undefined ? Number(actionEl.dataset.uid) : null;
 
-    // Any action other than opening it dismisses the editor overflow (kebab) menu.
-    if (action !== 'editor-overflow') document.getElementById('lbEditorOverflowMenu')?.classList.add('hidden');
-
     // Entry expand/collapse: ignore clicks that originate inside the toggle switch or head actions
     if (action === 'toggle-entry') {
         if (stop) return;
@@ -2723,14 +2690,13 @@ function onContentClick(e) {
             break;
         }
         case 'toggle-global': toggleGlobalBinding(); break;
-        case 'add-persona': e.stopPropagation(); openPersonaMenu(); break;
-        case 'persona-pick': bindPersona(actionEl.dataset.personaId); break;
+        case 'add-persona': openPersonaMenu(e, actionEl); break;
         case 'unlink-persona': unbindPersona(actionEl.dataset.personaId); break;
         case 'duplicate-world': duplicateWorld(); break;
         case 'export-world': exportWorld(); break;
         case 'delete-world': deleteWorld(); break;
         case 'add-entry': addEntry(); break;
-        case 'editor-overflow': e.stopPropagation(); document.getElementById('lbEditorOverflowMenu')?.classList.toggle('hidden'); break;
+        case 'editor-overflow': openEditorOverflow(e, actionEl); break;
         case 'ai-generate': aiOpenGenerate('current'); break;
         case 'toggle-all': {
             const ents = sortedEntries();
@@ -3184,10 +3150,10 @@ function aiBuildModals() {
                 <div class="lb-ai-grid2">
                     <section class="lb-ai-section lb-ai-col-source">
                         <div class="lb-ai-section-head"><span class="lb-ai-step">1</span> Source material</div>
-                        <div class="lb-ai-source-seg" role="group" aria-label="Source">
-                            <button class="lb-ai-src-opt active" data-action="ai-src" data-mode="paste"><i class="fa-solid fa-paste"></i> <span>Paste Text</span></button>
-                            <button class="lb-ai-src-opt" data-action="ai-src" data-mode="url"><i class="fa-solid fa-globe"></i> <span>Web / Wiki</span></button>
-                            <button class="lb-ai-src-opt" data-action="ai-src" data-mode="library"><i class="fa-solid fa-layer-group"></i> <span>From Library</span></button>
+                        <div class="cl-seg" role="group" aria-label="Source">
+                            <button class="lb-ai-src-opt cl-seg-btn active" data-action="ai-src" data-mode="paste"><i class="fa-solid fa-paste"></i> <span>Paste Text</span></button>
+                            <button class="lb-ai-src-opt cl-seg-btn" data-action="ai-src" data-mode="url"><i class="fa-solid fa-globe"></i> <span>Web / Wiki</span></button>
+                            <button class="lb-ai-src-opt cl-seg-btn" data-action="ai-src" data-mode="library"><i class="fa-solid fa-layer-group"></i> <span>From Library</span></button>
                         </div>
 
                         <div class="lb-ai-src-panel" data-panel="paste">
@@ -3210,10 +3176,10 @@ function aiBuildModals() {
                                 <div class="lb-ai-cat-list" id="lbAiCatList"></div>
                                 <div class="lb-ai-cat-detail">
                                     <span class="lb-ai-cat-detail-label" title="How much of each page to send to the model. More detail means richer entries but more tokens per request.">Detail per page</span>
-                                    <div class="lb-ai-detail-seg" role="group" aria-label="Detail per page">
-                                        <button type="button" class="lb-ai-detail-opt" data-action="cat-detail" data-detail="lead" title="~1000 characters per page (the intro / lead). Concise entries, fits the most pages per request.">Lead</button>
-                                        <button type="button" class="lb-ai-detail-opt" data-action="cat-detail" data-detail="standard" title="~3000 characters per page (lead plus the start of the body). Balanced.">Standard</button>
-                                        <button type="button" class="lb-ai-detail-opt" data-action="cat-detail" data-detail="full" title="The entire page, no per-page trim. Richest entries, but the most tokens per request.">Full</button>
+                                    <div class="cl-seg" role="group" aria-label="Detail per page">
+                                        <button type="button" class="lb-ai-detail-opt cl-seg-btn" data-action="cat-detail" data-detail="lead" title="~1000 characters per page (the intro / lead). Concise entries, fits the most pages per request.">Lead</button>
+                                        <button type="button" class="lb-ai-detail-opt cl-seg-btn" data-action="cat-detail" data-detail="standard" title="~3000 characters per page (lead plus the start of the body). Balanced.">Standard</button>
+                                        <button type="button" class="lb-ai-detail-opt cl-seg-btn" data-action="cat-detail" data-detail="full" title="The entire page, no per-page trim. Richest entries, but the most tokens per request.">Full</button>
                                     </div>
                                 </div>
                                 <button class="cl-btn cl-btn-primary lb-ai-cat-load" id="lbAiCatLoad" disabled><i class="fa-solid fa-download"></i> Load Selected</button>
@@ -3221,9 +3187,9 @@ function aiBuildModals() {
                         </div>
 
                         <div class="lb-ai-src-panel hidden" data-panel="library">
-                            <div class="lb-ai-src-modes" role="group" aria-label="Source type">
-                                <button type="button" class="lb-ai-src-mode active" data-action="st-mode" data-mode="characters"><i class="fa-solid fa-user"></i> Characters</button>
-                                <button type="button" class="lb-ai-src-mode" data-action="st-mode" data-mode="chats"><i class="fa-solid fa-comments"></i> Chats</button>
+                            <div class="lb-ai-src-modes cl-seg" role="group" aria-label="Source type">
+                                <button type="button" class="lb-ai-src-mode cl-seg-btn active" data-action="st-mode" data-mode="characters"><i class="fa-solid fa-user"></i> Characters</button>
+                                <button type="button" class="lb-ai-src-mode cl-seg-btn" data-action="st-mode" data-mode="chats"><i class="fa-solid fa-comments"></i> Chats</button>
                             </div>
                             <div class="lb-search-wrap"><i class="fa-solid fa-magnifying-glass"></i><input type="search" id="lbAiSrcSearch" class="cl-input" placeholder="Search characters..." autocomplete="off"></div>
                             <div class="lb-ai-src-list" id="lbAiSrcList"></div>
@@ -3766,14 +3732,14 @@ function aiToggleSrcChat(key) {
 // Per-chat scope control (All / Last N / Range), shown on its tray row.
 function aiSrcScopeSeg(key, c) {
     const s = c.scope || { mode: 'all' };
-    const seg = (mode, label) => `<button type="button" class="lb-ai-src-scope-opt${s.mode === mode ? ' active' : ''}" data-action="st-scope" data-key="${esc(key)}" data-scope="${mode}">${label}</button>`;
+    const seg = (mode, label) => `<button type="button" class="lb-ai-src-scope-opt cl-seg-btn${s.mode === mode ? ' active' : ''}" data-action="st-scope" data-key="${esc(key)}" data-scope="${mode}">${label}</button>`;
     let extra = '';
     if (s.mode === 'last') {
-        extra = `<input type="number" class="lb-ai-src-scope-num" data-action="st-scope-n" data-key="${esc(key)}" min="1" value="${s.n || AI_SRC_LASTN_DEFAULT}" title="Most-recent messages to include">`;
+        extra = `<input type="number" class="cl-input lb-ai-src-scope-num" data-action="st-scope-n" data-key="${esc(key)}" min="1" value="${s.n || AI_SRC_LASTN_DEFAULT}" title="Most-recent messages to include">`;
     } else if (s.mode === 'range') {
-        extra = `<span class="lb-ai-src-range"><input type="number" class="lb-ai-src-scope-num" data-action="st-scope-from" data-key="${esc(key)}" min="1" value="${s.from || 1}" title="From message #"><span class="lb-ai-src-range-dash">to</span><input type="number" class="lb-ai-src-scope-num" data-action="st-scope-to" data-key="${esc(key)}" min="1" value="${s.to || c.count}" title="To message #"></span>`;
+        extra = `<span class="lb-ai-src-range"><input type="number" class="cl-input lb-ai-src-scope-num" data-action="st-scope-from" data-key="${esc(key)}" min="1" value="${s.from || 1}" title="From message #"><span class="lb-ai-src-range-dash">to</span><input type="number" class="cl-input lb-ai-src-scope-num" data-action="st-scope-to" data-key="${esc(key)}" min="1" value="${s.to || c.count}" title="To message #"></span>`;
     }
-    return `<div class="lb-ai-src-scope-seg">${seg('all', 'All')}${seg('last', 'Last')}${seg('range', 'Range')}</div>${extra}`;
+    return `<div class="cl-seg" role="group" aria-label="Messages">${seg('all', 'All')}${seg('last', 'Last')}${seg('range', 'Range')}</div>${extra}`;
 }
 
 function aiSrcSetScopeMode(key, mode) {
@@ -4136,8 +4102,8 @@ function aiStageCardHtml(s) {
     <div class="lb-entry lb-stage-card${expanded ? ' expanded' : ''}${s.include ? '' : ' lb-stage-excluded'}" data-sid="${s.id}">
         <div class="lb-entry-head" data-action="stage-expand" data-sid="${s.id}">
             <label class="lb-switch" data-stop title="${s.include ? 'Included (toggle to exclude)' : 'Excluded (toggle to include)'}">
-                <input type="checkbox" data-action="stage-toggle" data-sid="${s.id}" ${s.include ? 'checked' : ''}>
-                <span class="lb-switch-track"></span>
+                <input type="checkbox" class="cl-switch-input" data-action="stage-toggle" data-sid="${s.id}" ${s.include ? 'checked' : ''} aria-label="Include ${hasTitle ? esc(e.comment) : 'Untitled entry'}">
+                <span class="cl-switch is-sm" aria-hidden="true"></span>
             </label>
             <div class="lb-entry-summary">
                 <div class="lb-entry-title-line">

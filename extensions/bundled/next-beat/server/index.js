@@ -119,7 +119,7 @@ export function register(router, ctx) {
     });
 
     // ======================================== the story a request reads
-    // the chat as its prompt reads it, and the card's scenario and description when the settings ask for them
+    // the chat's names, stored history and macros, and the card's scenario and description when the settings ask for them
     const storyFor = (db, chatId, opts) => {
         const chat = ctx.prompt.read(db, chatId);
         if (!chat || !chat.history.length) return null;

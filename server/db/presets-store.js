@@ -1,13 +1,23 @@
 import crypto from 'node:crypto';
-import { POSITIONS, DEFAULT_BLOCKS, DEFAULT_INJECTION_ORDER } from '../llm/preset.js';
+import { POSITIONS, DEFAULT_BLOCKS, DEFAULT_INJECTION_ORDER, normalizeTriggers, storablePromptSettings, promptSettingsOf } from '../llm/preset.js';
 import { emitChange } from './changes.js';
 
 // presets are uuid rows holding an ordered block list, prompt structure only: samplers and connection belong to llm_profiles
+
+// the settings a preset stores, only the ones set (a build fills the rest from their defaults)
+const settingsOf = (raw) => { try { return storablePromptSettings(JSON.parse(raw ?? 'null')); } catch { return {}; } };
+// only what differs from a default is kept, so a default never set follows the app's
+const settingsColumn = (value) => {
+    const defaults = promptSettingsOf(null);
+    const stored = Object.fromEntries(Object.entries(storablePromptSettings(value)).filter(([key, v]) => v !== defaults[key]));
+    return Object.keys(stored).length ? JSON.stringify(stored) : null;
+};
 
 const mapPreset = (r, blocks) => ({
     id: r.id,
     name: r.name,
     source: r.source,
+    settings: settingsOf(r.prompt_settings),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     blocks,
@@ -25,22 +35,26 @@ const mapBlock = r => ({
     depth: r.depth,
     injectionOrder: r.injection_order ?? DEFAULT_INJECTION_ORDER,
     forbidOverrides: !!r.forbid_overrides,
+    triggers: normalizeTriggers(r.injection_trigger),
     enabled: !!r.enabled,
     pos: r.pos,
 });
 
-/** The stored block rows of a preset in order, unmapped (the assembly reads the columns). */
-export function presetBlockRows(db, presetId) {
-    return db.prepare('SELECT * FROM preset_blocks WHERE preset_id = ? ORDER BY pos').all(presetId);
-}
-
 function blocksOf(db, presetId) {
-    return presetBlockRows(db, presetId).map(mapBlock);
+    return db.prepare('SELECT * FROM preset_blocks WHERE preset_id = ? ORDER BY pos').all(presetId).map(mapBlock);
 }
 
 export function listPresets(db) {
     return db.prepare('SELECT * FROM presets ORDER BY name COLLATE NOCASE').all()
         .map(r => mapPreset(r, blocksOf(db, r.id)));
+}
+
+/** The presets as a picker lists them: a name and a block count each, no block text (getPreset reads one whole). */
+export function listPresetRows(db) {
+    return db.prepare(`SELECT p.id, p.name, p.source, p.created_at, p.updated_at,
+            (SELECT COUNT(*) FROM preset_blocks b WHERE b.preset_id = p.id) AS block_count
+        FROM presets p ORDER BY p.name COLLATE NOCASE`).all()
+        .map(r => ({ id: r.id, name: r.name, source: r.source, createdAt: r.created_at, updatedAt: r.updated_at, blockCount: r.block_count }));
 }
 
 export function getPreset(db, id) {
@@ -50,8 +64,14 @@ export function getPreset(db, id) {
 
 const insertBlockSql = `INSERT INTO preset_blocks
     (id, preset_id, block_key, name, kind, marker, content, role, position, depth,
-     injection_order, forbid_overrides, enabled, pos)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     injection_order, forbid_overrides, injection_trigger, enabled, pos)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+// a block's triggers as stored: NULL for every type, so a list emptied in the editor stores nothing
+const triggersColumn = (value) => {
+    const list = normalizeTriggers(value);
+    return list.length ? JSON.stringify(list) : null;
+};
 
 /** Replace the block list whole (order is the data), reusing a block id the caller sends back so UI state keyed on it survives. */
 function writeBlocks(db, presetId, blocks) {
@@ -75,6 +95,7 @@ function writeBlocks(db, presetId, blocks) {
         Number.isInteger(b.depth) ? Math.max(b.depth, 0) : 0,
         Number.isInteger(b.injectionOrder) ? b.injectionOrder : DEFAULT_INJECTION_ORDER,
         b.forbidOverrides ? 1 : 0,
+        triggersColumn(b.triggers),
         b.enabled === false || b.enabled === 0 ? 0 : 1,
         i,
         );
@@ -82,13 +103,14 @@ function writeBlocks(db, presetId, blocks) {
 }
 
 // no blocks means the defaults: an empty preset assembles nothing
-export function createPreset(db, { name, source = null, blocks = null }) {
+export function createPreset(db, { name, source = null, blocks = null, settings = null }) {
     const now = Date.now();
     const id = crypto.randomUUID();
     db.transaction(() => {
-        db.prepare('INSERT INTO presets (id, name, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-            .run(id, name, source, now, now);
-        writeBlocks(db, id, Array.isArray(blocks) && blocks.length ? blocks : DEFAULT_BLOCKS);
+        db.prepare('INSERT INTO presets (id, name, source, prompt_settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(id, name, source, settingsColumn(settings), now, now);
+        // the built-in blocks keep their keys, so a new preset's Main and Post-history still take the card's own texts
+        writeBlocks(db, id, Array.isArray(blocks) && blocks.length ? blocks : DEFAULT_BLOCKS.map(b => ({ ...b, key: b.id })));
         emitChange(db, { entity: 'preset', op: 'created', ids: [id] });
     })();
     return getPreset(db, id);
@@ -101,6 +123,8 @@ export function updatePreset(db, id, patch) {
         const sets = [];
         const args = [];
         if (patch.name !== undefined) { sets.push('name = ?'); args.push(patch.name); }
+        // the settings replace whole, as the blocks do; one left out reads its default again
+        if (patch.settings !== undefined) { sets.push('prompt_settings = ?'); args.push(settingsColumn(patch.settings)); }
         if (sets.length) {
             sets.push('updated_at = ?');
             args.push(Date.now(), id);
@@ -165,104 +189,4 @@ export function setActivePreset(db, id) {
         emitChange(db, { entity: 'setting', op: 'updated', ids: ['activePresetId'] });
         return id;
     })();
-}
-
-// ---------------------------------------------------------------------------
-// SillyTavern chat-completion preset import
-// ---------------------------------------------------------------------------
-
-// ST identifier -> our marker. Everything not here becomes a TEXT block carrying its
-// own content, which is how custom user prompts survive the trip.
-const ST_MARKER_MAP = {
-    charDescription: 'charDescription',
-    charPersonality: 'charPersonality',
-    scenario: 'scenario',
-    personaDescription: 'personaDescription',
-    dialogueExamples: 'dialogueExamples',
-    chatHistory: 'chatHistory',
-    worldInfoBefore: 'worldInfoBefore',
-    worldInfoAfter: 'worldInfoAfter',
-};
-
-// recognised so the report can say they were dropped on purpose (they're the connection's), not unknown
-const ST_SAMPLER_KEYS = new Set([
-    'temperature', 'top_p', 'top_k', 'top_a', 'min_p', 'typical_p', 'repetition_penalty',
-    'openai_max_tokens', 'openai_max_context', 'presence_penalty', 'frequency_penalty', 'seed',
-]);
-
-// Connection identity: recognised specifically so it can be reported as INTENTIONALLY
-// dropped rather than lumped in with "unrecognised".
-const ST_CONNECTION_KEYS = new Set([
-    'chat_completion_source', 'custom_url', 'custom_include_body', 'custom_exclude_body',
-    'custom_include_headers', 'reverse_proxy', 'proxy_password', 'bypass_status_check',
-    'show_external_models', 'api_url_scale',
-]);
-const isConnectionKey = k => ST_CONNECTION_KEYS.has(k) || /_model$/.test(k) || /_sort_models$/.test(k) || /_group_models$/.test(k);
-
-/**
- * Plan an ST chat-completion preset import, pure: prompt structure only, samplers and connection keys dropped and named in the report.
- * @returns {{name, blocks, report: {droppedConnection: string[], droppedSamplers: string[], droppedUnknown: string[], unknownBlocks: string[], notes: string[]}}}
- */
-export function planStPresetImport(doc, fallbackName = 'Imported preset') {
-    const report = { droppedConnection: [], droppedSamplers: [], droppedUnknown: [], unknownBlocks: [], notes: [] };
-
-    for (const [key, value] of Object.entries(doc || {})) {
-        if (key === 'prompts' || key === 'prompt_order') continue;
-        if (isConnectionKey(key)) { report.droppedConnection.push(key); continue; }
-        if (ST_SAMPLER_KEYS.has(key)) { report.droppedSamplers.push(key); continue; }
-        report.droppedUnknown.push(key);
-        void value;
-    }
-    if (report.droppedSamplers.length) {
-        report.notes.push(`${report.droppedSamplers.length} sampler setting(s) were not imported: `
-            + 'temperature and its neighbours belong to the connection, so this preset changes the prompt only');
-    }
-
-    const prompts = Array.isArray(doc?.prompts) ? doc.prompts : [];
-    const byIdentifier = new Map(prompts.filter(p => p?.identifier).map(p => [p.identifier, p]));
-
-    // the global prompt_order is 100001; 100000 is vestigial and shorter (ST's own Default) so it only comes second. ids compare as strings
-    const orders = Array.isArray(doc?.prompt_order) ? doc.prompt_order : [];
-    const byId = id => orders.find(o => String(o?.character_id) === id);
-    const chosen = byId('100001') || byId('100000') || orders[0] || null;
-    const order = Array.isArray(chosen?.order) && chosen.order.length
-        ? chosen.order
-        : prompts.filter(p => p?.identifier).map(p => ({ identifier: p.identifier, enabled: true }));
-    if (!chosen) report.notes.push('no prompt_order found; imported in the order the prompts were listed');
-
-    const blocks = [];
-    for (const entry of order) {
-        const id = entry?.identifier;
-        if (!id) continue;
-        const prompt = byIdentifier.get(id);
-        if (!prompt) { report.unknownBlocks.push(id); continue; }
-        const enabled = entry.enabled !== false;
-        const marker = ST_MARKER_MAP[id];
-
-        if (marker) {
-            blocks.push({ key: id, name: prompt.name || null, kind: 'marker', marker, content: '', role: prompt.role || 'system', position: 'pre_history', enabled });
-            continue;
-        }
-
-        if (prompt.marker) { report.unknownBlocks.push(id); continue; } // a marker we cannot express
-
-        // ABSOLUTE (injection_position 1) anchors the block at injection_depth; injection_order picks which sits nearest the reply
-        const absolute = prompt.injection_position === 1;
-        blocks.push({
-            key: id,
-            name: prompt.name || null,
-            kind: 'text',
-            marker: null,
-            content: typeof prompt.content === 'string' ? prompt.content : '',
-            role: prompt.role || 'system',
-            position: absolute ? 'at_depth' : (id === 'jailbreak' ? 'post_history' : 'pre_history'),
-            depth: absolute && Number.isInteger(prompt.injection_depth) ? Math.max(prompt.injection_depth, 0) : 0,
-            injectionOrder: Number.isInteger(prompt.injection_order) ? prompt.injection_order : DEFAULT_INJECTION_ORDER,
-            forbidOverrides: prompt.forbid_overrides === true,
-            enabled,
-        });
-    }
-
-    const name = typeof doc?.name === 'string' && doc.name.trim() ? doc.name.trim() : fallbackName;
-    return { name, blocks, report };
 }

@@ -4,7 +4,7 @@ import CoreAPI from './core-api.js';
 import { CHAT_PURIFY_CONFIG } from './providers/provider-utils.js';
 import { cardValuesEqual } from './card-fields.js';
 import { syncRangeFill, syncFieldAvailability } from './chats/window.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 const nf = (n) => Number(n || 0).toLocaleString();
@@ -442,7 +442,7 @@ function proposalCardHtml(p, { seq } = {}) {
         before: [tagsHtml, preview].filter(Boolean).join('\n        '),
         edit: reviewEditBoxHtml({ id: p.id, open: _openEdits.has(pk), rejected, value: _edits.get(pk) ?? String(p.change[editKey(p)] ?? '') }),
         why: p.why, reason: p.reason,
-        body: hasDiff && showDiff ? diffSideBySideHtml(p.before, p.after) : '',
+        body: hasDiff && showDiff ? CoreAPI.diffSplitView(p.before, p.after).html : '',
     });
 }
 

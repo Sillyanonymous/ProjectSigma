@@ -5,6 +5,9 @@ const CDP_MAX_ENDPOINT_LEN = 512;
 const CDP_CONNECT_TIMEOUT = 15000;
 const CDP_COMMAND_TIMEOUT = 30000;
 export const CDP_NAV_TIMEOUT = 60000;
+// a cancelled navigation fires no load event; this is how the browser names one, and how often it is asked
+const NAV_CANCELLED = 'net::ERR_ABORTED';
+const CDP_NAV_ASKS = 3;
 
 // an in-page fetch answer's text for a page expression, null once its bytes pass the cap: what
 // crosses the protocol to this server is bounded
@@ -167,7 +170,17 @@ export class CdpPage {
 
     async goto(url, { timeout = CDP_NAV_TIMEOUT } = {}) {
         const loaded = this.client.waitFor('Page.loadEventFired', this.sessionId, timeout);
-        await this.send('Page.navigate', { url });
+        try {
+            // a browser still starting cancels a navigation and says so in its answer; asked again, it loads
+            for (let asks = 1; ; asks++) {
+                const answer = await this.send('Page.navigate', { url });
+                if (answer?.errorText !== NAV_CANCELLED) break;
+                if (answer.isDownload || asks === CDP_NAV_ASKS) throw new Error(`The browser cancelled the navigation (${NAV_CANCELLED})`);
+            }
+        } catch (e) {
+            loaded.catch(() => { /* no load is coming; the failure thrown here is the one told */ });
+            throw e;
+        }
         await loaded;
     }
 

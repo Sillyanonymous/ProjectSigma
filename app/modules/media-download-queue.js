@@ -355,7 +355,8 @@ async function resumePersistedJobs({ recheck = false } = {}) {
         (await CoreAPI.fetchCharactersByIds(persisted.map(e => requireCharId(e?.charId)).filter(Boolean)))
             .map(c => [c.id, c]),
     );
-    const queued = new Set(jobs.map(j => j.charId));
+    // held: a job still to run or running; a finished, failed or stopped one never keeps a new row from running
+    const queued = new Set(jobs.filter(j => j.state === 'pending' || j.state === 'active').map(j => j.charId));
     let resumed = 0;
     for (const entry of persisted) {
         const charId = requireCharId(entry?.charId);
@@ -372,6 +373,8 @@ async function resumePersistedJobs({ recheck = false } = {}) {
             CoreAPI.debugLog('[MediaDLQueue] Resume skip (character not found):', charId);
             continue;
         }
+        // a job this tab holds already (its own active one among them) is never read again as another tab's
+        if (queued.has(charId)) continue;
         // an active row is another tab's worker's, unless that worker stopped renewing its lease
         if (entry.status === 'active' && !entry.stale) {
             CoreAPI.debugLog('[MediaDLQueue] Resume skip (another tab is working on it):', charId);
@@ -379,8 +382,9 @@ async function resumePersistedJobs({ recheck = false } = {}) {
             scheduleResumeRecheck(entry.leaseLeftMs);
             continue;
         }
-        if (queued.has(charId)) continue;
         queued.add(charId);
+        // a new row supersedes this tab's failed or stopped job for the character, as an enqueue does
+        jobs = jobs.filter(j => !(j.charId === charId && (j.state === 'failed' || j.state === 'aborted')));
         jobs.push({
             charId,
             name: entry.name || charId,
@@ -566,7 +570,15 @@ function init() {
     extensionsSettled.then(() => resumeNextPage());
 }
 
+/** Rows a batch wrote on the server: the walk reads the queue again from its start, the jobs this tab holds skipped. */
+export function adoptQueuedRows() {
+    if (_resumeReading) return _resumeReading.then(() => adoptQueuedRows());
+    _resumeCursor = null;
+    return resumeNextPage();
+}
+
 export default {
     init,
     enqueueJob,
+    adoptQueuedRows,
 };

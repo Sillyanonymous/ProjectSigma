@@ -42,6 +42,14 @@ const MARKER_HELP = {
 
 const ROLE_OPTIONS = ['system', 'user', 'assistant'];
 const POSITION_OPTIONS = ['pre_history', 'post_history', 'at_depth'];
+// the generation types a block can be held to, as SillyTavern names them; its quiet one this app never makes
+const FIRE_OPTIONS = [
+    { key: 'normal', label: 'Normal reply' },
+    { key: 'continue', label: 'Continue' },
+    { key: 'impersonate', label: 'Impersonate' },
+    { key: 'swipe', label: 'Swipe' },
+    { key: 'regenerate', label: 'Regenerate' },
+];
 
 // ========================================
 // STATE
@@ -50,21 +58,28 @@ const POSITION_OPTIONS = ['pre_history', 'post_history', 'at_depth'];
 let panelInjected = false;
 let panelOpen = false;
 
-let _presets = [];
+let _presets = [];           // every preset by name, for the picker: rows without blocks
 let _chatId = null;          // the conversation's chat, followed off cl-chat-changed
 let _resolved = null;        // { presetId, source, override, defaultId } for that chat as the server answers it
 let _activeId = null;        // the preset in force in this chat: its own, else the default
-let _preset = null;          // that preset's row, or null when the built-in defaults run
+let _preset = null;          // that preset whole, read with the resolve; null when the built-in defaults run
 let _defaultBlocks = [];     // the built-in fallback, shown read-only when _preset is null
 let _loadError = null;       // an unknown list is never rendered as an empty one
 let _filterTerms = [];
 let _dragEnabled = true;
 
 let savingPreset = false;
+let pendingParts = new Set(); // what the next save sends beside a Save's settings: 'blocks'
+let pendingSettings = null;   // a Save's settings until the server takes them, kept off _preset so it holds only what the server stored
+let saveSeq = 0; // counts saves begun, so a read can tell one started while it was out
 let presetSaveQueued = false;
 let _staleFromFeed = false;  // a write elsewhere the open panel has yet to read
 
 let _editingId = null;       // the block open in the drawer, or null
+let _draft = null;           // that block as the editor holds it between redraws, unsaved; null until a redraw needs one
+let _settingsOpen = false;   // the preset's settings hold the drawer
+let _refusedSettings = null; // { id, values }: a Save the server refused, shown again as typed until the settings close
+let _defaultSettings = {};   // every setting's default, as the server sends it (never mirrored here)
 
 // ========================================
 // STORE I/O (collapse state)
@@ -94,21 +109,32 @@ function loadCollapse() {
 // PRESET I/O
 // ========================================
 
-async function loadPresets() {
+// adopts the server's answer unless outrun says a save went out meanwhile; answers whether it adopted
+async function loadPresets(outrun = () => false) {
     const [resp, resResp] = await Promise.all([
         CoreAPI.apiRequest('/presets', 'GET'),
-        CoreAPI.apiRequest(`/presets/resolve${_chatId ? `?chatId=${encodeURIComponent(_chatId)}` : ''}`, 'GET'),
+        // the one preset this chat uses comes with the answer naming it; the list is names alone
+        CoreAPI.apiRequest(`/presets/resolve?with=preset${_chatId ? `&chatId=${encodeURIComponent(_chatId)}` : ''}`, 'GET'),
     ]);
     if (!resp.ok) throw new Error(`preset list failed (${resp.status})`);
     // an unread answer is never guessed: editing the wrong preset is worse than showing none
     if (!resResp.ok) throw new Error(`which preset answers this chat could not be read (${resResp.status})`);
     const data = await resp.json();
-    _resolved = await resResp.json();
+    const { preset = null, ...resolved } = await resResp.json();
+    // named but not sent is unread too: the built-in blocks are never shown in a preset's place
+    if (typeof resolved.presetId === 'string' && !(preset?.id === resolved.presetId && Array.isArray(preset.blocks))) throw new Error('the preset this chat uses could not be read');
+    if (outrun()) return false;
+    _resolved = resolved;
     _presets = Array.isArray(data?.presets) ? data.presets : [];
     _activeId = typeof _resolved?.presetId === 'string' ? _resolved.presetId : null;
-    _preset = _activeId ? (_presets.find(p => p.id === _activeId) || null) : null;
+    _preset = _activeId ? preset : null;
+    // a failed save's parts were the old copy's; the server's copy owes nothing
+    pendingParts = new Set();
+    pendingSettings = null;
     // what runs with nothing selected, held to SHOW it; never edited, so never merged into _preset
     _defaultBlocks = Array.isArray(data?.defaultBlocks) ? data.defaultBlocks : [];
+    _defaultSettings = data?.defaultSettings && typeof data.defaultSettings === 'object' ? data.defaultSettings : {};
+    return true;
 }
 
 // Block ids are sent back so the server reuses them; a fresh uuid per save would
@@ -128,37 +154,51 @@ function toWire(b) {
         // both ride every save: the list is written wholesale, so a field left out here resets on the next save
         injectionOrder: Number.isInteger(b.injectionOrder) ? b.injectionOrder : 100,
         forbidOverrides: !!b.forbidOverrides,
+        triggers: Array.isArray(b.triggers) ? b.triggers.filter(t => typeof t === 'string') : [],
         enabled: !!b.enabled,
     };
 }
 
-async function savePresetBlocks() {
+// each save sends only the parts it changed, so a held view never writes back what another tab changed meanwhile
+async function savePreset(parts = ['blocks']) {
     if (!_preset) return;
+    for (const part of parts) pendingParts.add(part);
     if (savingPreset) {
         presetSaveQueued = true;
         return;
     }
     savingPreset = true;
+    saveSeq++;
     const id = _preset.id;
+    const send = pendingParts;
+    const settings = pendingSettings;
+    pendingParts = new Set();
+    let retry = false;
     try {
         const resp = await CoreAPI.apiRequest(`/presets/${encodeURIComponent(id)}`, 'PATCH', {
-            blocks: (_preset.blocks || []).map(toWire),
+            ...(send.has('blocks') ? { blocks: (_preset.blocks || []).map(toWire) } : {}),
+            ...(settings ? { settings } : {}),
         });
-        if (!resp.ok) {
-            const err = await resp.text().catch(() => resp.statusText);
-            throw new Error(`Preset save failed (${resp.status}): ${err}`);
+        const saved = await CoreAPI.readAnswer(resp);
+        if (settings) {
+            if (pendingSettings === settings) pendingSettings = null;
+            // a newer Save waits in pendingSettings, so the stored settings are taken even when a queued save holds the blocks
+            if (_preset?.id === id && saved?.settings) _preset.settings = saved.settings;
         }
-        const saved = await resp.json();
         // A queued save means local state is already ahead of this response.
         if (!presetSaveQueued && saved?.id === id && Array.isArray(saved.blocks)) {
-            const idx = _presets.findIndex(p => p.id === id);
-            if (idx !== -1) _presets[idx] = saved;
+            // the list's row follows the write it describes
+            const row = _presets.find(p => p.id === id);
+            if (row) Object.assign(row, { name: saved.name, updatedAt: saved.updatedAt, blockCount: saved.blocks.length });
             // the reader may have switched presets meanwhile; repainting the panel as this one made screen and server disagree
             if (_preset?.id === id) {
                 // a client-minted block comes back under a fresh uuid, so the open drawer follows it by position
                 if (_editingId && !saved.blocks.some(b => b.id === _editingId)) {
                     const at = (_preset.blocks || []).findIndex(b => b.id === _editingId);
-                    if (at !== -1 && saved.blocks[at]) _editingId = saved.blocks[at].id;
+                    if (at !== -1 && saved.blocks[at]) {
+                        if (_draft?.id === _editingId) _draft.id = saved.blocks[at].id;
+                        _editingId = saved.blocks[at].id;
+                    }
                 }
                 _preset = saved;
                 renderAll();
@@ -166,12 +206,21 @@ async function savePresetBlocks() {
         }
     } catch (e) {
         console.error('[PromptManager] Save failed:', e.message);
-        CoreAPI.showToast('Failed to save the prompt preset', 'error');
+        CoreAPI.showToast(`Could not save the prompt preset: ${e.message}`, 'error');
+        if (_preset?.id === id) for (const part of send) pendingParts.add(part);
+        // refused settings never ride another save: the form opens on them again, and the blocks sent beside them go now
+        if (e.status === 400 && settings && pendingSettings === settings) {
+            pendingSettings = null;
+            if (_preset?.id === id) {
+                retry = send.size > 0;
+                reopenRefusedSettings(id, settings);
+            }
+        }
     } finally {
         savingPreset = false;
-        if (presetSaveQueued) {
+        if (presetSaveQueued || retry) {
             presetSaveQueued = false;
-            savePresetBlocks();
+            savePreset([]);
         } else if (_staleFromFeed) {
             patchPresetsFromFeed();
         }
@@ -189,19 +238,27 @@ function patchPresetsFromFeed(records) {
         || (r.entity === 'chat' && (r.ids || []).includes(_chatId) && (!r.fields || r.fields.includes('presetId')));
     if (records && !records.some(moves)) return;
     if (!panelOpen) return;
-    if (savingPreset || presetSaveQueued || _editingId) { _staleFromFeed = true; return; }
+    if (savingPreset || presetSaveQueued || _editingId || _settingsOpen) { _staleFromFeed = true; return; }
     return refreshPanel();
 }
 
 // What the panel shows: the preset list, the active one and the collapse map, read together.
 async function refreshPanel() {
     _staleFromFeed = false;
+    // a save out at any point of this read answers newer than it: the read is dropped and made again after the save
+    const seq = saveSeq;
+    const busy = savingPreset;
+    let adopted = true;
     try {
-        await Promise.all([loadPresets(), loadCollapse()]);
+        [adopted] = await Promise.all([loadPresets(() => busy || seq !== saveSeq), loadCollapse()]);
         _loadError = null;
     } catch (e) {
         _loadError = e.message;
         console.error('[PromptManager] Load failed:', e.message);
+    }
+    if (!adopted) {
+        if (savingPreset || presetSaveQueued) { _staleFromFeed = true; return; }
+        return refreshPanel();
     }
     renderAll();
 }
@@ -221,7 +278,9 @@ async function createAndActivate(body, { toast }) {
         return;
     }
     // it exists whatever the pick answers: a refused pick says why, and the list still shows it
-    if (await applyPreset(created.id)) CoreAPI.showToast(toast, 'success');
+    const set = await applyPreset(created.id);
+    if (set && toast) CoreAPI.showToast(toast, 'success');
+    return { created, set };
 }
 
 async function newPreset() {
@@ -242,14 +301,19 @@ async function duplicatePreset() {
     }
     const name = await CoreAPI.showConfirm({
         title: 'Duplicate preset',
-        message: `Copies every block of "${_preset.name || 'this preset'}".`,
+        message: `Copies every block and setting of "${_preset.name || 'this preset'}".`,
         confirmLabel: 'Duplicate',
         input: { value: `${_preset.name || 'Preset'} copy`, placeholder: 'Preset name' },
     });
     if (typeof name !== 'string') return;
     // ids stripped: writeBlocks only reuses an id it knows for THAT preset
     const blocks = (_preset.blocks || []).map(b => ({ ...toWire(b), id: undefined }));
-    await createAndActivate({ name, blocks }, { toast: 'Preset duplicated' });
+    // its regex scripts come along, off until the copy is allowed as any new preset's are
+    const regexScripts = await presetRegexScripts(_preset, 'the copy');
+    const n = regexScripts.length;
+    // an imported preset's SillyTavern settings come along, so the copy assembles as the original does
+    const made = await createAndActivate({ name, blocks, settings: _preset.settings || {}, ...(n ? { regexScripts } : {}) }, { toast: n ? null : 'Preset duplicated' });
+    if (made && n) CoreAPI.showToast(`Preset duplicated, with its ${n} regex script${n === 1 ? '' : 's'}, off until you allow them in Regex Scripts`, 'success');
 }
 
 async function renamePreset() {
@@ -317,7 +381,21 @@ async function importPresetFile(file) {
 
     if (Array.isArray(doc.blocks) && doc.blocks.length) {
         const blocks = doc.blocks.map(b => ({ ...toWire(b), id: undefined }));
-        await createAndActivate({ name: named, blocks }, { toast: 'Preset imported' });
+        // sent as the file holds them: the server refuses a script out of shape by its place in the file
+        const regexScripts = Array.isArray(doc.regexScripts) ? doc.regexScripts : [];
+        const written = doc.settings && typeof doc.settings === 'object' && !Array.isArray(doc.settings) ? doc.settings : {};
+        // a setting the server lists no default for (a file from another version) stays out and is named; a known one goes as written
+        const known = Object.keys(_defaultSettings);
+        const unknown = known.length ? Object.keys(written).filter(key => !known.includes(key)) : [];
+        const settings = Object.fromEntries(Object.entries(written).filter(([key]) => !unknown.includes(key)));
+        const reported = regexScripts.length || unknown.length;
+        const made = await createAndActivate({ name: named, blocks, settings, ...(regexScripts.length ? { regexScripts } : {}) }, { toast: reported ? null : 'Preset imported' });
+        if (made && reported) {
+            await showImportReport(made.created, {
+                ...(unknown.length ? { droppedUnknown: unknown } : {}),
+                ...(regexScripts.length ? { regexScripts: { count: regexScripts.length, enabled: regexScripts.filter(s => !s.disabled).length } } : {}),
+            }, made.set);
+        }
         return;
     }
 
@@ -346,6 +424,15 @@ async function showImportReport(preset, report, set) {
     add('Settings with no equivalent here:', report?.droppedUnknown);
     add('Prompt sections that could not be mapped:', report?.unknownBlocks);
     add('Notes:', report?.notes);
+    const lost = blocks.length;
+    // its regex scripts stay off until allowed; the report offers that, never assumes it
+    const scripts = report?.regexScripts;
+    let allowing = false;
+    if (scripts?.count && preset?.id) {
+        const n = scripts.count;
+        blocks.push({ type: 'text', text: `It carries ${n} regex script${n === 1 ? '' : 's'}, ${scripts.enabled} switched on. They stay off until you allow them; Regex Scripts in the chat lists them.` });
+        blocks.push({ type: 'switch', key: 'regex', text: `Allow its ${n} regex script${n === 1 ? '' : 's'}`, onChange: (on) => { allowing = on; } });
+    }
 
     if (!blocks.length) {
         if (set) CoreAPI.showToast(`Imported "${name}"`, 'success');
@@ -353,20 +440,42 @@ async function showImportReport(preset, report, set) {
     }
     await CoreAPI.showConfirm({
         title: `Imported "${name}"`,
-        message: set ? "It now builds this chat's prompt. These parts did not come across:" : 'These parts did not come across:',
+        message: [set ? "It now builds this chat's prompt." : '', lost ? 'These parts did not come across:' : ''].filter(Boolean).join(' '),
         content: blocks,
         icon: 'fa-solid fa-circle-check',
         confirmLabel: 'Got it',
         cancelLabel: 'Close',
     });
+    if (allowing) await allowPresetScripts(preset);
 }
 
-// exports what this app stores so Import round-trips exactly; deliberately not ST's shape
-function exportPreset() {
+// the import report's switch: this preset's regex scripts allowed, as the Regex window's Allow does
+async function allowPresetScripts(preset) {
+    try {
+        await CoreAPI.readAnswer(await CoreAPI.apiRequest('/regex/consent', 'PUT', { presetId: preset.id, answer: 'allowed' }));
+    } catch (e) {
+        CoreAPI.showToast(`The preset's scripts could not be allowed: ${e.message}`, 'error');
+    }
+}
+
+// a preset's regex scripts as its file holds them; a failed read says so and the copy or file goes without them
+async function presetRegexScripts(preset, what) {
+    try {
+        const scripts = await CoreAPI.readAnswer(await CoreAPI.apiRequest(`/regex/export?presetId=${encodeURIComponent(preset.id)}`, 'GET'));
+        return Array.isArray(scripts) ? scripts : [];
+    } catch (e) {
+        CoreAPI.showToast(`The preset's regex scripts could not be read, so ${what} leaves them out: ${e.message}`, 'warning');
+        return [];
+    }
+}
+
+// exports what this app stores so Import round-trips exactly, its regex scripts too; deliberately not ST's shape
+async function exportPreset() {
     if (!_preset) {
         CoreAPI.showToast('The built-in defaults are not a file', 'info');
         return;
     }
+    const regexScripts = await presetRegexScripts(_preset, 'the file');
     const doc = {
         name: _preset.name || 'Preset',
         blocks: (_preset.blocks || []).map(b => {
@@ -374,8 +483,28 @@ function exportPreset() {
             delete w.id;
             return w;
         }),
+        ...(regexScripts.length ? { regexScripts } : {}),
+        ...(_preset.settings && Object.keys(_preset.settings).length ? { settings: _preset.settings } : {}),
     };
     CoreAPI.downloadBlobAsFile(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }), `${doc.name || 'preset'}.json`);
+}
+
+// the preset as a SillyTavern preset file, built by the server; what the file has no place for is named
+async function exportStPreset() {
+    if (!_preset) return;
+    let data;
+    try {
+        data = await CoreAPI.readAnswer(await CoreAPI.apiRequest(`/presets/${encodeURIComponent(_preset.id)}/export?format=sillytavern`, 'GET'));
+    } catch (e) {
+        CoreAPI.showToast(`Could not export the preset: ${e.message}`, 'error');
+        return;
+    }
+    CoreAPI.downloadBlobAsFile(new Blob([JSON.stringify(data.doc, null, 2)], { type: 'application/json' }), `${_preset.name || 'preset'}.json`);
+    const labelOf = (key) => SETTING_GROUPS.flatMap(g => g.fields).find(x => x.key === key)?.label || key;
+    const blockOf = (id) => { const b = (_preset.blocks || []).find(x => x.id === id); return b ? displayName(b) : id; };
+    const left = data.report || {};
+    const dropped = [...(left.droppedBlocks || []).map(blockOf), ...(left.droppedSettings || []).map(labelOf)];
+    if (dropped.length) CoreAPI.showToast(`Exported. SillyTavern has no place for: ${dropped.join(', ')}`, 'info');
 }
 
 // the picker: this chat's own preset, or ('') the default again; the default moves only through setDefaultPreset
@@ -588,11 +717,8 @@ function buildPanelHTML() {
             </div>
             <div class="cpm-subhead cl-cwin-fieldrow">
                 <select class="cl-select-fluid cpm-preset-select" id="cpmPresetSelect" title="Which preset builds this chat's prompt"></select>
-                <button type="button" class="cpm-preset-chip" id="cpmPresetChip" aria-haspopup="true">
-                    <span id="cpmPresetChipLabel">Built-In Defaults</span><i class="fa-solid fa-chevron-down"></i>
-                </button>
                 <span class="cpm-tokens" id="cpmTokens" title="What this preset's own written blocks add to every prompt. Markers are filled at build time; the full assembled size lives in the prompt inspector.">+0 tok</span>
-                <button type="button" class="cpm-pbtn cpm-pbtn-more" id="cpmPresetMore" aria-haspopup="true" aria-label="Preset actions"><i class="fa-solid fa-ellipsis"></i></button>
+                <button type="button" class="cl-cwin-btn-text cpm-more" id="cpmPresetMore" aria-haspopup="true" aria-label="Preset actions"><i class="fa-solid fa-ellipsis"></i></button>
             </div>
             <div class="cpm-inforce" id="cpmInForce"></div>
             <div class="cpm-warn" id="cpmWarn" hidden>
@@ -644,12 +770,31 @@ function headHTML(it, filtering, blockCount) {
         </button>
         <span class="cpm-head-name">${esc(it.label || 'Section')}</span>
         <span class="cpm-acts">
-            <button type="button" class="cpm-act" data-block-act="edit" data-id="${esc(it.id)}" title="Rename this ${it.level ? 'sub-group' : 'group'}" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>
-            <button type="button" class="cpm-act cpm-act-danger" data-block-act="delete" data-id="${esc(it.id)}" title="Delete the heading; its blocks stay and join the section above" aria-label="Delete heading"><i class="fa-solid fa-trash"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act" data-block-act="edit" data-id="${esc(it.id)}" title="Rename this ${it.level ? 'sub-group' : 'group'}" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act cpm-act-danger" data-block-act="delete" data-id="${esc(it.id)}" title="Delete the heading; its blocks stay and join the section above" aria-label="Delete heading"><i class="fa-solid fa-trash"></i></button>
         </span>
-        <button type="button" class="cpm-act cpm-kebab" data-block-act="acts" data-id="${esc(it.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+        <button type="button" class="cpm-act cl-cwin-act cpm-kebab" data-block-act="acts" data-id="${esc(it.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
         <span class="cpm-badge" title="Enabled blocks in this section">${on}/${total}</span>
     </div>`;
+}
+
+// the ticks a block's editor shows: the five the app makes, then any other its list holds (ST's quiet, a newer type)
+function fireOptionsFor(b) {
+    const offered = new Set(FIRE_OPTIONS.map(o => o.key));
+    return [...FIRE_OPTIONS, ...(b.triggers || []).filter(t => !offered.has(t)).map(t => ({ key: t, label: `${t.charAt(0).toUpperCase()}${t.slice(1)} (never made here)` }))];
+}
+
+// whether a normal reply sends the block, as the build reads its list
+function firesOnNormal(b) {
+    return !(b.triggers || []).length || b.triggers.includes('normal');
+}
+
+// a block sent on some generation types only says so on its row, or a disabled-looking absence would puzzle
+function firesBadge(b) {
+    const only = FIRE_OPTIONS.filter(o => (b.triggers || []).includes(o.key)).map(o => o.label);
+    if (!(b.triggers || []).length) return '';
+    const words = only.length ? `Sent only on: ${only.join(', ')}` : 'Sent on no reply this app makes';
+    return `<span class="cpm-role cpm-fires" title="${esc(words)}" aria-label="${esc(words)}"><i class="fa-solid fa-filter"></i></span>`;
 }
 
 // an anchored block's whole difference is where it lands, so the depth is on the row
@@ -670,10 +815,10 @@ function rowHTML(it, { readOnly = false } = {}) {
             <span class="cpm-name">${esc(it.label)}</span>
             <span class="cpm-stray-note">sub-group without a group</span>
             <span class="cpm-acts">
-                <button type="button" class="cpm-act" data-block-act="edit" data-id="${esc(b.id)}" title="Rename this sub-group" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>
-                <button type="button" class="cpm-act cpm-act-danger" data-block-act="delete" data-id="${esc(b.id)}" title="Delete this heading" aria-label="Delete heading"><i class="fa-solid fa-trash"></i></button>
+                <button type="button" class="cpm-act cl-cwin-act" data-block-act="edit" data-id="${esc(b.id)}" title="Rename this sub-group" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="cpm-act cl-cwin-act cpm-act-danger" data-block-act="delete" data-id="${esc(b.id)}" title="Delete this heading" aria-label="Delete heading"><i class="fa-solid fa-trash"></i></button>
             </span>
-            <button type="button" class="cpm-act cpm-kebab" data-block-act="acts" data-id="${esc(b.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act cpm-kebab" data-block-act="acts" data-id="${esc(b.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
         </div>`;
     }
     const isMarker = b.kind === 'marker';
@@ -698,16 +843,18 @@ function rowHTML(it, { readOnly = false } = {}) {
         <span class="cpm-glyph" title="${esc(typeTitle)}"><i class="fa-solid ${isMarker ? 'fa-cube' : 'fa-align-left'}"></i></span>
         <span class="cpm-name">${esc(displayName(b))}</span>
         ${depthBadge(b)}
+        ${firesBadge(b)}
         ${roleGlyph ? `<span class="cpm-role" title="Sent as ${esc(b.role)}"><i class="fa-solid ${roleGlyph}"></i></span>` : ''}
         <span class="cpm-tok" title="${esc(tokTitle)}">${esc(tokLabel)}</span>
         <span class="cpm-acts">
-            <button type="button" class="cpm-act" data-block-act="edit" data-id="${esc(b.id)}" title="Edit this block" aria-label="Edit this block"><i class="fa-solid fa-pen"></i></button>
-            <button type="button" class="cpm-act" data-block-act="duplicate" data-id="${esc(b.id)}" title="Duplicate this block" aria-label="Duplicate this block"><i class="fa-solid fa-clone"></i></button>
-            <button type="button" class="cpm-act cpm-act-danger" data-block-act="delete" data-id="${esc(b.id)}" title="Delete this block" aria-label="Delete this block"><i class="fa-solid fa-trash"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act" data-block-act="edit" data-id="${esc(b.id)}" title="Edit this block" aria-label="Edit this block"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act" data-block-act="duplicate" data-id="${esc(b.id)}" title="Duplicate this block" aria-label="Duplicate this block"><i class="fa-solid fa-clone"></i></button>
+            <button type="button" class="cpm-act cl-cwin-act cpm-act-danger" data-block-act="delete" data-id="${esc(b.id)}" title="Delete this block" aria-label="Delete this block"><i class="fa-solid fa-trash"></i></button>
         </span>
-        <button type="button" class="cpm-act cpm-kebab" data-block-act="acts" data-id="${esc(b.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+        <button type="button" class="cpm-act cl-cwin-act cpm-kebab" data-block-act="acts" data-id="${esc(b.id)}" title="Actions" aria-label="Actions"><i class="fa-solid fa-ellipsis-vertical"></i></button>
         <label class="cpm-toggle" title="${b.enabled ? 'Disable this block' : 'Enable this block'}">
-            <input type="checkbox" class="cpm-toggle-input" data-id="${esc(b.id)}"${b.enabled ? ' checked' : ''}>
+            <input type="checkbox" class="cl-switch-input cpm-toggle-input" data-id="${esc(b.id)}"${b.enabled ? ' checked' : ''} aria-label="${esc(displayName(b))} on">
+            <span class="cl-switch is-sm" aria-hidden="true"></span>
         </label>
     </div>`;
 }
@@ -726,14 +873,16 @@ function drawerHTML(b) {
             <span class="cpm-drawer-title">${div.level === 0 ? 'Group' : 'Sub-group'}</span>
             <button type="button" class="cpm-drawer-close" data-block-act="cancel-edit" title="Close" aria-label="Close editor"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div class="cl-cwin-field">
-            <label class="cl-cwin-field-label" for="cpmEditSectionLabel">Name</label>
-            <input type="search" class="cl-cwin-input cl-cwin-field-control" id="cpmEditSectionLabel" value="${esc(div.label)}" placeholder="${div.level === 0 ? 'Group name' : 'Sub-group name'}"
-                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <div class="cpm-drawer-body">
+            <div class="cl-cwin-field">
+                <label class="cl-cwin-field-label" for="cpmEditSectionLabel">Name</label>
+                <input type="search" class="cl-cwin-input cl-cwin-field-control" id="cpmEditSectionLabel" value="${esc(div.label)}" placeholder="${div.level === 0 ? 'Group name' : 'Sub-group name'}"
+                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            </div>
+            <p class="cl-cwin-hint">${div.level === 0
+                ? 'Organizes the list; nothing from a group heading is sent to the model. Blocks below it belong to it, until the next group.'
+                : 'A smaller section inside the group above it. Nothing from the heading is sent to the model.'}</p>
         </div>
-        <p class="cl-cwin-hint">${div.level === 0
-            ? 'Organizes the list; nothing from a group heading is sent to the model. Blocks below it belong to it, until the next group.'
-            : 'A smaller section inside the group above it. Nothing from the heading is sent to the model.'}</p>
         <div class="cpm-drawer-actions">
             <button type="button" class="cl-cwin-btn-text" data-block-act="cancel-edit">Cancel</button>
             <button type="button" class="cl-cwin-btn-text is-primary" data-block-act="save-edit"><i class="fa-solid fa-check"></i> Save</button>
@@ -761,6 +910,7 @@ function drawerHTML(b) {
         <span class="cpm-drawer-title">${isMarker ? 'Marker' : 'Text block'}</span>
         <button type="button" class="cpm-drawer-close" data-block-act="cancel-edit" title="Close" aria-label="Close editor"><i class="fa-solid fa-xmark"></i></button>
     </div>
+    <div class="cpm-drawer-body">
     <div class="cl-cwin-field">
         <label class="cl-cwin-field-label" for="cpmEditName">Name</label>
         <input type="search" class="cl-cwin-input cl-cwin-field-control" id="cpmEditName" value="${esc(b.name || '')}" placeholder="Shown in the list"
@@ -802,6 +952,11 @@ function drawerHTML(b) {
                </div>
            </div>`
         : ''}
+    <div class="cl-cwin-block">
+        <span class="cl-cwin-label" id="cpmFiresLabel">Fires on</span>
+        <div class="cl-cwin-picks" role="group" aria-labelledby="cpmFiresLabel">${fireOptionsFor(b).map(o => `<label class="cl-cwin-pick"><input type="checkbox" data-cpm-trigger="${esc(o.key)}"${(b.triggers || []).includes(o.key) ? ' checked' : ''}><span>${esc(o.label)}</span></label>`).join('')}</div>
+        <p class="cl-cwin-hint">None ticked: sent on every reply. Ticked: only on those.</p>
+    </div>
     ${isOverridable
         ? `<label class="cl-cwin-field cl-cwin-toggle">
                <span class="cl-cwin-field-label">Ignore the character's own version of this block</span>
@@ -813,8 +968,9 @@ function drawerHTML(b) {
         ? `<p class="cl-cwin-hint">${esc(MARKER_HELP[b.marker] || 'Filled in when the prompt is built.')}</p>`
         : `<div class="cl-cwin-block cpm-field-grow">
                <label class="cl-cwin-label" for="cpmEditContent">Content</label>
-               <textarea class="cl-cwin-input cl-cwin-textarea cpm-textarea" id="cpmEditContent" placeholder="Leave empty to use the card's own text">\n${esc(b.content || '')}</textarea>
+               <textarea class="cl-cwin-input cl-cwin-textarea cpm-textarea" id="cpmEditContent" placeholder="${isOverridable ? "The card's own text is sent instead, when it has one" : 'Empty sends nothing'}">\n${esc(b.content || '')}</textarea>
            </div>`}
+    </div>
     <div class="cpm-drawer-actions">
         <button type="button" class="cl-cwin-btn-text" data-block-act="cancel-edit">Cancel</button>
         <button type="button" class="cl-cwin-btn-text is-primary" data-block-act="save-edit"><i class="fa-solid fa-check"></i> Save</button>
@@ -827,14 +983,21 @@ function renderDrawer() {
     const b = _editingId ? (_preset?.blocks || []).find(x => x.id === _editingId) : null;
     // Focus mode, the lore panel's shape: editing swaps the sheet to JUST the editor, and
     // the subhead, filter and footer hide with it.
-    document.querySelector('.cpm-sheet')?.classList.toggle('cpm-mode-edit', !!b);
+    document.querySelector('.cpm-sheet')?.classList.toggle('cpm-mode-edit', !!b || _settingsOpen);
+    if (_settingsOpen && !b) {
+        el.hidden = false;
+        el.innerHTML = settingsHTML();
+        el.querySelectorAll('.cpm-set-text').forEach(fitSettingBox);
+        if (!CoreAPI.isMobileMode()) el.querySelector('[data-cpm-setting], [data-block-act="cancel-settings"]')?.focus({ preventScroll: true });
+        return;
+    }
     if (!b) {
         el.hidden = true;
         el.innerHTML = '';
         return;
     }
     el.hidden = false;
-    el.innerHTML = drawerHTML(b);
+    el.innerHTML = drawerHTML(_draft?.id === b.id ? _draft : b);
     el.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
     // Desktop nicety only: on a phone this pops the keyboard over the editor you have
     // not read yet.
@@ -842,6 +1005,8 @@ function renderDrawer() {
 }
 
 function openDrawer(id) {
+    _settingsOpen = false;
+    _draft = null;
     _editingId = _editingId === id ? null : id;
     renderList();
     renderDrawer();
@@ -849,9 +1014,41 @@ function openDrawer(id) {
 
 function closeDrawer() {
     _editingId = null;
+    _draft = null;
     renderList();
     renderDrawer();
     if (_staleFromFeed) patchPresetsFromFeed();
+}
+
+// every field the block editor shows, into a block or its draft: Save and the placement's redraw read the same way
+function readDrawerInto(b) {
+    const name = document.getElementById('cpmEditName')?.value ?? b.name;
+    const role = document.getElementById('cpmEditRole')?.value || b.role;
+    const position = document.getElementById('cpmEditPosition')?.value;
+    const depthEl = document.getElementById('cpmEditDepth');
+    const orderEl = document.getElementById('cpmEditOrder');
+    const forbidEl = document.getElementById('cpmEditForbid');
+    const contentEl = document.getElementById('cpmEditContent');
+    b.name = String(name ?? '').trim() || null;
+    // only an offered value is accepted: a control not on screen leaves its field alone
+    if (ROLE_OPTIONS.includes(role)) b.role = role;
+    else if (!b.role) b.role = 'system';
+    if (POSITION_OPTIONS.includes(position)) b.position = position;
+    if (depthEl) b.depth = Math.max(0, parseInt(depthEl.value, 10) || 0);
+    if (orderEl) b.injectionOrder = parseInt(orderEl.value, 10) || 0;
+    if (forbidEl) b.forbidOverrides = forbidEl.checked;
+    const fireEls = [...document.querySelectorAll('#cpmDrawer [data-cpm-trigger]')];
+    if (fireEls.length) b.triggers = fireEls.filter(x => x.checked).map(x => x.dataset.cpmTrigger);
+    if (contentEl) b.content = contentEl.value;
+}
+
+// at-depth shows depth and order at once (else it saves a depth never shown); what was typed rides the redraw in the draft
+function redrawForPlacement() {
+    const b = _editingId ? (_preset?.blocks || []).find(x => x.id === _editingId) : null;
+    if (!b || parseDivider(b.name)) return;
+    if (_draft?.id !== b.id) _draft = { ...b, triggers: [...(b.triggers || [])] };
+    readDrawerInto(_draft);
+    renderDrawer();
 }
 
 // Read the fields back BEFORE the list re-renders, or the values are gone with the nodes.
@@ -864,30 +1061,293 @@ function saveDrawer() {
     if (sectionEl) {
         const level = parseDivider(b.name)?.level ?? 0;
         b.name = dividerName(level, sectionEl.value);
+        savePreset();
         closeDrawer();
         renderHeader();
-        savePresetBlocks();
         return;
     }
-    const name = document.getElementById('cpmEditName')?.value ?? b.name;
-    const role = document.getElementById('cpmEditRole')?.value || b.role;
-    const position = document.getElementById('cpmEditPosition')?.value;
-    const depthEl = document.getElementById('cpmEditDepth');
-    const orderEl = document.getElementById('cpmEditOrder');
-    const forbidEl = document.getElementById('cpmEditForbid');
-    const contentEl = document.getElementById('cpmEditContent');
-    b.name = String(name).trim() || null;
-    // only an offered value is accepted: a control not on screen leaves its field alone
-    if (ROLE_OPTIONS.includes(role)) b.role = role;
-    else if (!b.role) b.role = 'system';
-    if (POSITION_OPTIONS.includes(position)) b.position = position;
-    if (depthEl) b.depth = Math.max(0, parseInt(depthEl.value, 10) || 0);
-    if (orderEl) b.injectionOrder = parseInt(orderEl.value, 10) || 0;
-    if (forbidEl) b.forbidOverrides = forbidEl.checked;
-    if (contentEl) b.content = contentEl.value;
+    // a field a redraw took off screen (the depth, once the placement left it) is the draft's
+    if (_draft?.id === b.id) Object.assign(b, _draft);
+    readDrawerInto(b);
+    // the write goes first, so the close's held re-read waits for its answer rather than racing it
+    savePreset();
     closeDrawer();
     renderHeader();
-    savePresetBlocks();
+}
+
+// ========================================
+// PRESET SETTINGS
+// ========================================
+
+// how the preset builds its prompt around the blocks, by group; a code field takes no spelling help, prose keeps it
+const SETTING_GROUPS = [
+    {
+        title: 'Wrapping', icon: 'fa-quote-left',
+        note: 'Text sent around three parts of the prompt; each part goes where its marker is. Empty sends the part as it is.',
+        fields: [
+            { key: 'personalityFormat', label: 'Personality', code: true, rows: 2, hint: "Sent for the character's personality, which goes where {{personality}} is. Without the marker only your text is sent." },
+            { key: 'scenarioFormat', label: 'Scenario', code: true, rows: 2, hint: 'Sent for the scenario, which goes where {{scenario}} is. Without the marker only your text is sent.' },
+            { key: 'loreFormat', label: 'Lore', code: true, rows: 2, hint: 'Sent for each lore group placed before or after the character; its entries go where {{lore}} is. Without the marker only your text is sent. Macros here are filled in with the entries, and lore inside the chat is not wrapped.' },
+        ],
+    },
+    {
+        title: 'Messages', icon: 'fa-comments',
+        note: 'What this preset adds between messages, and how they go to the model.',
+        fields: [
+            { key: 'chatStart', label: 'Conversation opener', rows: 2, placeholder: 'Nothing is sent', hint: 'A system message sent just before the oldest message in the prompt. Empty sends none.' },
+            { key: 'exampleSeparator', label: 'Before each example', rows: 2, placeholder: 'Nothing is sent', hint: 'A system message sent ahead of each example conversation, from the card or from lore. Empty sends none.' },
+            { key: 'joinSystem', label: 'Join neighbouring system blocks', toggle: true, hint: 'On, system blocks next to each other go as one message, a line apart, with an instruction a button sends after them. Off, every block is its own message. The opener and the example lines always stay apart.' },
+        ],
+    },
+    {
+        title: 'Requests', icon: 'fa-wand-magic-sparkles',
+        note: 'Sent at the end of the prompt when you use these buttons; {{char}}, {{user}} and the other macros are filled in. An empty box sends nothing.',
+        fields: [
+            { key: 'impersonateInstruction', label: 'Write my next message', rows: 4, prose: true, hint: 'Many presets carry a standing rule never to write as you, and a model obeying it refuses however the request is worded: rewording this is the fix. What you type in the message box follows it as direction.' },
+            { key: 'guidedInstruction', label: "Direct the character's next reply", rows: 4, prose: true, hint: 'Sent when you use the wand. It frames the task; what you typed follows it as direction.' },
+            { key: 'continueInstruction', label: 'Continue last reply', rows: 4, prose: true, hint: 'Sent after the reply when you continue it. It has to say the text is being extended, not replaced, or the model writes a fresh reply that is joined onto the old one.' },
+            { key: 'continueJoiner', label: 'Join the new words with', joiner: true, hint: 'Goes between the reply so far and what the model adds, in the saved reply. Skipped when the reply already ends on a space.' },
+            { key: 'continueAsOpening', label: 'End on the reply itself', toggle: true, hint: "On, the prompt ends on the reply so far as the model's own turn and the instruction above is not sent. Some connections add a line of their own after it." },
+        ],
+    },
+];
+
+// the joiners a reply is continued with, in words; any other text a preset file holds is offered as it is
+const JOINERS = [
+    ['', 'Nothing'],
+    [' ', 'A Space'],
+    ['\n', 'A New Line'],
+    ['\n\n', 'A Blank Line'],
+];
+
+// a joiner no choice names, its characters written out so a tab or a space shows
+function spelled(v) {
+    return JSON.stringify(v).slice(1, -1);
+}
+
+/** The settings this preset sends, its own over the defaults; a Save on its way counts. */
+function settingValues() {
+    return { ..._defaultSettings, ...(pendingSettings ?? _preset?.settings ?? {}) };
+}
+
+// what the form shows: a refused Save as it was typed, still unsaved, so closing asks
+function formValues() {
+    return _refusedSettings && _refusedSettings.id === _preset?.id ? { ..._defaultSettings, ..._refusedSettings.values } : settingValues();
+}
+
+function settingFieldHtml(f, values, editable) {
+    const v = values[f.key];
+    const id = `cpmSet_${f.key}`;
+    if (!editable) {
+        const shown = f.toggle ? (v ? 'On' : 'Off')
+            : f.joiner ? (JOINERS.find(([j]) => j === v)?.[1] || `"${spelled(v)}"`)
+                : (v || 'Nothing is sent');
+        return `<div class="cl-cwin-block"><span class="cl-cwin-label">${esc(f.label)}</span><span class="cpm-field-static cpm-set-static">${esc(shown)}</span><p class="cl-cwin-hint">${esc(f.hint)}</p></div>`;
+    }
+    if (f.toggle) {
+        return `<div class="cl-cwin-block">
+            <label class="cl-cwin-field cl-cwin-toggle">
+                <span class="cl-cwin-field-label">${esc(f.label)}</span>
+                <input type="checkbox" class="cl-switch-input" id="${id}" data-cpm-setting="${f.key}"${v ? ' checked' : ''}>
+                <span class="cl-switch" aria-hidden="true"></span>
+            </label>
+            <p class="cl-cwin-hint">${esc(f.hint)}</p>
+        </div>`;
+    }
+    if (f.joiner) {
+        const choices = JOINERS.some(([j]) => j === v) ? JOINERS : [...JOINERS, [v, `As the file has it: "${spelled(v)}"`]];
+        return `<div class="cl-cwin-block">
+            <span class="cl-cwin-label" id="${id}Label">${esc(f.label)}</span>
+            <div class="cl-cwin-picks" role="radiogroup" aria-labelledby="${id}Label">${choices.map(([j, label], i) => `<label class="cl-cwin-pick"><input type="radio" name="${id}" data-cpm-joiner="${i}"${j === v ? ' checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div>
+            <p class="cl-cwin-hint">${esc(f.hint)}</p>
+        </div>`;
+    }
+    const plain = f.prose ? '' : ' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"';
+    const off = f.key === 'continueInstruction' && values.continueAsOpening;
+    return `<div class="cl-cwin-block">
+        <label class="cl-cwin-label" for="${id}">${esc(f.label)}</label>
+        <textarea class="cl-cwin-input cl-cwin-textarea cpm-set-text${f.code ? ' is-code' : ''}" id="${id}" rows="${f.rows}" data-cpm-setting="${f.key}"${f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : ''}${plain}${off ? ' disabled' : ''}>\n${esc(v)}</textarea>
+        <button type="button" class="cl-cwin-btn-text cpm-set-reset" data-cpm-reset="${f.key}"${v === _defaultSettings[f.key] ? ' hidden' : ''}><i class="fa-solid fa-rotate-left"></i> Back to Default</button>
+        <p class="cl-cwin-hint">${esc(f.hint)}</p>
+        ${f.key === 'continueInstruction' ? `<p class="cl-cwin-hint" data-cpm-off-note${off ? '' : ' hidden'}>Not sent while End on the reply itself is on.</p>` : ''}
+    </div>`;
+}
+
+/** The preset's settings in the drawer: editable on a preset, read only for the built-in blocks. */
+function settingsHTML() {
+    const head = `
+    <div class="cpm-drawer-head">
+        <span class="cpm-drawer-title">Preset Settings</span>
+        <button type="button" class="cpm-drawer-close" data-block-act="leave-settings" title="Close" aria-label="Close the preset settings"><i class="fa-solid fa-xmark"></i></button>
+    </div>`;
+    // unread is never drawn as a form: its boxes would show nothing where the server holds something
+    if (_loadError) {
+        return `${head}
+    <div class="cpm-drawer-body">
+        <div class="cl-cwin-empty is-error">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <p>The prompt presets could not be loaded, so these settings are unknown rather than empty.</p>
+            <p class="cl-cwin-dim">${esc(_loadError)}</p>
+        </div>
+    </div>
+    <div class="cpm-drawer-actions">
+        <button type="button" class="cl-cwin-btn-text" data-block-act="cancel-settings">Close</button>
+    </div>`;
+    }
+    const editable = !!_preset;
+    const values = formValues();
+    const groups = SETTING_GROUPS.map(g => `<section class="cl-cwin-group">
+        <h4 class="cl-cwin-group-title"><i class="fa-solid ${g.icon}"></i>${esc(g.title)}</h4>
+        <p class="cl-cwin-group-note">${esc(g.note)}</p>
+        <div class="cl-cwin-fields">${g.fields.map(f => settingFieldHtml(f, values, editable)).join('')}</div>
+    </section>`).join('');
+    const intro = editable
+        ? `<p class="cl-cwin-hint cpm-set-intro">${esc(_preset.name || 'Untitled preset')}: every chat using this preset sends these.</p>`
+        : `<div class="cpm-builtin-note"><i class="fa-solid fa-lock"></i><span>Built in, so these cannot be edited. Make a new preset to change them.</span></div>`;
+    const origin = editable && _preset.source === 'sillytavern'
+        ? `<div class="cpm-builtin-note"><i class="fa-solid fa-file-import"></i><span>Started from a SillyTavern preset file.</span></div>`
+        : '';
+    return `${head}
+    <div class="cpm-drawer-body">
+        ${intro}${origin}
+        ${groups}
+    </div>
+    <div class="cpm-drawer-actions">
+        ${editable
+            ? `<button type="button" class="cl-cwin-btn-text" data-block-act="cancel-settings">Cancel</button>
+               <button type="button" class="cl-cwin-btn-text is-primary" data-block-act="save-settings"><i class="fa-solid fa-check"></i> Save</button>`
+            : '<button type="button" class="cl-cwin-btn-text" data-block-act="cancel-settings">Close</button>'}
+    </div>`;
+}
+
+// the form as typed: every field's value, read before anything re-renders
+function readSettingsForm() {
+    const el = document.getElementById('cpmDrawer');
+    const values = formValues();
+    const out = {};
+    for (const f of SETTING_GROUPS.flatMap(g => g.fields)) {
+        if (f.joiner) {
+            const at = el?.querySelector(`[name="cpmSet_${f.key}"]:checked`)?.dataset.cpmJoiner;
+            const choices = JOINERS.some(([j]) => j === values[f.key]) ? JOINERS : [...JOINERS, [values[f.key]]];
+            out[f.key] = at !== undefined ? choices[Number(at)]?.[0] ?? '' : values[f.key];
+            continue;
+        }
+        const input = el?.querySelector(`[data-cpm-setting="${f.key}"]`);
+        out[f.key] = !input ? values[f.key] : f.toggle ? input.checked : input.value;
+    }
+    return out;
+}
+
+// what the preset stores: only what differs from a default, so a default it never changed follows the app's
+function storedSettings(values) {
+    return Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== _defaultSettings[key]));
+}
+
+function openSettings() {
+    _editingId = null;
+    _settingsOpen = true;
+    renderList();
+    renderDrawer();
+}
+
+function closeSettings() {
+    _settingsOpen = false;
+    _refusedSettings = null;
+    renderList();
+    renderDrawer();
+    if (_staleFromFeed) patchPresetsFromFeed();
+}
+
+function saveSettings() {
+    if (!_preset || !settingsChanged()) return closeSettings();
+    pendingSettings = storedSettings(readSettingsForm());
+    savePreset([]);
+    closeSettings();
+    renderHeader();
+}
+
+// a refused Save opens again as typed, its reason in the save's toast; another editor in the drawer keeps it for the next open
+function reopenRefusedSettings(id, values) {
+    _refusedSettings = { id, values };
+    if (panelOpen && !_editingId && !_settingsOpen) openSettings();
+}
+
+// whether the form holds a value the preset does not, setting by setting (an object's key order says nothing)
+function settingsChanged() {
+    if (!_preset || !_settingsOpen) return false;
+    const typed = readSettingsForm();
+    const held = settingValues();
+    const plain = (v) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n') : v);
+    return Object.keys(held).some(key => plain(typed[key]) !== plain(held[key]));
+}
+
+// settings changed and not saved are asked about, never dropped unseen; true when nothing is held or the reader lets it go
+async function confirmDropSettings() {
+    if (!settingsChanged()) return true;
+    try {
+        return (await CoreAPI.showConfirm({ title: 'Discard your changes?', message: 'The preset settings you changed are not saved.', confirmLabel: 'Discard', cancelLabel: 'Keep Editing', danger: true })) === true;
+    } catch {
+        return false;
+    }
+}
+
+// leaving the settings any way but Cancel; answers whether it left
+async function leaveSettings() {
+    if (!(await confirmDropSettings())) return false;
+    closeSettings();
+    return true;
+}
+
+// a reset shows only beside a value that differs from its default; End on the reply itself takes the instruction out
+function syncSettingsForm(target) {
+    const el = document.getElementById('cpmDrawer');
+    if (!el || !_settingsOpen) return;
+    const key = target?.dataset?.cpmSetting;
+    if (key && target.tagName === 'TEXTAREA') {
+        const btn = el.querySelector(`[data-cpm-reset="${key}"]`);
+        if (btn) btn.hidden = target.value === _defaultSettings[key];
+        fitSettingBox(target);
+    }
+    if (key === 'continueAsOpening') {
+        const instruction = el.querySelector('[data-cpm-setting="continueInstruction"]');
+        if (instruction) instruction.disabled = target.checked;
+        const note = el.querySelector('[data-cpm-off-note]');
+        if (note) note.hidden = !target.checked;
+    }
+}
+
+function resetSetting(key) {
+    const input = document.querySelector(`#cpmDrawer [data-cpm-setting="${key}"]`);
+    if (!input || typeof _defaultSettings[key] !== 'string') return;
+    input.value = _defaultSettings[key];
+    syncSettingsForm(input);
+}
+
+// a settings box sized to its text with the creator's breathing room, so a swipe on it moves the view, not the box
+function fitSettingBox(el) {
+    CoreAPI.fitTextarea(el, { pad: 4 });
+}
+
+// a turned or narrowed screen rewraps the settings' text: their boxes are fitted again, the reader's place kept
+function refitSettingBoxes() {
+    const el = document.querySelector('#cpmDrawer .cpm-drawer-body');
+    if (!_settingsOpen || !el) return;
+    const top = el.scrollTop;
+    el.querySelectorAll('.cpm-set-text').forEach(fitSettingBox);
+    el.scrollTop = top;
+}
+
+// back and Escape step out of an editor before they close the window
+function closeOrBack() {
+    if (_settingsOpen) return void leaveSettings();
+    if (_editingId) return closeDrawer();
+    return closePanel();
+}
+
+// the header's close: on a phone it is the back arrow; on a desktop it closes the window, asking first over unsaved settings
+function closeFromHeader() {
+    if (CoreAPI.isMobileMode()) return closeOrBack();
+    return closePanel();
 }
 
 // ========================================
@@ -903,7 +1363,7 @@ function addBlock(block) {
     _editingId = block.id;
     renderAll();
     renderDrawer();
-    savePresetBlocks();
+    savePreset();
 }
 
 function addGroup() {
@@ -943,7 +1403,7 @@ function duplicateBlock(id) {
     const copy = { ...blocks[i], id: newTextBlock().id, name: `${displayName(blocks[i])} copy` };
     _preset.blocks = [...blocks.slice(0, i + 1), copy, ...blocks.slice(i + 1)];
     renderAll();
-    savePresetBlocks();
+    savePreset();
 }
 
 async function deleteBlock(id) {
@@ -964,7 +1424,7 @@ async function deleteBlock(id) {
     if (_editingId === id) _editingId = null;
     renderAll();
     renderDrawer();
-    savePresetBlocks();
+    savePreset();
 }
 
 // ========================================
@@ -1006,13 +1466,15 @@ function renderInForce() {
         </div>`;
 }
 
-// the one inventory of preset verbs: the desktop row, the mobile sheet and the click handler all read it
+// the one inventory of preset verbs, listed under the More when it opens; runPresetAction runs them
 const PRESET_ACTIONS = [
+    { act: 'settings', icon: 'fa-gear', label: 'Preset Settings', needsPreset: false },
     { act: 'new', icon: 'fa-plus', label: 'New Preset', needsPreset: false },
     { act: 'duplicate', icon: 'fa-clone', label: 'Duplicate Preset', needsPreset: true },
     { act: 'rename', icon: 'fa-i-cursor', label: 'Rename Preset', needsPreset: true },
     { act: 'import', icon: 'fa-file-import', label: 'Import a Preset File', needsPreset: false },
     { act: 'export', icon: 'fa-file-export', label: 'Export This Preset', needsPreset: true },
+    { act: 'export-st', icon: 'fa-share-from-square', label: 'Export as a SillyTavern Preset', needsPreset: true },
     { act: 'delete', icon: 'fa-trash', label: 'Delete Preset', needsPreset: true, danger: true },
 ];
 
@@ -1023,60 +1485,25 @@ function runPresetAction(act) {
         case 'rename': return renamePreset();
         case 'delete': return deletePreset();
         case 'export': return exportPreset();
+        case 'export-st': return exportStPreset();
+        case 'settings': return openSettings();
         case 'import': return document.getElementById('cpmImportFile')?.click();
         default: return undefined;
     }
 }
 
-// one inventory, two presentations (mobile sheet, desktop menu); needsPreset is filtered at open
-function presetActionItemsHtml() {
-    return PRESET_ACTIONS
-        .filter(a => !(a.needsPreset && !_preset))
-        .map(a => `<button type="button" class="dropdown-item${a.danger ? ' danger' : ''}" data-sheet-act="${a.act}">
-            <i class="fa-solid ${a.icon}"></i><span>${esc(a.label)}</span></button>`).join('');
+// the shared menu under the More, so a menu opened from the keyboard stands where the button is; a phone gets its sheet
+function openPresetActions(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    CoreAPI.getModule('context-menu')?.showItems?.(e, [
+        { type: 'header', label: 'Preset' },
+        ...PRESET_ACTIONS
+            .filter(a => !(a.needsPreset && !_preset))
+            .map(a => ({ icon: `fa-solid ${a.icon}`, label: a.label, className: a.danger ? 'danger' : '', action: () => runPresetAction(a.act) })),
+    ], { x: r.left, y: r.bottom + 4 });
 }
 
-function openPresetActions() {
-    if (CoreAPI.isMobileMode()) return openPresetActionSheet();
-    document.getElementById('cpmPresetMenu')?.remove();
-    const sheetEl = document.querySelector('.cpm-sheet');
-    const anchor = document.getElementById('cpmPresetMore');
-    if (!sheetEl || !anchor) return;
-    // Into the SHEET, positioned from the button's own rect: the sheet is the positioned
-    // ancestor, so a percentage top would resolve against the whole panel.
-    sheetEl.insertAdjacentHTML('beforeend', `<div id="cpmPresetMenu" class="dropdown-menu cpm-preset-menu">${presetActionItemsHtml()}</div>`);
-    const menu = document.getElementById('cpmPresetMenu');
-    const a = anchor.getBoundingClientRect();
-    const s = sheetEl.getBoundingClientRect();
-    menu.style.top = `${Math.round(a.bottom - s.top + 4)}px`;
-    menu.style.right = `${Math.max(4, Math.round(s.right - a.right))}px`;
-    const close = () => { menu?.remove(); document.removeEventListener('click', outside, true); };
-    const outside = (ev) => { if (!ev.target.closest('#cpmPresetMenu, #cpmPresetMore')) close(); };
-    document.addEventListener('click', outside, true);
-    menu?.addEventListener('click', (ev) => {
-        const btn = ev.target.closest('[data-sheet-act]');
-        if (!btn) return;
-        close();
-        runPresetAction(btn.dataset.sheetAct);
-    });
-}
-
-function openPresetActionSheet() {
-    const sheet = CoreAPI.createMobileSheet();
-    if (!sheet) return;
-    // insertAdjacentHTML, never innerHTML: the builder appends the drag handle first, and
-    // assigning innerHTML deletes it.
-    sheet.sheet.insertAdjacentHTML('beforeend', `<div class="mobile-sheet-group-title">Preset</div>` + presetActionItemsHtml());
-    sheet.sheet.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-sheet-act]');
-        if (!btn) return;
-        sheet.close();
-        runPresetAction(btn.dataset.sheetAct);
-    });
-    sheet.open();
-}
-
-// the one inventory of picks, read by the select and the phone's sheet: following the default first, then each preset as this chat's own
+// the one inventory of picks the select lists: following the default first, then each preset as this chat's own
 function pickRows() {
     const own = _resolved?.source === 'chat' ? _resolved.override : null;
     const defaultName = _resolved?.defaultId ? (_presets.find(p => p.id === _resolved.defaultId)?.name || 'Untitled preset') : 'Built-In Defaults';
@@ -1084,22 +1511,6 @@ function pickRows() {
         { id: '', name: `Same as the Default (${defaultName})`, on: !own },
         ..._presets.map(p => ({ id: p.id, name: p.name || 'Untitled preset', on: p.id === own })),
     ];
-}
-
-// the native select stays the model (renderHeader fills it); mobile drives it through a sheet
-function openPresetPickSheet() {
-    const sheet = CoreAPI.createMobileSheet();
-    if (!sheet) return;
-    sheet.sheet.insertAdjacentHTML('beforeend', `<div class="mobile-sheet-group-title">Preset for This Chat</div>` + pickRows()
-        .map(r => `<button type="button" class="dropdown-item${r.on ? ' is-active' : ''}" data-preset-id="${esc(r.id)}">
-            <i class="fa-solid ${r.on ? 'fa-check' : (r.id ? 'fa-layer-group' : 'fa-globe')}"></i><span>${esc(r.name)}</span></button>`).join(''));
-    sheet.sheet.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-preset-id]');
-        if (!btn) return;
-        sheet.close();
-        applyPreset(btn.dataset.presetId);
-    });
-    sheet.open();
 }
 
 // the built-in defaults arent editable: the add verbs disable rather than hide, so nobody hunts for them
@@ -1115,10 +1526,6 @@ function renderHeader() {
     const warn = document.getElementById('cpmWarn');
     if (!select || !tokens || !warn) return;
 
-    // The subhead's picker is the ONE place the preset is named.
-    const chipLabel = document.getElementById('cpmPresetChipLabel');
-    if (chipLabel) chipLabel.textContent = _preset ? (_preset.name || 'Untitled preset') : 'Built-in defaults';
-
     select.innerHTML = pickRows().map(r => `<option value="${esc(r.id)}"${r.on ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
     // The custom control reads the options at build time; a rebuilt list needs telling.
     if (select._customSelect) { select._customSelect.refresh?.(); select._customSelect.update?.(); }
@@ -1127,14 +1534,14 @@ function renderHeader() {
     const blocks = _preset?.blocks || [];
     let total = 0;
     for (const b of blocks) {
-        if (!b.enabled || parseDivider(b.name)) continue;
+        if (!b.enabled || parseDivider(b.name) || !firesOnNormal(b)) continue;
         total += estTokens(b.content);
     }
     // "+", not "~": the preset's own overhead over card and history; the inspector has the full count
     tokens.textContent = `+${total.toLocaleString()} tok`;
 
     // No enabled chatHistory marker means the model never sees the conversation.
-    const hasHistory = blocks.some(b => b.kind === 'marker' && b.marker === 'chatHistory' && b.enabled);
+    const hasHistory = blocks.some(b => b.kind === 'marker' && b.marker === 'chatHistory' && b.enabled && firesOnNormal(b));
     warn.hidden = !_preset || hasHistory;
 }
 
@@ -1161,7 +1568,7 @@ function renderList() {
             : '';
         list.innerHTML = `<div class="cpm-builtin-note">
                 <i class="fa-solid fa-lock"></i>
-                <span>Built in, so these cannot be edited. Duplicate them into a preset to change the prompt.</span>
+                <span>Built in, so these cannot be edited. Make a new preset to change the prompt.</span>
             </div>${rows}`;
         filter?.classList.remove('is-empty');
         return;
@@ -1214,33 +1621,27 @@ function toggleBlockEnabled(id, enabled) {
     if (!block) return;
     block.enabled = !!enabled;
     renderAll();
-    savePresetBlocks();
+    savePreset();
 }
 
-/** Mobile only: the row's actions behind one kebab, rows DERIVED from the hidden buttons; Move up/down since touch has no drag. */
-function openRowActsSheet(kebab) {
+/** Mobile only: the row's actions behind one kebab on the shared menu, rows DERIVED from the hidden buttons; Move up/down since touch has no drag. */
+function openRowActsSheet(kebab, e) {
+    const menu = CoreAPI.getModule('context-menu');
     const row = kebab.closest('.cpm-row, .cpm-head');
     const acts = [...(row?.querySelectorAll('.cpm-acts .cpm-act') || [])];
-    const sheet = CoreAPI.createMobileSheet();
-    if (!sheet || !row || !acts.length) return;
-    const name = row.querySelector('.cpm-name, .cpm-head-name')?.textContent || 'Block';
-    // insertAdjacentHTML, never innerHTML: the builder already appended the drag handle.
-    sheet.sheet.insertAdjacentHTML('beforeend', `
-        <div class="mobile-sheet-group-title">${esc(name)}</div>
-        ${acts.map((a, i) => `
-        <button type="button" class="mobile-sheet-item" data-acts-i="${i}">
-            ${a.querySelector('i')?.outerHTML || ''}<span>${esc(a.getAttribute('aria-label') || a.title || 'Action')}</span>
-        </button>`).join('')}
-        <button type="button" class="mobile-sheet-item" data-acts-move="up"><i class="fa-solid fa-arrow-up"></i><span>Move Up</span></button>
-        <button type="button" class="mobile-sheet-item" data-acts-move="down"><i class="fa-solid fa-arrow-down"></i><span>Move Down</span></button>`);
-    sheet.sheet.addEventListener('click', (e) => {
-        const it = e.target.closest('[data-acts-i], [data-acts-move]');
-        if (!it) return;
-        sheet.close();
-        if (it.dataset.actsI !== undefined) acts[Number(it.dataset.actsI)]?.click();
-        else nudgeRun(row.dataset.id, it.dataset.actsMove === 'up' ? -1 : 1);
-    });
-    sheet.open();
+    if (!menu?.showItems || !row || !acts.length) return;
+    menu.showItems(e, [
+        { type: 'header', label: row.querySelector('.cpm-name, .cpm-head-name')?.textContent || 'Block' },
+        ...acts.map(a => ({
+            icon: a.querySelector('i')?.className || '',
+            label: a.getAttribute('aria-label') || a.title || 'Action',
+            className: a.classList.contains('cpm-act-danger') ? 'danger' : '',
+            action: () => a.click(),
+        })),
+        { type: 'separator' },
+        { icon: 'fa-solid fa-arrow-up', label: 'Move Up', action: () => nudgeRun(row.dataset.id, -1) },
+        { icon: 'fa-solid fa-arrow-down', label: 'Move Down', action: () => nudgeRun(row.dataset.id, 1) },
+    ]);
 }
 
 /** Move a row's whole run one slot among its neighbours; the sheet's touch reorder. */
@@ -1260,7 +1661,7 @@ function nudgeRun(id, dir) {
         if (!moveBlock(id, afterId)) return;
     }
     renderAll();
-    savePresetBlocks();
+    savePreset();
 }
 
 function moveBlock(dragId, targetId) {
@@ -1298,7 +1699,8 @@ function injectPanel() {
     panelInjected = true;
     host.insertAdjacentHTML('beforeend', buildPanelHTML());
 
-    document.getElementById('cpmClose')?.addEventListener('click', closePanel);
+    document.getElementById('cpmClose')?.addEventListener('click', closeFromHeader);
+    window.addEventListener('resize', CoreAPI.debounce(refitSettingBoxes, 120));
 
 
     const sheet = document.querySelector('.cpm-sheet');
@@ -1317,7 +1719,6 @@ function injectPanel() {
     filter?.addEventListener('input', onFilter);
 
     document.getElementById('cpmPresetMore')?.addEventListener('click', openPresetActions);
-    document.getElementById('cpmPresetChip')?.addEventListener('click', openPresetPickSheet);
 
     document.getElementById('cpmInForce')?.addEventListener('click', (e) => {
         const act = e.target.closest('[data-cpm-act]')?.dataset.cpmAct;
@@ -1327,6 +1728,8 @@ function injectPanel() {
     });
 
     sheet?.addEventListener('click', (e) => {
+        const reset = e.target.closest('[data-cpm-reset]');
+        if (reset) return resetSetting(reset.dataset.cpmReset);
         const bbtn = e.target.closest('[data-block-act]');
         if (!bbtn) return;
         switch (bbtn.dataset.blockAct) {
@@ -1337,26 +1740,20 @@ function injectPanel() {
             case 'edit': return openDrawer(bbtn.dataset.id);
             case 'duplicate': return duplicateBlock(bbtn.dataset.id);
             case 'delete': return deleteBlock(bbtn.dataset.id);
-            case 'acts': return openRowActsSheet(bbtn);
+            case 'acts': return openRowActsSheet(bbtn, e);
             case 'save-edit': return saveDrawer();
             case 'cancel-edit': return closeDrawer();
+            case 'save-settings': return saveSettings();
+            case 'cancel-settings': return closeSettings();
+            case 'leave-settings': return void leaveSettings();
             default: return undefined;
         }
     });
 
-    // at-depth reveals depth and order at once (else it saves a depth never shown); pending edits survive the redraw
+    sheet?.addEventListener('input', (e) => syncSettingsForm(e.target));
     sheet?.addEventListener('change', (e) => {
-        if (e.target.id !== 'cpmEditPosition') return;
-        const b = _editingId ? (_preset?.blocks || []).find(x => x.id === _editingId) : null;
-        if (!b) return;
-        const name = document.getElementById('cpmEditName')?.value;
-        const role = document.getElementById('cpmEditRole')?.value;
-        const contentEl = document.getElementById('cpmEditContent');
-        if (name !== undefined) b.name = String(name).trim() || null;
-        if (ROLE_OPTIONS.includes(role)) b.role = role;
-        if (contentEl) b.content = contentEl.value;
-        if (POSITION_OPTIONS.includes(e.target.value)) b.position = e.target.value;
-        renderDrawer();
+        syncSettingsForm(e.target);
+        if (e.target.id === 'cpmEditPosition') redrawForPlacement();
     });
 
     const importFile = document.getElementById('cpmImportFile');
@@ -1382,7 +1779,7 @@ function injectPanel() {
 
     attachDragReorder(list);
 
-    registerChatWindow('chatPromptPanel', { close: closePanel });
+    registerChatWindow('chatPromptPanel', { close: () => closeOrBack() });
 }
 
 // HTML5 drag, resolved against the block array since collapsed rows arent rendered; the row's half says above or below
@@ -1443,7 +1840,7 @@ function attachDragReorder(list) {
         clearOver();
         if (!moveBlock(id, before)) return;
         renderAll();
-        savePresetBlocks();
+        savePreset();
     });
 }
 
@@ -1458,16 +1855,26 @@ async function openPanel() {
     if (list && !list.childElementCount) {
         list.innerHTML = '<div class="cl-cwin-empty"><i class="fa-solid fa-circle-notch fa-spin"></i><p>Reading the preset</p></div>';
     }
-    await refreshPanel();
+    // the last open's rows stay painted but may be stale (the feed skips a closed panel): nothing on them acts until the read lands
+    const body = [...panel.querySelectorAll('.cpm-subhead, .cpm-inforce, .cl-cwin-filterbar, .cpm-list, .cpm-footer')];
+    body.forEach(el => { el.inert = true; });
+    try { await refreshPanel(); } finally { body.forEach(el => { el.inert = false; }); }
 }
 
-function closePanel() {
+// resolves whether it closed (unsaved settings ask first); exclusive mode calls it bare, a chat that went away forces it
+async function closePanel({ force = false } = {}) {
+    if (panelOpen && !force && !(await confirmDropSettings())) return false;
     const panel = document.getElementById('chatPromptPanel');
     panelOpen = false;
     closeChatWindow(panel, { button: 'chatConvPrompts' });
+    // a refused Save on screen goes with the form; one not yet seen waits for the next open
+    if (_settingsOpen) _refusedSettings = null;
     // focus mode never survives the panel: a reopen over a changed preset would be an editor over a hidden list
     _editingId = null;
-    document.querySelector('.cpm-sheet')?.classList.remove('cpm-mode-edit');
+    _draft = null;
+    _settingsOpen = false;
+    renderDrawer();
+    return true;
 }
 
 function togglePanel() {
@@ -1486,7 +1893,7 @@ function init() {
         // the last chat's answer says nothing about this one: the banner goes until the re-read lands
         _resolved = null;
         if (!panelOpen) return;
-        if (!chatId) { closePanel(); return; }
+        if (!chatId) { closePanel({ force: true }); return; }
         renderInForce();
         void patchPresetsFromFeed(null);
     });

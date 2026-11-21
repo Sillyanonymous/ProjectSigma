@@ -1122,8 +1122,7 @@ function followCharacter(detail) {
 
 function init() {
     // this tab's own (a paperclip upload, an Attach copy) as well as another tab's
-    registerFeedPatcher('attachment', followChatPictures);
-    registerFeedPatcher('attachment', (records) => followChatPictures(records), { own: true });
+    registerFeedPatcher('attachment', followChatPictures, { own: 'both' });
     document.addEventListener('cl-chat-sight', () => { if (panelOpen) syncItemActs(); });
     // follow the conversation, or a drop uploads into the previous character; items reset to null (unknown)
     document.addEventListener('cl-chat-changed', (e) => {
@@ -1146,9 +1145,9 @@ function init() {
     });
 }
 
-// another tab's add or removal reaches an open window on the chat it shows
+// an add or removal from any tab reaches an open window on its chat, and a re-read (null) loads it again
 function followChatPictures(records) {
-    if (panelOpen && _chatId && records.some(r => r.chatId === _chatId)) void load();
+    if (panelOpen && _chatId && (!records || records.some(r => r.chatId === _chatId))) void load();
 }
 
 function isOpen() { return panelOpen; }

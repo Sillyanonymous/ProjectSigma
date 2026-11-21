@@ -252,6 +252,8 @@ html.cl-mobile .tag-filter-popup .tag-state-btn { width: 24px; height: 24px; min
 html.cl-mobile .tag-filter-popup .tag-count { font-size: var(--font-sm); }
 html.cl-mobile .tag-filter-item .tag-label { font-size: var(--font-sm); }
 html.cl-mobile .tag-autocomplete-item { font-size: var(--font-xs); }
+/* a suggestion row stands on the touch floor; the tag sheet's pills keep their own size */
+html.cl-mobile .tag-autocomplete:not(.tag-editor-sheet-autocomplete) .tag-autocomplete-item { min-height: var(--touch-target-min); display: flex; align-items: center; touch-action: manipulation; }
 html.cl-mobile .no-tags-hint { font-size: var(--font-xs); }
 html.cl-mobile .dropdown-item { font-size: var(--font-xs); }
 html.cl-mobile .tag-filter-content { padding: var(--space-xs) 0 var(--space-xl); }
@@ -554,6 +556,7 @@ html.cl-mobile .mobile-sheet-item:active { background: var(--cl-veil-2); }
 html.cl-mobile .mobile-sheet-item i { width: 20px; text-align: center; color: var(--accent); }
 html.cl-mobile .mobile-sheet-item.danger,
 html.cl-mobile .mobile-sheet-item.danger i { color: var(--cl-danger-text); }
+html.cl-mobile .mobile-sheet-item:disabled { opacity: var(--op-disabled); }
 /* --- Provider quick switch button --- */
 html.cl-mobile .mobile-provider-quick-switch {
     display: flex;
@@ -1090,52 +1093,6 @@ html.cl-mobile .mobile-quick-import-btn[disabled] {
     opacity: 0.4;
     pointer-events: none;
 }
-html.cl-mobile .mobile-more-actions-menu {
-    position: fixed;
-    z-index: var(--z-menu);
-    min-width: 220px;
-    max-width: calc(100vw - var(--space-2xl));
-    background: var(--bg-secondary);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-md);
-    padding: var(--space-xs);
-    box-shadow: var(--cl-shadow-lg);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2xs);
-    animation: clConfirmFadeIn var(--dur-fast) ease;
-}
-html.cl-mobile .mobile-more-actions-menu.hidden {
-    display: none !important;
-}
-html.cl-mobile .mobile-more-actions-item {
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    padding: var(--space-md) var(--space-md);
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-md);
-    text-align: left;
-    min-height: var(--touch-target-min);
-    touch-action: manipulation;
-    text-decoration: none;
-}
-html.cl-mobile .mobile-more-actions-item i {
-    width: 18px;
-    text-align: center;
-    color: var(--text-secondary);
-}
-html.cl-mobile .mobile-more-actions-item:active {
-    background: rgba(var(--accent-rgb), 0.15);
-}
-html.cl-mobile .mobile-more-actions-item:active i {
-    color: var(--accent);
-}
 /* ---------------------------------------------------
    HIDE DESKTOP-ONLY CONTROLS IN ALL MODAL TYPES
    One rule to catch every variantt
@@ -1424,7 +1381,7 @@ html.cl-mobile .related-filter-toggle { font-size: var(--font-sm); padding: var(
 html.cl-mobile .related-filter-toggle span { font-size: var(--font-sm); }
 html.cl-mobile .related-section-header { font-size: var(--font-sm); padding: var(--space-xs-sm) 0; margin-bottom: var(--space-sm); }
 html.cl-mobile .related-card { gap: var(--space-sm-md); padding: var(--space-sm) var(--space-sm-md); }
-html.cl-mobile .related-card-avatar { width: var(--avatar-md); height: var(--avatar-md); border-radius: var(--radius-md); }
+html.cl-mobile .related-card-avatar-wrap { width: var(--avatar-md); height: var(--avatar-md); border-radius: var(--radius-md); }
 html.cl-mobile .related-card-name { font-size: var(--font-md); }
 html.cl-mobile .related-card-creator { font-size: var(--font-xs); }
 html.cl-mobile .related-card-reasons { font-size: var(--font-2xs); }
@@ -1468,10 +1425,20 @@ html.cl-mobile .expanded-greeting-textarea,
 html.cl-mobile .expand-field-textarea { font-size: var(--font-md); padding: var(--space-sm); border-radius: var(--radius-md); }
 html.cl-mobile .expanded-greeting-num { font-size: var(--font-sm); }
 html.cl-mobile .expanded-greeting-preview { font-size: var(--font-xs); }
-html.cl-mobile .expanded-lorebook-toggle { font-size: var(--font-xs); }
-html.cl-mobile .expanded-lorebook-entry-header .expanded-lorebook-name { font-size: var(--font-md); }
-html.cl-mobile .expanded-lorebook-options label { font-size: var(--font-xs); }
-html.cl-mobile .expanded-lorebook-number label { font-size: var(--font-xs); }
+html.cl-mobile .lorebook-expand-modal .lorebook-entry-name-input { font-size: var(--font-md); }
+html.cl-mobile .lorebook-expand-modal .lorebook-entry-options label { font-size: var(--font-xs); }
+/* the dialog's fields keep the phone's form sizes, the input floor among them */
+html.cl-mobile .lorebook-expand-modal .lorebook-entry-row .form-group label { font-size: var(--font-sm); margin-bottom: var(--space-xs-sm); }
+html.cl-mobile .lorebook-expand-modal .lorebook-entry-row .glass-input { font-size: var(--mobile-input-size); }
+html.cl-mobile .lorebook-expand-modal .lorebook-entry-options .glass-input { padding: var(--space-sm-md) var(--space-md); }
+/* an entry's last row is two lines on a phone, the ticks over the numbers */
+html.cl-mobile .lorebook-entry-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: var(--space-xs-sm) var(--space-md);
+}
+html.cl-mobile .lorebook-entry-options > label { min-height: var(--touch-target-slim); }
 html.cl-mobile .display-control-btn { font-size: var(--font-xs); }
 html.cl-mobile .greeting-nav-btn { font-size: var(--font-xs); }
 html.cl-mobile .browse-expand-body { padding: var(--space-xs); }
@@ -1977,8 +1944,6 @@ html.cl-mobile .confirm-modal-footer .cl-btn {
 html.cl-mobile .import-modal-content,
 html.cl-mobile .bulk-auto-link-modal-content,
 html.cl-mobile .char-duplicates-modal-content,
-html.cl-mobile .bulk-summary-modal-content,
-html.cl-mobile .bulk-localize-modal-content,
 html.cl-mobile .chub-gallery-modal-content,
 html.cl-mobile .pre-import-duplicate-content {
     height: 100% !important;
@@ -2089,142 +2054,6 @@ html.cl-mobile .import-summary-row-desc { font-size: var(--font-xs); }
 /* --- Localize modal --- */
 html.cl-mobile #localizeStatus { font-size: var(--font-md); }
 
-/* --- Bulk localize --- */
-html.cl-mobile .bulk-localize-char-info { gap: var(--space-sm-md); font-size: var(--font-md); }
-html.cl-mobile .bulk-localize-char-info img { width: 32px; height: 32px; border-radius: var(--radius-md); }
-html.cl-mobile .bulk-localize-stats { flex-wrap: wrap; gap: var(--space-xs-sm); }
-html.cl-mobile .bulk-localize-stats .stat-item { font-size: var(--font-xs); }
-
-/* --- Bulk localization summary modal --- */
-html.cl-mobile .bulk-summary-header-row {
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    justify-content: center;
-}
-html.cl-mobile .bulk-summary-stat {
-    padding: var(--space-sm) var(--space-md);
-    min-width: 70px;
-    flex: 1;
-}
-html.cl-mobile .bulk-summary-stat:hover {
-    transform: none;
-}
-html.cl-mobile .bulk-summary-stat .stat-value {
-    font-size: var(--font-lg);
-}
-html.cl-mobile .bulk-summary-stat .stat-label {
-    font-size: var(--font-3xs);
-}
-html.cl-mobile .bulk-summary-media-sources {
-    grid-template-columns: 1fr;
-    gap: var(--space-sm-md);
-}
-html.cl-mobile .bulk-summary-source {
-    padding: var(--space-sm-md);
-    border-radius: var(--radius-xl);
-}
-html.cl-mobile .bulk-summary-source .source-header {
-    font-size: var(--font-sm);
-    margin-bottom: var(--space-sm);
-    padding-bottom: var(--space-xs-sm);
-    gap: var(--space-xs-sm);
-}
-html.cl-mobile .bulk-summary-source .source-stats {
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-xs-sm);
-}
-html.cl-mobile .bulk-summary-source .source-stat {
-    padding: var(--space-xs-sm) var(--space-sm);
-    font-size: var(--font-xs);
-    gap: var(--space-xs);
-}
-html.cl-mobile .bulk-summary-source .source-stat .value {
-    font-size: var(--font-pre-base);
-}
-html.cl-mobile .bulk-summary-source .source-stat .label {
-    font-size: var(--font-3xs);
-}
-html.cl-mobile .bulk-summary-source .source-empty {
-    font-size: var(--font-xs);
-    padding: var(--space-sm);
-}
-html.cl-mobile .bulk-summary-source .source-footer {
-    font-size: var(--font-3xs);
-    margin-top: var(--space-sm);
-    padding-top: var(--space-xs-sm);
-}
-html.cl-mobile .bulk-summary-totals {
-    gap: var(--space-md);
-    padding: var(--space-sm-md) var(--space-md);
-    flex-wrap: wrap;
-    justify-content: center;
-}
-html.cl-mobile .bulk-summary-totals .total-item {
-    gap: var(--space-xs-sm);
-}
-html.cl-mobile .bulk-summary-totals .total-value {
-    font-size: var(--font-base);
-}
-html.cl-mobile .bulk-summary-totals .total-label {
-    font-size: var(--font-2xs);
-}
-html.cl-mobile .bulk-summary-filter {
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-html.cl-mobile .bulk-summary-filter label {
-    font-size: var(--font-sm);
-    display: none;
-}
-html.cl-mobile .bulk-summary-filter .glass-input,
-html.cl-mobile .bulk-summary-filter .glass-select,
-html.cl-mobile .bulk-summary-filter .custom-select-container {
-    font-size: var(--mobile-input-size);
-    min-height: var(--touch-target-min);
-    width: 100%;
-    min-width: 0;
-    flex: none;
-}
-html.cl-mobile .bulk-summary-filter .custom-select-trigger {
-    width: 100%;
-    min-width: 0 !important;
-}
-html.cl-mobile .bulk-summary-list {
-    max-height: none;
-}
-html.cl-mobile .bulk-summary-item {
-    padding: var(--space-sm-md) var(--space-md);
-    gap: var(--space-sm-md);
-}
-html.cl-mobile .bulk-summary-item img {
-    width: 30px;
-    height: 30px;
-}
-html.cl-mobile .bulk-summary-item .char-name-link {
-    font-size: var(--font-sm);
-}
-html.cl-mobile .bulk-summary-item .char-stats {
-    gap: var(--space-xs-sm);
-    font-size: var(--font-2xs);
-    flex-wrap: wrap;
-}
-html.cl-mobile .bulk-summary-item .media-source-group {
-    padding: var(--space-xs) var(--space-xs-sm);
-    font-size: var(--font-2xs);
-}
-html.cl-mobile .bulk-summary-pagination {
-    gap: var(--space-sm-md);
-    margin-top: var(--space-sm-md);
-    padding-top: var(--space-sm-md);
-}
-html.cl-mobile .bulk-summary-pagination span {
-    font-size: var(--font-sm);
-}
-html.cl-mobile .bulk-summary-pagination .glass-btn {
-    min-height: var(--touch-target-slim);
-    min-width: var(--touch-target-slim);
-}
-
 /* --- Bulk Provider Link --- */
 html.cl-mobile .bulk-auto-link-modal-content {
     width: 100% !important;
@@ -2248,19 +2077,8 @@ html.cl-mobile #bulkAutoLinkScanStatus { font-size: var(--font-sm); }
 html.cl-mobile .bulk-auto-link-scan-stats { flex-wrap: wrap; gap: var(--space-xs-sm); padding: var(--space-sm-md); }
 html.cl-mobile .bulk-auto-link-scan-stats span { font-size: var(--font-xs); }
 
-/* Tabs */
-html.cl-mobile .bulk-auto-link-tabs {
-    gap: var(--space-xs);
-    margin-bottom: var(--space-sm-md);
-    padding-bottom: var(--space-sm);
-}
-html.cl-mobile .bulk-auto-link-tab {
-    padding: 7px var(--space-sm-md);
-    font-size: var(--font-2xs);
-    border-radius: var(--radius-md);
-    white-space: nowrap;
-}
-html.cl-mobile .bulk-auto-link-tab i { display: none; }
+/* Tabs: the tab canon's phone floor and type; the strip sits closer to the actions on a phone */
+html.cl-mobile .bulk-auto-link-tabs { margin-bottom: var(--space-sm-md); }
 
 /* Actions bar */
 html.cl-mobile .bulk-auto-link-actions { flex-wrap: wrap; gap: var(--space-xs-sm); }
@@ -2400,6 +2218,8 @@ html.cl-mobile .char-dup-card-meta .char-dup-group-confidence {
 }
 html.cl-mobile .char-dup-card-diffs { gap: var(--space-2xs); }
 html.cl-mobile .diff-badge { font-size: var(--font-3xs); padding: var(--space-2xs) var(--space-xs); }
+/* the shared side-by-side diff on every surface: two columns kept, the type a step down, a shorter box */
+html.cl-mobile .cl-diff { font-size: var(--font-3xs); max-height: 30vh; }
 html.cl-mobile .char-dup-card-actions {
     flex-wrap: wrap;
     gap: var(--space-xs-sm);
@@ -2672,6 +2492,10 @@ html.cl-mobile .provider-order-item {
 }
 html.cl-mobile .provider-order-item:hover {
     background: var(--cl-ghost-mid);
+}
+/* the card keeps its own border while dragged over, so the desktop's drop line stays off here */
+html.cl-mobile .provider-order-item.drag-over.drag-after::after {
+    content: none;
 }
 html.cl-mobile .provider-order-item .drag-handle {
     grid-area: handle;

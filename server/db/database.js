@@ -1822,6 +1822,121 @@ export const MIGRATIONS = [
     INSERT INTO world_entries_fts(world_entries_fts, rank) VALUES ('automerge', 0);
     INSERT INTO world_entries_fts(world_entries_fts, rank) VALUES ('usermerge', 2);
     `,
+    // 90: regex scripts, yours and each preset's (a character's ride its card); consent is allowed 1, declined 0, no row unanswered
+    `
+    CREATE TABLE regexes (
+        id TEXT PRIMARY KEY,
+        preset_id TEXT REFERENCES presets(id) ON DELETE CASCADE,
+        pos INTEGER NOT NULL,
+        data TEXT NOT NULL CHECK (json_valid(data)),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX idx_regexes_owner ON regexes(preset_id, pos);
+    CREATE TABLE regex_consent (
+        preset_id TEXT REFERENCES presets(id) ON DELETE CASCADE,
+        char_id TEXT REFERENCES characters(id) ON DELETE CASCADE,
+        allowed INTEGER NOT NULL CHECK (allowed IN (0, 1)),
+        answered_at INTEGER NOT NULL,
+        CHECK ((preset_id IS NULL) <> (char_id IS NULL))
+    );
+    CREATE UNIQUE INDEX idx_regex_consent_preset ON regex_consent(preset_id) WHERE preset_id IS NOT NULL;
+    CREATE UNIQUE INDEX idx_regex_consent_char ON regex_consent(char_id) WHERE char_id IS NOT NULL;
+    `,
+    // 91: the generation types a preset block fires on (ST's injection_trigger), a JSON list; NULL fires on every one
+    `
+    ALTER TABLE preset_blocks ADD COLUMN injection_trigger TEXT CHECK (injection_trigger IS NULL OR json_valid(injection_trigger));
+    `,
+    // 92: a preset's own prompt settings, a JSON object (NULL sets none); the three instruction settings move into every preset
+    (db) => {
+        db.exec('ALTER TABLE presets ADD COLUMN prompt_settings TEXT CHECK (prompt_settings IS NULL OR json_valid(prompt_settings));');
+        const moved = { chatImpersonatePrompt: 'impersonateInstruction', chatContinuePrompt: 'continueInstruction', chatGuidedPrompt: 'guidedInstruction' };
+        const carried = {};
+        for (const [key, field] of Object.entries(moved)) {
+            let value = '';
+            try { value = JSON.parse(db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(key) ?? '""'); } catch { value = ''; }
+            if (typeof value === 'string' && value.trim()) carried[field] = value;
+            db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+        }
+        if (Object.keys(carried).length) db.prepare('UPDATE presets SET prompt_settings = ?').run(JSON.stringify(carried));
+    },
+    // 93: no change; the step keeps its place so every later one keeps its number
+    '',
+    // 94: the extension windows hidden from the chat header join the header's arrangement, which hides every opener
+    (db) => {
+        let keys = [];
+        try { keys = JSON.parse(db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get('chatExtHiddenHeader') ?? '[]'); } catch { keys = []; }
+        db.prepare('DELETE FROM settings WHERE key = ?').run('chatExtHiddenHeader');
+        let layout = {};
+        try { layout = JSON.parse(db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get('chatHeaderLayout') ?? '{}') || {}; } catch { layout = {}; }
+        if (!layout || typeof layout !== 'object' || Array.isArray(layout)) layout = {};
+        // a window the arrangement already places is the reader's newer word, so it stays shown
+        const order = Array.isArray(layout.order) ? layout.order : [];
+        const placed = new Set(order.flatMap(n => (typeof n === 'string' ? [n] : Array.isArray(n?.items) ? n.items : [])));
+        const hidden = [...new Set((Array.isArray(keys) ? keys : []).filter(k => typeof k === 'string' && k).map(k => `ext:${k}`))].filter(id => !placed.has(id));
+        if (!hidden.length) return;
+        const kept = Array.isArray(layout.hidden) ? layout.hidden.filter(k => typeof k === 'string') : [];
+        layout.hidden = [...new Set([...kept, ...hidden])];
+        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('chatHeaderLayout', JSON.stringify(layout));
+    },
+    // 95: a preset made here before the built-in blocks kept their keys gets Main and Post-history back, by the one block with its first name
+    (db) => {
+        const presets = db.prepare('SELECT id FROM presets WHERE source IS NULL').pluck().all();
+        const keyed = db.prepare('SELECT 1 FROM preset_blocks WHERE preset_id = ? AND block_key = ?');
+        const named = db.prepare("SELECT id FROM preset_blocks WHERE preset_id = ? AND block_key IS NULL AND kind = 'text' AND name = ?").pluck();
+        const give = db.prepare('UPDATE preset_blocks SET block_key = ? WHERE id = ?');
+        for (const id of presets) {
+            for (const [key, name] of [['main', 'Main prompt'], ['jailbreak', 'Post-history instructions']]) {
+                if (keyed.get(id, key)) continue;
+                const rows = named.all(id, name);
+                if (rows.length === 1) give.run(key, rows[0]);
+            }
+        }
+    },
+    // 96: each card's fingerprint for the duplicate rule; the keys are read off the stored name and creator now, the signatures by the queue
+    (db) => {
+        db.exec(`
+            CREATE TABLE character_fingerprints (
+                char_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+                name_key TEXT NOT NULL,
+                name_key2 TEXT,
+                creator_key TEXT,
+                sig BLOB,
+                sig_mask INTEGER NOT NULL DEFAULT -1,
+                band0 INTEGER, band1 INTEGER, band2 INTEGER, band3 INTEGER
+            );
+            CREATE INDEX idx_fingerprints_name ON character_fingerprints(name_key, creator_key);
+            CREATE INDEX idx_fingerprints_name2 ON character_fingerprints(name_key2) WHERE name_key2 IS NOT NULL;
+            CREATE INDEX idx_fingerprints_creator ON character_fingerprints(creator_key) WHERE creator_key IS NOT NULL;
+            CREATE INDEX idx_fingerprints_band0 ON character_fingerprints(band0) WHERE band0 IS NOT NULL;
+            CREATE INDEX idx_fingerprints_band1 ON character_fingerprints(band1) WHERE band1 IS NOT NULL;
+            CREATE INDEX idx_fingerprints_band2 ON character_fingerprints(band2) WHERE band2 IS NOT NULL;
+            CREATE INDEX idx_fingerprints_band3 ON character_fingerprints(band3) WHERE band3 IS NOT NULL;
+            CREATE TABLE fingerprints_pending (rid INTEGER PRIMARY KEY, seq INTEGER NOT NULL);
+            ${FINGERPRINT_TRIGGERS_SQL}
+        `);
+        // the keys as the rule read them at this step, frozen here; the queue below recomputes every card with the live rule
+        const nameKey = (raw) => String(raw || '').normalize('NFKC').toLowerCase().trim()
+            .replace(/\s*[\(\[\{]?\s*v(?:er(?:sion)?)?\.?\s*\d+[\)\]\}]?\s*$/i, '').replace(/\s*-?\s*v\d+(\.\d+)*$/i, '')
+            .replace(/\s*[\(\[\{]?(?:updated?|fixed?|new|old|alt(?:ernate)?|edit(?:ed)?|copy|backup|nsfw)[\)\]\}]?\s*$/i, '')
+            .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').replace(/\s+/g, ' ').trim();
+        const placeholders = new Set(['anonymous', 'anon', 'unknown', 'deleted', 'n/a', 'na', 'none', 'user', 'admin', 'test', 'guest', 'character', 'null', 'undefined', '-', '?']);
+        const creatorKey = (raw) => {
+            const folded = String(raw ?? '').normalize('NFKC').toLowerCase().trim().replace(/^@+/, '').trim();
+            return !folded || placeholders.has(folded) ? null : folded.replace(/[\s_-]/g, '');
+        };
+        const put = db.prepare('INSERT INTO character_fingerprints (char_id, name_key, name_key2, creator_key) VALUES (?, ?, ?, ?)');
+        // keyset pages: a statement still reading refuses the inserts on its connection
+        const page = db.prepare('SELECT rowid AS rid, id, name, creator FROM characters WHERE rowid > ? ORDER BY rowid LIMIT 5000');
+        for (let rows = page.all(0); rows.length; rows = page.all(rows[rows.length - 1].rid)) {
+            for (const r of rows) {
+                const full = nameKey(r.name);
+                const primary = String(r.name || '').includes('||') ? nameKey(String(r.name).split('||')[0]) : '';
+                put.run(r.id, full, primary && primary !== full ? primary : null, creatorKey(r.creator));
+            }
+        }
+        db.exec('INSERT INTO fingerprints_pending (rid, seq) SELECT rowid, 0 FROM characters');
+    },
 ];
 
 // the two per-character chat counters, one expression for the triggers, the backfill and the invariant; last_chat_at is the newest sort_at
@@ -1876,6 +1991,21 @@ export const TAG_COUNT_TRIGGERS_SQL = `
     CREATE TRIGGER trg_tags_count_au AFTER UPDATE OF tag_id ON char_tags BEGIN
         UPDATE tags SET char_count = char_count - 1 WHERE id = old.tag_id;
         UPDATE tags SET char_count = char_count + 1 WHERE id = new.tag_id;
+    END;
+`;
+
+// a card written outside the funnel is queued, its signature unknown (-1) at once; a new seq (53 bits, exact in js) marks a re-queue
+export const FINGERPRINT_TRIGGERS = ['trg_characters_fp_ai', 'trg_characters_fp_au', 'trg_characters_fp_ad'];
+export const FINGERPRINT_TRIGGERS_SQL = `
+    CREATE TRIGGER trg_characters_fp_ai AFTER INSERT ON characters BEGIN
+        INSERT INTO fingerprints_pending (rid, seq) VALUES (new.rowid, random() >> 11) ON CONFLICT(rid) DO UPDATE SET seq = excluded.seq;
+    END;
+    CREATE TRIGGER trg_characters_fp_au AFTER UPDATE OF card ON characters BEGIN
+        UPDATE character_fingerprints SET sig = NULL, sig_mask = -1, band0 = NULL, band1 = NULL, band2 = NULL, band3 = NULL WHERE char_id = new.id;
+        INSERT INTO fingerprints_pending (rid, seq) VALUES (new.rowid, random() >> 11) ON CONFLICT(rid) DO UPDATE SET seq = excluded.seq;
+    END;
+    CREATE TRIGGER trg_characters_fp_ad AFTER DELETE ON characters BEGIN
+        DELETE FROM fingerprints_pending WHERE rid = old.rowid;
     END;
 `;
 

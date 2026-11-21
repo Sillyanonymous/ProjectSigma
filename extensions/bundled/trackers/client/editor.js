@@ -386,8 +386,7 @@ export function createEditor(ctx) {
 
     function exportDraft() {
         const def = normalizeDefinition(draft);
-        const name = String(def.name || 'tracker').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'tracker';
-        CoreAPI.downloadBlobAsFile(new Blob([JSON.stringify(def, null, 2)], { type: 'application/json' }), `tracker-${name}.json`);
+        CoreAPI.downloadBlobAsFile(new Blob([JSON.stringify(def, null, 2)], { type: 'application/json' }), `tracker-${def.name || 'tracker'}.json`);
     }
 
     // a file of someone's becomes a draft of the reader's, shown with its problems until it is saved

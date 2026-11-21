@@ -262,7 +262,7 @@ const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 // what a macro or a block may answer as its text
 const isText = (v) => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v));
 const isLoreEntry = (e) => isPlainObject(e) && typeof e.content === 'string' && (typeof e.uid === 'number' || typeof e.uid === 'string');
-/** The lore engine's placed groups, in the order lore.activate hands them (the outlet entries beside them). */
+/** The groups an answer to lore.activate must carry; anTop, anBottom and outlets it may leave out. */
 const LORE_GROUPS = Object.freeze(['before', 'after', 'atDepth', 'emBefore', 'emAfter']);
 const isPlaced = (c) => isPlainObject(c) && typeof c.world === 'string' && typeof c.content === 'string';
 const MESSAGE_ROLES = ['system', 'user', 'assistant'];
@@ -515,8 +515,8 @@ function collectBlocks(info) {
         const placed = answer && blockPlacement(answer, b);
         if (placed && !placed.error) {
             recordCall(b.owner, user, call, ms);
-            // blank text is dropped where the preset's own is, in the assembly
-            out.push({ id: `ext:${b.owner}/${b.id}`, kind: 'text', marker: null, content: String(answer.text), role: placed.role, position: placed.position, depth: placed.depth, injectionOrder: placed.order, enabled: 1 });
+            // blank text adds nothing, though a preset's own block of whitespace is sent as written
+            if (String(answer.text).trim()) out.push({ id: `ext:${b.owner}/${b.id}`, kind: 'text', marker: null, content: String(answer.text), role: placed.role, position: placed.position, depth: placed.depth, injectionOrder: placed.order, enabled: 1 });
             continue;
         }
         const promised = refusedPromise(v);

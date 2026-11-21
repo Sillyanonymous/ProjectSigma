@@ -443,7 +443,7 @@ window.datacatJanitoraiForceRefresh = async () => janitoraiDoRefresh();
 // seed from a pasted session; verified off hampter, whose preflight can 403 a good token and strand the rotated pair
 window.datacatJanitoraiSetSession = async (pasted) => {
     const pair = parseJanitoraiSession(pasted);
-    if (!pair) return { ok: false, error: 'Could not find a session in that value. Copy the whole sb-auth-auth-token cookie.' };
+    if (!pair) return { ok: false, error: 'Could not find a session in that value. Copy the whole sb-...-auth-token cookie.' };
     const { email, expMs } = decodeJanitoraiClaims(pair.access_token);
     let token = pair.access_token;
     // If the pasted access token is already stale but a refresh token came with it, rotate up front.

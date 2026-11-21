@@ -1458,10 +1458,10 @@ function injectModal() {
                 <button id="tgmCloseBtn" class="cl-modal-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <div class="tgm-tabs">
-                <button class="tgm-tab active" data-tab="library" title="Browse, rename, merge and delete the tags in your library"><i class="fa-solid fa-list"></i> Library Tags</button>
-                <button class="tgm-tab" data-tab="batch" title="Add or remove tags on many characters at once"><i class="fa-solid fa-object-group"></i> Batch Tagging</button>
-                <button class="tgm-tab" data-tab="rules" title="Automatically rewrite or drop tags when importing from providers"><i class="fa-solid fa-filter"></i> Import Rules</button>
+            <div class="tgm-tabs cl-seg">
+                <button class="tgm-tab cl-seg-btn active" data-tab="library" title="Browse, rename, merge and delete the tags in your library"><i class="fa-solid fa-list"></i> Library Tags</button>
+                <button class="tgm-tab cl-seg-btn" data-tab="batch" title="Add or remove tags on many characters at once"><i class="fa-solid fa-object-group"></i> Batch Tagging</button>
+                <button class="tgm-tab cl-seg-btn" data-tab="rules" title="Automatically rewrite or drop tags when importing from providers"><i class="fa-solid fa-filter"></i> Import Rules</button>
             </div>
 
             <div class="cl-modal-body tgm-body">

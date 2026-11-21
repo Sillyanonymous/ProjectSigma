@@ -15,13 +15,14 @@ import { OP_STATE_EXTENSIONS, IDENTITY_EXTENSIONS, CARD_FORMAT_EXTENSIONS } from
 import { readZipIndex, readZipEntryAsync, quoteName } from './zip.js';
 import { assertSlugId } from './ext-contract.js';
 import { httpError } from './http-error.js';
+import { nextTurn } from './steps.js';
 
 const execFileP = promisify(execFile);
 
 // 2 to 60 characters: the id rides the store document key `ext-<id>`, whose grammar stops at 64
 export const EXT_ID_RE = /^[a-z0-9][a-z0-9-]{1,59}$/;
 // the extension api both halves speak, '<major>.<minor>': the minor moves with each batch of new doors, the major on a break
-export const SERVER_EXT_API_VERSION = '2.7';
+export const SERVER_EXT_API_VERSION = '2.8';
 
 /**
  * An api version as [major, minor]: a whole number from 1 is that major's .0, a 'major.minor' string
@@ -492,7 +493,7 @@ export async function installFromZip(zipPath) {
     try {
         await fs.promises.mkdir(tmp);
         for (const item of plan) {
-            await new Promise(r => setImmediate(r));
+            await nextTurn();
             const dest = path.join(tmp, ...item.segments);
             if (!dest.startsWith(tmp + path.sep)) throw httpError(400, `the archive's entry ${quoteName(item.segments.join('/'))} leaves the extension's folder`);
             if (item.dir) { await fs.promises.mkdir(dest, { recursive: true }); continue; }

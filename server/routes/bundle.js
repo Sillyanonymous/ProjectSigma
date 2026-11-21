@@ -12,7 +12,8 @@ import { importBundle } from '../importer/bundle.js';
 import { ZipFileWriter, packPath, dropPack, sendPack } from '../lib/zip.js';
 import { boolOf, listOf } from '../lib/query-params.js';
 import { characterFilterOpts } from '../lib/character-query.js';
-import { requireArchiveType } from '../lib/request-guard.js';
+import { requireArchiveType, closeSignal } from '../lib/request-guard.js';
+import { nextTurn } from '../lib/steps.js';
 import { safeFileName } from '../lib/stored-file.js';
 
 export const bundleRouter = Router();
@@ -55,9 +56,12 @@ bundleRouter.post('/export', async (req, res) => {
     const worldNames = new Set();
     // a character the archive cant carry is named, never dropped in silence
     const skipped = [];
+    // a reader who leaves (closes the tab, or Cancel) stops the archive before its next character
+    const gone = closeSignal(res);
 
     try {
         for (const id of exportIds()) {
+            if (gone.aborted) break;
             const avatarFile = path.join(req.paths.avatarsDir, `${id}.png`);
             const baseImage = fs.existsSync(avatarFile) ? fs.readFileSync(avatarFile) : null;
             if (!baseImage) { skipped.push(id); continue; }
@@ -137,7 +141,13 @@ bundleRouter.post('/export', async (req, res) => {
             if (withWorlds) for (const w of entryWorlds) worldNames.add(w);
             manifest.characters.push(entry);
             // one yield per character, or the sync file work holds the event loop for the whole export
-            await new Promise(r => setImmediate(r));
+            await nextTurn();
+        }
+        if (gone.aborted) {
+            // finalized first, so the file is closed and the delete lands now
+            writer.finalize();
+            dropPack(zipPath);
+            return;
         }
 
         if (withWorlds) {
@@ -188,8 +198,7 @@ bundleRouter.post('/import', (req, res, next) => {
         dropPack(zipPath);
     });
     // one that hangs up once the pack is in (the import's Cancel) stops the restore before its next entry
-    const gone = new AbortController();
-    res.on('close', () => { if (!res.writableEnded) gone.abort(); });
+    const gone = closeSignal(res);
     out.on('finish', async () => {
         try {
             const summary = await importBundle(zipPath, {
@@ -198,7 +207,7 @@ bundleRouter.post('/import', (req, res, next) => {
                 copyUids: uidSetOf(req.query.copy),
                 db: req.db,
                 paths: req.paths,
-                signal: gone.signal,
+                signal: gone,
             });
             res.json(summary);
         } catch (err) {

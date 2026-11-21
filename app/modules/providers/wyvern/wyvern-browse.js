@@ -116,7 +116,7 @@ function getCharStats(char) {
 function isCharPossibleMatchObj(c) {
     if (view.isHitInLibrary(c)) return false;
     const creator = c.creator?.displayName || c.creator?.username || '';
-    return view.isCharPossibleMatch(getWyvernCharName(c), creator);
+    return view.isHitPossibleMatch(c);
 }
 
 function buildWyvernLookup(characters) {
@@ -138,7 +138,7 @@ class WyvernBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: getWyvernCharName(hit), creator: hit.creator?.displayName || hit.creator?.username || '' };
+        return { name: getWyvernCharName(hit), creator: hit.creator?.displayName || hit.creator?.username || '', text: hit.creator_notes || '' };
     }
 
     hitLinkKey(hit) {
@@ -174,7 +174,7 @@ class WyvernBrowseView extends BrowseView {
     get hasModeToggle() { return true; }
 
     _getScrollThreshold() {
-        const zoom = parseFloat(document.body.style.zoom) || 1;
+        const zoom = CoreAPI.uiZoom();
         return 3000 / zoom;
     }
 
@@ -2130,7 +2130,7 @@ function createWyvernCard(char) {
 
     const inLibrary = view.isHitInLibrary(char);
     // scorer gets '' for a missing creator (its name-only branch); the display keeps 'Unknown'
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(getWyvernCharName(char), char.creator?.displayName || char.creator?.username || '');
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(char);
 
     const tags = (char.tags || []);
 
@@ -2149,7 +2149,7 @@ function createWyvernCard(char) {
     const taglineTooltip = char.tagline ? escapeHtml(char.tagline) : '';
 
     return `
-        <div class="${cardClass}" data-char-id="${escapeHtml(charId)}"${view.linkKeyAttr(char)} data-match-name="${escapeHtml(getWyvernCharName(char))}" ${taglineTooltip ? `title="${taglineTooltip}"` : ''}>
+        <div class="${cardClass}" data-char-id="${escapeHtml(charId)}"${view.linkKeyAttr(char)}${view.matchAttr(char)} ${taglineTooltip ? `title="${taglineTooltip}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${ratingLabel ? `<span class="browse-nsfw-badge">${escapeHtml(ratingLabel)}</span>` : ''}
@@ -2305,10 +2305,7 @@ async function openWyvernCharPreview(char) {
     if (galleryStat) galleryStat.hidden = true;
 
     // Import button state, kept in step with the library while the preview is open
-    const restampImport = () => {
-        const inLibraryNow = view.isHitInLibrary(char);
-        view.stampImportButton(document.getElementById('wyvernDownloadBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && !!view.getPossibleMatchTier(getWyvernCharName(char), creatorName)?.show });
-    };
+    const restampImport = () => view.stampPreviewImport(document.getElementById('wyvernDownloadBtn'), char);
     restampImport();
     view.trackPreview(restampImport, char);
 
@@ -2532,6 +2529,7 @@ async function downloadWyvernCharacter() {
             first_mes: cachedDetail?.first_mes || hit.first_mes || '',
             personality: cachedDetail?.personality || hit.personality || '',
             scenario: cachedDetail?.scenario || hit.scenario || '',
+            creator_notes: cachedDetail?.creator_notes || hit.creator_notes || '',
         },
         dialog: { name: characterName, creator: characterCreator, fullPath: charId, avatarUrl: getAvatarUrl(hit) },
     });

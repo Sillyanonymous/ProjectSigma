@@ -119,7 +119,7 @@ export function register(router, ctx) {
     });
     ctx.prompt.addBlock({ id: 'note', position: 'at_depth', depth: 0, role: 'system', text: ({ db }) => ctx.setting(db, 'promptNote') || '' });
 
-    // ---- a chat as its prompt reads it; ctx.requireChat answers 404 for a chat the account lacks
+    // ---- a chat's names, the stored messages its prompt is written from, and its macros; ctx.requireChat answers 404 for a chat the account lacks
     router.get('/read/:chatId', ctx.requireChat, (req, res) => {
         const { chatId } = req.params;
         const chat = ctx.prompt.read(req.db, chatId);

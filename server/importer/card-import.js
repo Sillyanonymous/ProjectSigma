@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { upsertImportedCharacter, classifyImport, getCharacter, storedCardHash } from '../db/characters-store.js';
 import { addCharSnapshot } from '../db/versions-store.js';
+import { allowedScriptsMark, forgetConsentIfMoved } from '../db/regex-store.js';
 import { invalidateAvatarThumbs } from '../lib/thumb-cache.js';
 import { PROVIDER_NAMESPACES, extractProviderLinks } from '../lib/provider-namespaces.js';
 import { readCardChunks, stripCardChunks } from '../lib/png-card.js';
@@ -124,6 +125,8 @@ export function importCharacterParts(db, parsed, picture, { sourceName = null, f
     const bytes = typeof picture === 'function' ? picture() : picture;
     // a heal onto the picture it already has writes no picture
     const pictureChanged = resolved?.action !== 'heal' || !sameBytes(path.join(paths.avatarsDir, `${resolved.id}.png`), bytes);
+    // a card written over a character may bring other regex scripts than the ones its reader allowed
+    const allowed = resolved?.action === 'heal' ? allowedScriptsMark(db, resolved.id) : null;
     let result;
     try {
         // inside the try whose finally removes it, so a write the disk refuses part way leaves no temp
@@ -146,6 +149,7 @@ export function importCharacterParts(db, parsed, picture, { sourceName = null, f
                 portableId,
                 pictureChanged,
             });
+            forgetConsentIfMoved(db, r.id, allowed);
             if (!r.skipped && (r.created || pictureChanged)) fs.renameSync(tmp, path.join(paths.avatarsDir, `${r.id}.png`));
             return r;
         })();

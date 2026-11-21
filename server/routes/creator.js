@@ -16,6 +16,7 @@ import { characterExists } from '../db/characters-store.js';
 import { runHook } from '../db/hook-seat.js';
 import { intOf } from '../lib/query-params.js';
 import { sessionLookup, transcriptHandlers, proposalExtra, sessionPictures } from '../lib/session-routes.js';
+import { closeSignal } from '../lib/request-guard.js';
 
 // The creator studio over an unsaved draft: every request posts it, and the apply is computed here and handed back
 
@@ -104,15 +105,14 @@ creatorRouter.post('/context', (req, res) => {
 
 // the tag wand: one call, no session; the library's vocabulary rides the ask so the model prefers its spellings
 creatorRouter.post('/tags', async (req, res) => {
-    const controller = new AbortController();
-    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    const gone = closeSignal(res);
     try {
         const { draft } = draftOf(req.body);
         const body = { messages: buildTagsPrompt(draft, listTagCounts(req.db).slice(0, TAG_VOCAB_MAX)), purpose: 'creator' };
         const askedProfile = namedProfileId(req.db, req.body?.profileId);
         if (askedProfile) body.profileId = askedProfile;
         if (req.body?.params && typeof req.body.params === 'object') body.params = req.body.params;
-        const out = await chat(req.db, body, controller.signal);
+        const out = await chat(req.db, body, gone);
         return res.json({ tags: parseTagList(out?.content, draft.tags || []) });
     } catch (err) {
         if (err?.name === 'AbortError') return undefined;

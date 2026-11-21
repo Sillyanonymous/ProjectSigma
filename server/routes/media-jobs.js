@@ -1,5 +1,8 @@
 import { Router } from 'express';
-import { listMediaJobsPage, enqueueMediaJob, updateMediaJob, removeMediaJob } from '../db/media-jobs-store.js';
+import { listMediaJobsPage, enqueueMediaJob, enqueueMediaJobsSteps, updateMediaJob, removeMediaJob } from '../db/media-jobs-store.js';
+import { characterSetFrom } from '../lib/character-query.js';
+import { characterSetQuery } from '../db/characters-store.js';
+import { runSteps } from '../lib/steps.js';
 import { boolOf, listOf, pageOf, PAGE_DEFAULT, PAGE_MAX } from '../lib/query-params.js';
 
 // The media download queue the client worker resumes from: one row per character, pending or active
@@ -20,6 +23,19 @@ mediaJobsRouter.get('/', (req, res) => {
 
 mediaJobsRouter.post('/', (req, res) => {
     res.json(enqueueMediaJob(req.db, req.body || {}));
+});
+
+// a set's characters queued for a scan: { charIds } | { filter } (a selection, re-scanned) or { all: true } (the processed skipped)
+mediaJobsRouter.post('/batch', async (req, res) => {
+    const { charIds, filter, all, rescan } = req.body || {};
+    if (rescan !== undefined && typeof rescan !== 'boolean') return res.status(400).json({ error: 'rescan must be a boolean' });
+    if (all !== undefined && all !== true) return res.status(400).json({ error: 'all must be true when sent' });
+    if (all === true && (charIds !== undefined || filter !== undefined)) return res.status(400).json({ error: 'all, charIds or filter, one of them' });
+    const set = all === true ? characterSetQuery(req.db, {}) : characterSetFrom(req.db, { charIds, filter });
+    // run to its end once begun, a hang-up included: a half-queued set would read as a whole one
+    const value = await runSteps(enqueueMediaJobsSteps(req.db, set, { rescan: rescan ?? all !== true }), { alive: () => req.db.open });
+    if (!value) return res.status(503).json({ error: 'the library closed while the set was queued' });
+    res.json(value);
 });
 
 mediaJobsRouter.patch('/:id', (req, res) => {

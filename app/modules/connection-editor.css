@@ -53,11 +53,6 @@
 
 .ce-more { flex-shrink: 0; }
 
-.ce-menu {
-    position: absolute;
-    z-index: var(--z-raised);
-}
-
 /* The status strip: three readiness words derived from the draft. */
 .ce-status {
     flex-shrink: 0;
@@ -200,7 +195,6 @@
 .llm-profile-editor-host:empty { display: none; }
 
 /* ---- Phone ---- */
-html.cl-mobile .ce-back,
-html.cl-mobile .ce-more { min-height: var(--touch-target-slim); }
+html.cl-mobile .ce-back { min-height: var(--touch-target-slim); }
 
 html.cl-mobile .ce-actions { flex-wrap: wrap; row-gap: var(--space-xs); }

@@ -56,9 +56,12 @@
     font-size: var(--font-sm);
 }
 
-.cl-context-menu-item:hover {
+.cl-context-menu-item:hover,
+.cl-context-menu-item:focus-visible {
     background: rgba(var(--accent-rgb), 0.2);
+    outline: none;
 }
+.cl-context-menu-item:focus { outline: none; }
 
 .cl-context-menu-item:hover i {
     opacity: 1;

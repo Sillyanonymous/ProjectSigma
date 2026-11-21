@@ -2,6 +2,7 @@
 import { ownerOf, runWithRequest, SERVER_SCOPE } from '../db/changes.js';
 import { runWithReader } from './reader-context.js';
 import { materializeSet, dropSet, setChunk } from '../db/set-jobs-store.js';
+import { nextTurn } from './steps.js';
 
 const FINISHED_KEEP = 20;
 
@@ -24,14 +25,14 @@ function accountOf(db) {
 
 /**
  * Start a job on this account's lane; a set is fixed first and admit(total) may refuse it by throwing.
- * @param {object} spec { kind, label, origin?, set?, total?, admit?, step, settle, cleanup? }
+ * @param {object} spec { kind, label, origin?, set?, storageOrder?, total?, admit?, step, settle, cleanup? }
  * @returns the job as the route answers it
  */
-export function startSetJob(db, { kind, label, origin = null, set = null, total = 0, admit = null, step, settle, cleanup = null }) {
+export function startSetJob(db, { kind, label, origin = null, set = null, storageOrder = false, total = 0, admit = null, step, settle, cleanup = null }) {
     const user = accountOf(db);
     const id = ++_seq;
     if (set) {
-        total = materializeSet(db, id, set);
+        total = materializeSet(db, id, set, { storageOrder });
         try { admit?.(total); } catch (e) { dropSet(db, id); throw e; }
     }
     let after = 0;
@@ -64,8 +65,6 @@ function pump(user) {
     setImmediate(() => tick(job));
 }
 
-const yieldTurn = () => new Promise(resolve => setImmediate(resolve));
-
 // one chunk per turn of the event loop, in the starting tab's request context (or none)
 async function tick(job) {
     try {
@@ -75,7 +74,7 @@ async function tick(job) {
             if (job.stopRequested) { finish(job, 'stopped'); break; }
             const more = runWithRequest({ clientId: job.origin }, () => runWithReader(null, () => job.step(job)));
             if (!more) { finish(job, 'done'); break; }
-            await yieldTurn();
+            await nextTurn();
         }
     } catch (e) {
         console.error(`[jobs] ${job.kind} job "${job.label}" failed:`, e);

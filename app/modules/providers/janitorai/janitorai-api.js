@@ -432,7 +432,7 @@ const callHelper = (route, body, opts = {}) => serviceCall(route, body, { ...opt
 
 /**
  * Turnstile is domain-locked to janitorai.com, so login must run in the hosted browser.
- * @returns {Promise<{session: string}>} the raw sb-auth-auth-token cookie value
+ * @returns {Promise<{session: string}>} the raw session cookie value (sb-...-auth-token)
  */
 export async function browserLogin(email, password, endpoint) {
     return callHelper('/janitorai-browser-login', {

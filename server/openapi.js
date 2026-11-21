@@ -2,7 +2,7 @@
 import { CHANGE_VOCABULARY } from './db/changes.js';
 import { ERROR_KINDS } from './llm/errors.js';
 import { GENERATE_MODES } from './llm/vocabulary.js';
-import { BOOL_TRUE, BOOL_FALSE, PROBE_MAX_KEYS, PAGE_DEFAULT, PAGE_MAX, IDS_MAX, FIELDS_APPLY_MAX } from './lib/query-params.js';
+import { BOOL_TRUE, BOOL_FALSE, PROBE_MAX_KEYS, HINT_TEXT_MAX, PAGE_DEFAULT, PAGE_MAX, IDS_MAX, FIELDS_APPLY_MAX } from './lib/query-params.js';
 import { SEARCH_PAGE_DEFAULT, SEARCH_PAGE_MAX } from './db/chats-store.js';
 import { CARRIERS_DEFAULT, CARRIERS_MAX, ENTRY_SEARCH_DEFAULT, ENTRY_SEARCH_MAX, ENTRY_SEARCH_RANKED } from './db/worlds-store.js';
 import { DELETE_MAX } from './db/characters-store.js';
@@ -186,13 +186,16 @@ export function buildOpenApiSpec(version) {
         },
         tags: [
             { name: 'characters', description: 'Cards, avatars, import/export' },
-            { name: 'media', description: 'Per-character gallery media (uid-keyed files)' },
+            { name: 'media', description: 'Per-character gallery media (uid-keyed files), chat attachments and media download jobs' },
             { name: 'backgrounds', description: 'Chat wallpapers: a flat image library plus the bindings that decide which chat wears which' },
-            { name: 'chats', description: 'Chat archive (browse/edit; no runtime)' },
+            { name: 'chats', description: 'Chats and their messages: browse, search, edit, branch and export, the prompt a chat would send, and generation on the server, streamed as SSE' },
             { name: 'assistant', description: 'Out-of-character assistant sessions bound to a chat' },
+            { name: 'creator', description: 'The creator studio: sessions over a character draft, their messages and generation, the edits it proposes and applies, and tag suggestions' },
             { name: 'worlds', description: 'Lorebooks: the whole-book document plus entry-by-entry writes' },
-            { name: 'library', description: 'Playlists, versions, settings, KV store' },
-            { name: 'llm', description: 'LLM profiles + server-side chat calls (keys stay server-side)' },
+            { name: 'library', description: 'Playlists, versions, personas, settings, KV store, backups, bundles, migration, maintenance and background jobs' },
+            { name: 'tags', description: 'Library-wide tag edits and the undo journal of their runs' },
+            { name: 'llm', description: 'LLM profiles + server-side chat calls (keys stay server-side), prompt presets and regex scripts' },
+            { name: 'extensions', description: 'Installed extensions: list, switch on or off, install, update and remove; their background jobs and their own routes' },
             { name: 'auth', description: 'Sessions + accounts (multi-user mode)' },
             { name: 'admin', description: 'User management (admin accounts only)' },
             { name: 'infra', description: 'Health, thumbnails, proxy, provider services' },
@@ -383,15 +386,15 @@ export function buildOpenApiSpec(version) {
             '/api/characters/match': {
                 post: {
                     tags: ['characters'],
-                    summary: `In-library match probe (max ${PROBE_MAX_KEYS} candidates): per candidate name, the name and its variants (version and edit suffixes stripped, the part before a ||) matched, case-insensitively in ASCII, against the exact name, names starting with it as a word (a space, dash, pipe, colon, comma or period after it), and names that are a word-prefix of it, the same three over the page names provider links carry (answered with the page name as the row name); each row graded by the rule the pre-import duplicate check scores with (an exact name, or one a word of the other; a name under three characters relates to nothing), a row it does not relate left out. One row per (id, name). The client ranks the graded rows into badge tiers`,
-                    requestBody: body({ type: 'object', required: ['candidates'], properties: { candidates: { type: 'array', items: { type: 'object', properties: { name: STR, creator: STR } } } } }),
-                    responses: { 200: json({ type: 'array', items: { type: 'object', properties: { variants: { type: 'array', items: STR, description: 'the candidate name as the rule reads it: its normalized variants of three characters or more' }, matches: { type: 'array', items: { type: 'object', properties: { id: STR, name: STR, creator: { ...STR, nullable: true }, relation: { type: 'string', enum: ['exact', 'prefix'] }, on: { ...STR, description: 'the candidate variant the row relates on' }, as: { ...STR, description: 'the variant of the row name it relates by' } } } } } } }, 'aligned by candidate index'), 400: err('bad candidates') },
+                    summary: `In-library match probe (max ${PROBE_MAX_KEYS} candidates): per remote card, the library's namesakes and how likely the card is already here. The name is read as the duplicate check reads it (version and edit suffixes and edge decoration stripped, compatibility-folded, lowercased, the part before a || as a name of its own) and matched against the exact name, names starting with it as a word (a space, dash, pipe, colon, comma or period after it) and names that are a word of it, the same over the page names provider links carry (answered with the page name as the row name); each row graded exact or prefix, a row the rule does not relate left out, a name under three characters relating to nothing. One row per (id, name). The score, 0 to 100: a namesake by the same creator 95 (a word prefix 70); a text within reach of a namesake's description, first message or creator notes 90 (70); otherwise the name alone, worth more the longer it is and the fewer authors hold it here, less when the card's creator is a known other one. Placeholder creators (anonymous, unknown and the like) are no author`,
+                    requestBody: body({ type: 'object', required: ['candidates'], properties: { candidates: { type: 'array', items: { type: 'object', properties: { name: STR, creator: { ...STR, description: 'the remote card\'s creator, as the site shows it' }, text: { ...STR, description: `the site's own text for the card (a tagline, a blurb, a description); the first ${HINT_TEXT_MAX} characters are read` }, providers: { type: 'array', items: STR, maxItems: 8, description: 'the providers the site links its cards under' }, key: { ...STR, maxLength: 512, description: 'the card\'s key on that site (its id or path): a namesake linked to another listing there is weighed by the card\'s public description against its creator notes (the same card, the author\'s other card, or unplaced)' } } } } } }),
+                    responses: { 200: json({ type: 'array', items: { type: 'object', properties: { variants: { type: 'array', items: STR, description: 'the candidate name as the rule reads it: its normalized variants of three characters or more' }, matches: { type: 'array', items: { type: 'object', properties: { id: STR, name: STR, creator: { ...STR, nullable: true }, relation: { type: 'string', enum: ['exact', 'prefix'] }, on: { ...STR, description: 'the candidate variant the row relates on' }, as: { ...STR, description: 'the variant of the row name it relates by' } } } }, total: { ...INT, description: 'how many namesakes relate; matches lists the first 16' }, score: { ...INT, description: 'how likely the card is already here, 0 to 100, over every namesake; 0 when none relates' }, basis: { type: 'string', enum: ['otherListing'], description: 'present when the score rests on a namesake linked to another listing of the card\'s own site that its public description neither confirms nor rules out (the score is then at most 65)' } } } }, 'aligned by candidate index'), 400: err('bad candidates'), 503: err('the library closed while the probe ran') },
                 },
             },
             '/api/characters/duplicates': {
                 get: {
                     tags: ['characters'],
-                    summary: 'The duplicate scan over the library, on the server: every pair of characters whose names can score as duplicates, scored on name, creator and creator notes, the groups found re-scored on their members\' full cards. Answers groups of ids with their scores, never the characters; a client reads the members it shows by id. One scan per library at a time, a second request joins it',
+                    summary: 'The duplicate scan over the library, on the server: every pair whose names relate (exactly, as a word of the other, or within a few letters) or whose description and first message are one text under two names, scored on both full cards. A pair by two different authors whose texts are far apart is never scored: a shared name alone is no duplicate. Two cards linked to different listings on one site are weighed by their own text (description or first message: at 0.6 word overlap the same card, under 0.3 another), else their creator notes (0.4 and 0.3); another card is never listed, one the text cannot place is listed with that reason. Characters linked to one provider path group at 100. Answers groups of ids with their scores, never the characters; a client reads the members it shows by id. One scan per library at a time, a second request joins it',
                     'x-collection': asWhole('a scan: groups of ids and scores, never rows'),
                     responses: { 200: json({ type: 'object', properties: { scanned: INT, ms: INT, groups: { type: 'array', items: { type: 'object', properties: { reference: STR, confidence: { type: 'string', enum: ['high', 'medium', 'low'] }, duplicates: { type: 'array', items: { type: 'object', properties: { id: STR, score: INT, confidence: STR, matchReason: STR, matchReasons: { type: 'array', items: STR }, breakdown: { type: 'object' }, contentIdentical: { type: 'boolean' }, strictIdentical: { type: 'boolean' } } } } } } } } }, 'groups best first: by confidence, then by the best score in the group') },
                 },
@@ -399,9 +402,9 @@ export function buildOpenApiSpec(version) {
             '/api/characters/duplicates/match': {
                 post: {
                     tags: ['characters'],
-                    summary: 'One incoming card against the library (the pre-import check): the link arm (its provider path or id already linked here: inside providerId, exact or a path prefix either way; under the other providers, exact and only for a uuid key, which names one card wherever it is linked; with no providerId, exact under every provider), the name arm (its name and variants, matched as POST /api/characters/match matches them) and the creator arm (the creator\'s other characters, a creator prefix), every candidate scored with its full card. Answers matches by id with their scores, best first; a link hit scores 100',
+                    summary: 'One incoming card against the library (the pre-import check): the link arm (its provider path or id already linked here: inside providerId, exact or a path prefix either way; under the other providers, exact and only for a uuid key, which names one card wherever it is linked; with no providerId, exact under every provider), the name arm (every namesake, matched as POST /api/characters/match matches them), the creator arm (a creator the probe begins, its characters whose names relate loosely) and the text arm (a description that is the same text under another name), every candidate scored as the scan scores it (a candidate linked to another listing on the site the probe names, providerId with fullPath or externalId, is weighed as the scan weighs two listings: another card is left out, one its text cannot place is answered with that reason; textCompared says whether the two cards had their own text to compare). Answers matches by id with their scores, best first; a link hit scores 100',
                     requestBody: body({ type: 'object', description: 'a name, a fullPath or an externalId is required', properties: { name: STR, creator: STR, fullPath: STR, externalId: STR, providerId: STR, definition: { type: 'object', properties: { description: STR, first_mes: STR, personality: STR, scenario: STR, creator_notes: STR } } } }),
-                    responses: { 200: json({ type: 'object', properties: { matches: { type: 'array', items: { type: 'object', properties: { id: STR, name: STR, score: INT, confidence: STR, matchReason: STR, breakdown: { type: 'object' }, contentIdentical: { type: 'boolean' }, strictIdentical: { type: 'boolean' } } } } } }), 400: err('no name, fullPath or externalId') },
+                    responses: { 200: json({ type: 'object', properties: { matches: { type: 'array', items: { type: 'object', properties: { id: STR, name: STR, score: INT, confidence: STR, matchReason: STR, breakdown: { type: 'object' }, contentIdentical: { type: 'boolean' }, strictIdentical: { type: 'boolean' }, textCompared: { type: 'boolean', description: 'both cards had their own description, first message or personality to compare; a reader cutoff reads only such a score' } } } } } }), 400: err('no name, fullPath or externalId'), 503: err('the library closed while the match ran') },
                 },
             },
             '/api/characters/import': {
@@ -461,7 +464,7 @@ export function buildOpenApiSpec(version) {
             '/api/characters/{id}/replace': {
                 post: {
                     tags: ['characters'],
-                    summary: 'Write an incoming card onto an existing character (the browse import\'s Replace): the import lands on this id, so the character keeps its id, favourite, update lock, chats, linked lorebooks, gallery, versions and every extension\'s data about it, its tags gain the card\'s (the Import Rules applied), the importing provider\'s link replaces its link, and the card (its embedded book included) and the picture are the incoming ones. The card as it stood, with its picture, is snapshotted first when either changes, the snapshot and the replace landing together or not at all ("Before Replace from <source>", a regular snapshot). The import routes never overwrite; this one names its target. Its aliases are recorded without taking one another character holds, and when the card changes its mediaLocalized flag is cleared (the incoming card brings its own remote media). An incoming card and picture equal to the ones held write nothing: no snapshot, no stamp, no report; a picture alone is written and reported without moving updatedAt. A card PNG body (image/png, ?source=), or JSON { stage, card?, source? } for a staged card file (the stage is claimed and gone once the replace ran; a refusal before the write hands it back; a charx\'s embedded files join the gallery under names it lacks, and a file that cannot be written is counted in mediaFailed, never a failed replace)',
+                    summary: 'Write an incoming card onto an existing character (the browse import\'s Replace): the import lands on this id, so the character keeps its id, favourite, update lock, chats, linked lorebooks, gallery, versions and every extension\'s data about it, its tags gain the card\'s (the Import Rules applied), the importing provider\'s link replaces its link, and the card (its embedded book included) and the picture are the incoming ones. The card as it stood, with its picture, is snapshotted first when either changes, the snapshot and the replace landing together or not at all ("Before Replace from <source>", a regular snapshot). The import routes never overwrite; this one names its target. Its aliases are recorded without taking one another character holds, and when the card changes its mediaLocalized flag is cleared (the incoming card brings its own remote media). A character whose regex scripts were allowed goes back to unanswered when the incoming card\'s scripts are not the ones allowed, so they wait for a new answer. An incoming card and picture equal to the ones held write nothing: no snapshot, no stamp, no report; a picture alone is written and reported without moving updatedAt. A card PNG body (image/png, ?source=), or JSON { stage, card?, source? } for a staged card file (the stage is claimed and gone once the replace ran; a refusal before the write hands it back; a charx\'s embedded files join the gallery under names it lacks, and a file that cannot be written is counted in mediaFailed, never a failed replace)',
                     parameters: [pathId(), p('source', STR, 'with a PNG body: the provider namespace the card came through, as on /import')],
                     requestBody: { required: true, content: {
                         'image/png': { schema: { type: 'string', format: 'binary' } },
@@ -507,7 +510,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/characters/{id}/related': {
                 get: {
-                    tags: ['characters'], summary: 'Related characters, scored on the server: the rare words both cards use and the tags they share (spellings folded) on one scale, a small lift for the same creator; one item per character name, its other copies listed under it',
+                    tags: ['characters'], summary: 'Related characters, scored on the server: the rare words both cards use and the tags they share (spellings folded) on one scale, a small lift for the same creator; one item per character, the copies the duplicate check calls the same character listed under it (a shared name alone is no copy)',
                     'x-collection': asPage(20, 100, { walk: 'none' }),
                     parameters: [
                         pathId(),
@@ -516,7 +519,7 @@ export function buildOpenApiSpec(version) {
                         p('creator', BOOL, 'a false word drops the same-creator lift (default on); at most five items are ever the creator\'s own either way'),
                         p('content', BOOL, 'a false word disables the shared-words signal (default on)'),
                     ],
-                    responses: { 200: json({ type: 'object', properties: { items: { type: 'array', items: { type: 'object' } } } }, 'items strongest first: [{score (0 to 100), strength (strong, moderate or possible), breakdown: {content, tags, creator, sharedTagCount, topTags[{tag, weight, count}], terms[]}, matchReasons[], character: <list projection row>, copies: [<list projection row>] (other characters of the same name)}]'), 400: err('a limit outside 1 to 100, or a bad flag'), 404: err('not found') },
+                    responses: { 200: json({ type: 'object', properties: { items: { type: 'array', items: { type: 'object' } } } }, 'items strongest first: [{score (0 to 100), strength (strong, moderate or possible), breakdown: {content, tags, creator, sharedTagCount, topTags[{tag, weight, count}], terms[]}, matchReasons[], character: <list projection row>, copies: [<list projection row>] (at most ten copies of this character), copyCount (every copy found, the listed ones and any past ten)}]'), 400: err('a limit outside 1 to 100, or a bad flag'), 404: err('not found') },
                 },
             },
             '/api/characters/{id}/avatar': {
@@ -566,7 +569,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/characters/{id}/chats': {
                 post: {
-                    tags: ['chats'], summary: 'Create a chat. Bare: header from card + settings, message 0 = first_mes with macros applied, chat_metadata holding the default Author\'s Note (note_prompt, note_interval, note_depth, note_position, note_role). With messages/header: stored as given (import/restore)',
+                    tags: ['chats'], summary: 'Create a chat. Bare: header from card + settings, message 0 = first_mes with macros applied, it and its alternate greetings then passing the chat\'s regex scripts that rewrite a message as it is written (alterSaved), chat_metadata holding the default Author\'s Note (note_prompt, note_interval, note_depth, note_position, note_role). With messages/header: stored as given (import/restore)',
                     parameters: [pathId()],
                     requestBody: body({
                         type: 'object',
@@ -786,7 +789,7 @@ export function buildOpenApiSpec(version) {
             '/api/chats/{id}/lore': {
                 get: {
                     tags: ['chats'],
-                    summary: 'The lore state for a chat: every book in force (character links, the chat binding, the resolved persona\'s books, then the global list), all of their entries, and which entries FIRE against the current history. Evaluated as a DRY RUN of the same scan the prompt uses (probability counts as pass and is reported as probabilityPending; a weighted inclusion group keeps every member that can win, each reported with its odds as groupPending; sticky/cooldown state is read, never advanced), so it cannot disagree with what gets sent. Per entry: fired, probabilityPending, groupPending, suppressedReason (why the engine held it back this scan), timed (remaining sticky/cooldown turns), advanced (the honoured ST fields: probability, sticky/cooldown/delay, groups, recursion flags, triggers, character filter, extra match sources) outlet (the outlet a fired outlet entry is held for, placed where {{outlet::name}} is written) and notHonoured (vectorized, automationId, which nothing here implements). sources says how a book is reached; an entry is addressed by world + uid, never uid alone',
+                    summary: 'The lore state for a chat: every book in force (character links, the chat binding, the resolved persona\'s books, then the global list), all of their entries, and which entries FIRE against the current history as the next build on the chat\'s own connection reads it (a message of pictures alone counts only when that connection sees pictures). Evaluated as a DRY RUN of the same scan the prompt uses (probability counts as pass and is reported as probabilityPending; a weighted inclusion group keeps every member that can win, each reported with its odds as groupPending; sticky/cooldown state is read, never advanced), so it cannot disagree with what gets sent. Per entry: fired, probabilityPending, groupPending, suppressedReason (why the engine held it back this scan), timed (remaining sticky/cooldown turns), advanced (the honoured ST fields: probability, sticky/cooldown/delay, groups, recursion flags, triggers, character filter, extra match sources) outlet (the outlet a fired outlet entry is held for, placed where {{outlet::name}} is written) and notHonoured (vectorized, automationId, which nothing here implements). sources says how a book is reached; an entry is addressed by world + uid, never uid alone',
                     parameters: [pathId('id', 'chat uuid')],
                     responses: { 200: json(ref('ChatLoreState')), 404: err('not found') },
                 },
@@ -836,7 +839,7 @@ export function buildOpenApiSpec(version) {
                     responses: { 200: json(ref('Ok')), 400: err(`messages is not an array of objects, ${RESERVED_KEYS_REFUSED}, or a message whose extra.attachments names a picture that is not this chat\'s or is not a picture`), 404: err('not found') },
                 },
                 post: {
-                    tags: ['chats'], summary: 'Append one user turn (server stamps name/date/seq). Its macros are expanded once, now, and it is stored as expanded, as SillyTavern stores a sent message: a roll is rolled and a variable set once, and a prompt sends the stored text',
+                    tags: ['chats'], summary: 'Append one user turn (server stamps name/date/seq). The chat\'s regex scripts that rewrite a message as it is written (alterSaved) apply to the text first, at the reader\'s placement; then its macros are expanded once, now, and it is stored as expanded, as SillyTavern stores a sent message: a roll is rolled and a variable set once, and a prompt sends the stored text',
                     parameters: [pathId('id', 'chat uuid')],
                     requestBody: body({ type: 'object', properties: { mes: { ...STR, description: 'the text; empty is allowed when attachments name pictures' }, attachments: { type: 'array', items: INT, description: 'pictures from the chat\'s own gallery this turn shows, in order' }, firstShown: { ...INT, description: 'the first message the reader\'s screen shows, which {{firstDisplayedMessageId}} answers' } } }),
                     responses: { 200: json({ type: 'object', properties: { id: { ...INT, description: 'the stored message\'s id' }, seq: INT, message: ref('ChatMessage') } }), 400: err('neither mes nor attachments, an attachment that is not this chat\'s picture, or firstShown is not a message seq'), 404: err('not found') },
@@ -845,7 +848,7 @@ export function buildOpenApiSpec(version) {
             '/api/chats/{id}/messages/{seq}': {
                 patch: {
                     tags: ['chats'],
-                    summary: 'Patch ONE message by row seq (shallow merge; null value deletes a key). extra MERGES key by key, a null leaf deleting it, because the bag is shared with the server\'s own interrupted / reasoning / usage and a whole-object write would put back whatever the caller\'s copy predates; extra.hidden is boolean or null, extra: null drops the bag, and a dotted key is refused (message fields are not dot-paths). mes always tracks the active alternate: a supplied mes is written into swipes[swipe_id], otherwise mes is re-read from it. So does the generation record of each alternate (extra.reasoning, usage and interrupted): when another alternate becomes the active one (a swipe_id picked, one added, the active draft dropped), the one left keeps its record in the extra of its swipe_info entry and the record of the chosen one comes into extra, none when it has none; an edit of the active text moves nothing. The body is SillyTavern row fields: a seq or raw key is refused (the native shape\'s keys; a stored row is exported verbatim as JSONL). shown is not a field: it names the active alternate the reader was shown, and a message holding another refuses the patch with 409, so an edit from a screen that is behind the server never rewrites an alternate it did not show. Message 0, when it is the character\'s and not hidden, is stored with its macros expanded (SillyTavern expands a chat\'s first message as it shows), whatever the patch changed',
+                    summary: 'Patch ONE message by row seq (shallow merge; null value deletes a key). extra MERGES key by key, a null leaf deleting it, because the bag is shared with the server\'s own generation record (reasoning, usage, interrupted, edited, guidance) and a whole-object write would put back whatever the caller\'s copy predates; extra.hidden is boolean or null, extra: null drops the bag, and a dotted key is refused (message fields are not dot-paths). mes always tracks the active alternate: a supplied mes is written into swipes[swipe_id], otherwise mes is re-read from it. A supplied mes that differs from the stored text first passes the chat\'s regex scripts that rewrite a message as it is written and run on edit (alterSaved with runOnEdit), and the active alternate is stamped extra.edited (ms epoch): from then on a regex script changing the text itself (neither markdownOnly nor promptOnly) and not set to runOnEdit leaves that message as written, on screen and in the prompt. So does the generation record of each alternate (extra.reasoning, usage, interrupted, edited and guidance): when another alternate becomes the active one (a swipe_id picked, one added, the active draft dropped), the one left keeps its record in the extra of its swipe_info entry and the record of the chosen one comes into extra, none when it has none; an edit of the active text moves nothing. The body is SillyTavern row fields: a seq or raw key is refused (the native shape\'s keys; a stored row is exported verbatim as JSONL). shown is not a field: it names the active alternate the reader was shown, and a message holding another refuses the patch with 409, so an edit from a screen that is behind the server never rewrites an alternate it did not show. Message 0, when it is the character\'s and not hidden, is stored with its macros expanded (SillyTavern expands a chat\'s first message as it shows), whatever the patch changed',
                     parameters: [pathId('id', 'chat uuid'), pathId('seq', 'message row seq'), MESSAGE_ID],
                     requestBody: body({
                         type: 'object',
@@ -853,7 +856,7 @@ export function buildOpenApiSpec(version) {
                             mes: STR,
                             swipes: { type: 'array', items: STR, description: 'alternates; index swipe_id is the active one' },
                             swipe_id: INT,
-                            swipe_info: { type: 'array', items: { type: 'object' }, description: 'one entry per alternate, as SillyTavern keeps them; the extra of an entry holds the generation record of its alternate (reasoning, usage, interrupted)' },
+                            swipe_info: { type: 'array', items: { type: 'object' }, description: 'one entry per alternate, as SillyTavern keeps them; the extra of an entry holds the generation record of its alternate (reasoning, usage, interrupted, edited, guidance)' },
                             extra: { type: 'object', nullable: true, description: 'per-message flags, MERGED key by key: { hidden: true } hides the row from the prompt, { hidden: null } deletes that leaf and touches nothing else; hidden must be boolean or null; null for the whole field drops the bag' },
                             name: STR,
                             is_system: { type: 'boolean' },
@@ -882,7 +885,7 @@ export function buildOpenApiSpec(version) {
             '/api/chats/{id}/messages/{seq}/swipes': {
                 post: {
                     tags: ['chats'],
-                    summary: 'Add ONE alternate to a message and make it the active one (mes is its text), as a swipe adds one; a message with none first takes its text as its first alternate. The alternate left keeps its generation record (extra.reasoning, usage and interrupted) in its swipe_info entry, and the new one starts with none. count names the alternates the reader was shown: when the message holds another count now (an alternate added or dropped elsewhere since it was read), the write is refused with 409 and nothing is written. Message 0, when it is the character\'s and not hidden, is stored with its macros expanded, as a patch stores it',
+                    summary: 'Add ONE alternate to a message and make it the active one (mes is its text), as a swipe adds one; a message with none first takes its text as its first alternate. The alternate left keeps its generation record (extra.reasoning, usage, interrupted, edited and guidance) in its swipe_info entry, and the new one starts with none. count names the alternates the reader was shown: when the message holds another count now (an alternate added or dropped elsewhere since it was read), the write is refused with 409 and nothing is written. Message 0, when it is the character\'s and not hidden, is stored with its macros expanded, as a patch stores it',
                     parameters: [pathId('id', 'chat uuid'), pathId('seq', 'message row seq')],
                     requestBody: body({ type: 'object', required: ['text', 'count'], properties: {
                         text: { ...STR, description: 'the alternate added, not blank' },
@@ -900,7 +903,7 @@ export function buildOpenApiSpec(version) {
             '/api/chats/{id}/messages/{seq}/swipes/delete': {
                 post: {
                     tags: ['chats'],
-                    summary: 'Drop ONE alternate of a message, named by its index AND the text it holds, beside the alternates count the reader was shown: when any of the three differs from the stored message (an alternate added, dropped or rewritten elsewhere since it was read) the write is refused with 409 and nothing is removed, so a reader is never made to drop an alternate it did not see. The selection stays on its alternate; dropping the active one makes the next the active one (the new last when it was last), mes follows it, and its generation record (extra.reasoning, usage and interrupted) comes into extra while the dropped one\'s goes with it. A message keeps one alternate: the last goes only with the message (DELETE /api/chats/{id}/messages/{seq}). Message 0, when it is the character\'s and not hidden, is stored with its macros expanded, as a patch stores it',
+                    summary: 'Drop ONE alternate of a message, named by its index AND the text it holds, beside the alternates count the reader was shown: when any of the three differs from the stored message (an alternate added, dropped or rewritten elsewhere since it was read) the write is refused with 409 and nothing is removed, so a reader is never made to drop an alternate it did not see. The selection stays on its alternate; dropping the active one makes the next the active one (the new last when it was last), mes follows it, and its generation record (extra.reasoning, usage, interrupted, edited and guidance) comes into extra while the dropped one\'s goes with it. A message keeps one alternate: the last goes only with the message (DELETE /api/chats/{id}/messages/{seq}). Message 0, when it is the character\'s and not hidden, is stored with its macros expanded, as a patch stores it',
                     parameters: [pathId('id', 'chat uuid'), pathId('seq', 'message row seq')],
                     requestBody: body({ type: 'object', required: ['index', 'text', 'count'], properties: {
                         index: { ...INT, description: 'the alternate dropped, 0 to count - 1' },
@@ -920,13 +923,14 @@ export function buildOpenApiSpec(version) {
                 post: {
                     tags: ['chats'],
                     summary: 'Generate the next assistant turn: server-side prompt assembly (card + history + persona + lore) streamed as normalized SSE (chunk/done/error). '
-                        + 'The row is stored server-side before the done event, which carries {message, id, seq, swipeId, budget} on top of the usual finishReason/usage (message a ChatMessage; firstMessage, when the build expanded and stored the greeting, the same). '
+                        + 'The reply and its reasoning pass the chat\'s regex scripts that rewrite a message as it is written (alterSaved) before they are stored; a continue stores the text so far and the new part as the message\'s text scripts write them. '
+                        + 'The row is stored server-side before the done event, which carries {message, id, seq, swipeId, budget} on top of the usual finishReason/usage (message a ChatMessage; firstMessage, when the build expanded and stored the greeting, the same). An impersonation stores nothing; its done carries draft, the text with the chat\'s regex scripts for user input applied. '
                         + 'budget is {tokens, trimmed, maxContext, reserve, firstSeq, windowed}; firstSeq is the seq of the oldest message that still fit, which is the only value a client can draw a context marker from. '
                         + 'A timed-out or mid-stream-failed generation stores what streamed, marked extra.interrupted with the error kind (timeout | upstream | network | rate_limit | auth | context | quota | bad_request | error). '
                         + 'A client hang-up (the stop button, or a dropped socket: the server cannot tell them apart) DISCARDS the fragment by default, because stopping usually means the reply was going wrong; '
                         + 'set the chatKeepInterrupted setting to keep it instead, stored with reason "stopped". '
                         + 'Sampling params are the profile defaults under this request body; a preset never contributes them, because samplers belong to the connection. '
-                        + 'Chat messages go to the model as stored; the chat\'s first message is expanded again and the expansion stored. What the prompt\'s macros set (variables, the pick hash) is kept, with the lore\'s timed state and the first message in context, before the stream',
+                        + 'Chat messages go to the model as stored, through the chat\'s regex scripts for the prompt; the chat\'s first message is expanded again and the expansion stored. What the prompt\'s macros set (variables, the pick hash) is kept, with the lore\'s timed state and the first message in context, before the stream. A build that would send nothing (a preset whose blocks in force all send nothing for the mode) is refused with a 400 before any of that is kept, as a chat that does not fit its budget is',
                     parameters: [pathId('id', 'chat uuid')],
                     requestBody: body({
                         type: 'object',
@@ -943,7 +947,7 @@ export function buildOpenApiSpec(version) {
                             targetId: { ...INT, description: 'optional, beside targetSeq: the id of the message the reader was shown there (without targetSeq, of the trailing message). Another message there now refuses the generation with a 409 before the model is asked; left out, the target is whichever message holds the seq at the resolve' },
                             targetShown: SHOWN_ACTIVE('the target message (regenerate/swipe/continue), checked before the model is asked, so a reroll, a swipe or a continue from a screen that is behind the server never rewrites or grows an alternate it did not show'),
                             firstShown: { ...INT, description: 'the first message the reader\'s screen shows, which {{firstDisplayedMessageId}} answers' },
-                            guidance: { ...STR, description: "steering text that rides as a trailing budget-measured system instruction, never as transcript content. On impersonate it directs the user-side draft; on append it makes a GUIDED REPLY: the character's next turn follows the direction (template: the chatGuidedPrompt setting, blank = built-in). Ignored by the other modes" },
+                            guidance: { ...STR, description: "steering text that rides as a trailing budget-measured system instruction, never as transcript content. On impersonate it directs the user-side draft; on append it makes a GUIDED REPLY: the character's next turn follows the direction (template: the preset's guidedInstruction setting), and the reply stores it as extra.guidance. A swipe or a regenerate that sends none follows its target's own (the shown alternate's extra.guidance), so another take on a directed reply is directed the same way; one that sends its own uses that. Ignored by continue" },
                         },
                     }),
                     responses: { 200: { description: 'text/event-stream' }, 400: err('bad chat/profile/mode/target, firstShown is not a message seq, a targetId that is not a message id, or a targetShown that is not { index, count, text }'), 404: err('chat or target message not found'), 409: err(`${SHOWN_CHANGED}; or ${ACTIVE_CHANGED}`), 502: err('upstream failure') },
@@ -1408,7 +1412,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags': {
                 get: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: 'A page of the library\'s tags, each with how many characters carry it, in name order (case folded) or most used first; q asks for the names that contain it, in the same order',
                     'x-collection': asPage(PAGE_DEFAULT, PAGE_MAX),
                     parameters: [...PAGE_PARAMS('tags'), p('q', STR, 'the names that contain this text, case folded; a % or _ is a character'),
@@ -1469,7 +1473,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags/rename': {
                 post: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: "Rename a tag everywhere; if the target name exists (compared case-insensitively in ASCII) this merges carriers onto it. With run, the undo is journaled with the rename, landing together, as a links run (each carrier's source link with the place it held, the target link it gained): { label } opens a run, { id } joins the newest run so a bulk run's ops are one undo (POST /api/tag-runs/{id}/undo). A saved filter preset (the filter-presets store document) naming the tag, as the filter engine matches it (case-insensitively in ASCII), takes the new name (on a merge, the surviving tag's) in the same write, the document's change record naming no tab; with run, each rule rewritten is journaled in the run, so the undo puts it back, and so is the rename or merge itself, so the undo reports the name moving back. Answers counts, never carrier ids",
                     requestBody: body({ type: 'object', properties: { from: STR, to: STR, run: { type: 'object', properties: { label: STR, id: INT }, description: '{ label } opens a run, { id } joins the newest' } }, required: ['from', 'to'] }),
                     responses: { 200: json({ type: 'object', properties: { ok: { type: 'boolean' }, touched: INT, merged: { type: 'boolean' }, runId: { ...INT, nullable: true } } }), 400: err('{from, to} required, or a run with no label'), 404: err('no such tag'), 409: err('the run named is not the newest') },
@@ -1477,7 +1481,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags/remove': {
                 post: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: "Remove a tag from every carrier and delete the tag. With run (as rename), each carrier's link is journaled with the place it held, so the undo puts the tag back there. A saved filter preset's rule naming the tag (case-insensitively in ASCII) goes in the same write and the preset lists it under removed, for the client to say once; with run, each rule taken is journaled in the run with its place, so the undo puts it back there, and so is the remove itself. Answers counts, never carrier ids",
                     requestBody: body({ type: 'object', properties: { name: STR, run: { type: 'object', properties: { label: STR, id: INT }, description: '{ label } opens a run, { id } joins the newest' } }, required: ['name'] }),
                     responses: { 200: json({ type: 'object', properties: { ok: { type: 'boolean' }, touched: INT, runId: { ...INT, nullable: true } } }), 400: err('{name} required, or a run with no label'), 404: err('no such tag'), 409: err('the run named is not the newest') },
@@ -1485,7 +1489,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags/apply': {
                 post: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: 'Add/remove tag names on a set of characters (batch tagging), named by charIds or by filter, never both. Appends keep per-char order; zero-use tags are pruned; no character\'s updatedAt moves. By charIds, all or nothing: unknown ids are skipped and reported, deltas lists per-char ACTUAL changes (undo-grade), and only a character with one is listed in affected, answered {ok, touched, affected, skipped, deltas}; at most ' + IDS_MAX + ' ids a request, so a larger selection is sent as several requests, each landing whole, or as its filter. By filter (a GET /api/characters query string: every filter parameter it takes, read the list\'s way; sort, order, paging and count ignored): the set is fixed, then a job writes it in batches of a thousand characters, each landing whole, journaling every link it moves as a links run (Undo: POST /api/tag-runs/{id}/undo) and reporting the characters it changed; answered at once (202) with the job, whose progress and answer GET /api/jobs/{id} reads (the answer counts per name, never a list of characters, since a filter can be the whole library)',
                     requestBody: body({ type: 'object', properties: { charIds: { type: 'array', items: STR, description: `at most ${IDS_MAX}` }, filter: { ...STR, description: 'a GET /api/characters query string' }, add: { type: 'array', items: STR }, remove: { type: 'array', items: STR } } }),
                     responses: { 200: json({ type: 'object' }, 'by charIds {ok, touched, affected, skipped, deltas: [{charId, added, removed}]}'), 202: json({ type: 'object', properties: { ok: { type: 'boolean' }, job: ref('SetJob') } }, 'by filter: the job'), 400: err('nothing to do, add or remove not an array, a name both added and removed, more than ' + IDS_MAX + ' charIds, charIds and a filter both, a filter parameter refused in the list\'s words, or a filter parameter the list does not take (a misspelled one would name the whole library)') },
@@ -1497,7 +1501,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags/tally': {
                 post: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: `The tags a set of characters carries and how many of the set carry each, most carried first, with the size of the set: what the batch tag editor shows as the tags on every character and on some. The set is charIds (an unknown id is not counted; at most ${IDS_MAX} a request, so a larger selection is counted in parts, which add up, or by its filter) or filter (a GET /api/characters query string, read the list's way; sort, order, paging and count ignored), never both. An empty filter is the whole library and answers from the tag list itself`,
                     requestBody: body({ type: 'object', properties: { charIds: { type: 'array', items: STR, description: `at most ${IDS_MAX}` }, filter: { ...STR, description: 'a GET /api/characters query string' } } }),
                     responses: { 200: json({ type: 'object', properties: { total: INT, tags: { type: 'array', items: { type: 'object', properties: { name: STR, count: INT } } } } }), 400: err(`neither charIds nor a filter, both, more than ${IDS_MAX} charIds, a filter parameter refused in the list's words, or a filter parameter the list does not take`) },
@@ -1505,7 +1509,7 @@ export function buildOpenApiSpec(version) {
             },
             '/api/tags/resolve': {
                 post: {
-                    tags: ['library'],
+                    tags: ['tags'],
                     summary: 'Names snapped to the spellings the library already uses: each matched by name case-insensitively in ASCII, then by loose key (case, spacing and punctuation folded, so post-apocalyptic finds Post Apocalyptic), answered with the stored spelling and the carrier count of that tag; an unknown name comes back as given with known false. Input order, deduped by resolved key, blanks dropped, at most 200 names. A read for anything that offers tags (the tag wand of the creator), never a mint',
                     requestBody: body({ type: 'object', required: ['names'], properties: { names: { type: 'array', items: STR, description: 'at most 200 are read' }, each: { type: 'boolean', description: 'true: one answer per name in its place, duplicates and blanks included (a blank tag for what is no name), so many names map back; default: deduped by resolved key, blanks dropped' } } }),
                     responses: { 200: json({ type: 'object', properties: { tags: { type: 'array', items: { type: 'object', properties: { tag: STR, known: { type: 'boolean' }, count: { ...INT, nullable: true } } } } } }), 400: err('names array required') },
@@ -1516,31 +1520,32 @@ export function buildOpenApiSpec(version) {
             },
             '/api/presets': {
                 get: {
-                    tags: ['llm'], summary: 'All prompt presets plus the active one. activeId null means assembly uses the built-in default block list, which is returned as defaultBlocks so a client can show it instead of rendering a blank panel',
+                    tags: ['llm'], summary: 'Every prompt preset by name, plus the active one. A row carries no blocks: one preset is read whole by its id, or beside the resolve that names it. activeId null means assembly uses the built-in default block list, which is returned as defaultBlocks so a client can show it instead of rendering a blank panel',
                     'x-collection': asWhole('the reader\'s own presets'),
                     responses: {
                         200: json({
                             type: 'object',
                             properties: {
-                                presets: { type: 'array', items: ref('Preset') },
+                                presets: { type: 'array', items: ref('PresetRow') },
                                 activeId: { type: 'string', nullable: true },
                                 defaultBlocks: {
                                     type: 'array', items: ref('PresetBlock'),
                                     description: 'the built-in fallback, read-only: no preset holds it',
                                 },
+                                defaultSettings: { ...ref('PresetSettings'), description: 'every setting\'s default: what the built-in blocks use, and what a preset reads for one it does not set' },
                             },
                         }),
                     },
                 },
                 post: {
-                    tags: ['llm'], summary: 'Create a preset. Omitting blocks seeds the default block list, never an empty one (an empty preset assembles no character at all)',
-                    requestBody: body({ type: 'object', properties: { name: STR, blocks: { type: 'array', items: ref('PresetBlock') } }, required: ['name'] }),
-                    responses: { 200: json(ref('Preset')), 400: err('name missing / unknown marker / bad role or position') },
+                    tags: ['llm'], summary: 'Create a preset. Omitting blocks seeds the default block list, never an empty one (an empty preset assembles no character at all). regexScripts, a preset file\'s own, are stored as the preset\'s scripts, which run once the preset is allowed',
+                    requestBody: body({ type: 'object', properties: { name: STR, blocks: { type: 'array', items: ref('PresetBlock') }, regexScripts: { type: 'array', items: ref('RegexScript') }, settings: { ...ref('PresetSettings'), description: 'the settings it starts with (a copy sends the original\'s); one left out reads its default' } }, required: ['name'] }),
+                    responses: { 200: json(ref('Preset')), 400: err('name missing / unknown marker / bad role or position / a setting not listed, of another type, or a text past 20000 characters / a regex script out of shape (refused as /api/regex/scripts refuses it, nothing made) / more than 1000 scripts') },
                 },
             },
             '/api/presets/import': {
                 post: {
-                    tags: ['llm'], summary: 'Import a SillyTavern chat-completion preset. Connection identity (chat_completion_source, *_model, custom_url, reverse_proxy, proxy_password) is DROPPED because the LLM profile holds it, and everything dropped is named in the report',
+                    tags: ['llm'], summary: 'Import a SillyTavern chat-completion preset. Connection identity (chat_completion_source, *_model, custom_url, reverse_proxy, proxy_password) is DROPPED because the LLM profile holds it, and everything dropped is named in the report. The settings that shape its prompt (its formats, its new-chat and example lines, its impersonation and continue instructions, squash) become the preset\'s own settings, and a block after Chat History in its order goes after the history',
                     requestBody: body({ type: 'object', properties: { preset: { type: 'object' }, name: STR }, required: ['preset'] }),
                     responses: {
                         200: json({ type: 'object', properties: { preset: ref('Preset'), report: ref('PresetImportReport') } }),
@@ -1558,12 +1563,14 @@ export function buildOpenApiSpec(version) {
             '/api/presets/resolve': {
                 get: {
                     tags: ['llm'],
-                    summary: 'Which preset builds one chat\'s prompt: the chat\'s own when set, else the active preset, else none (the built-in blocks). Omit chatId to resolve the default',
-                    parameters: [p('chatId', STR, 'chat uuid; omit for the default answer')],
+                    summary: 'Which preset builds one chat\'s prompt: the chat\'s own when set, else the active preset, else none (the built-in blocks). Omit chatId to resolve the default. with=preset answers that preset whole beside its id',
+                    parameters: [p('chatId', STR, 'chat uuid; omit for the default answer'), p('with', { ...STR, enum: ['preset'] }, 'preset: the answer also carries the preset in force, with its blocks')],
                     responses: {
+                        400: err('with is not preset'),
                         200: json({
                             type: 'object',
                             properties: {
+                                preset: { ...ref('Preset'), nullable: true, description: 'with=preset only: the preset in force, null under the built-in blocks' },
                                 presetId: { ...STR, nullable: true, description: 'the preset in force; null means the built-in blocks' },
                                 source: { ...STR, enum: ['chat', 'default', 'builtin'] },
                                 override: { ...STR, nullable: true, description: "the chat's RAW pointer, so a client can tell set-here from inherited" },
@@ -1573,18 +1580,122 @@ export function buildOpenApiSpec(version) {
                     },
                 },
             },
+            '/api/presets/{id}/export': {
+                get: {
+                    tags: ['llm'], summary: 'The preset as a SillyTavern chat-completion preset file: its blocks as prompts in their order, its settings under the file\'s keys, its regex scripts in the file\'s extensions. What the file has no place for (the character picture block, the directed-reply instruction) is named in the report',
+                    parameters: [pathId('id', 'preset uuid'), p('format', { ...STR, enum: ['sillytavern'] }, 'the file format; sillytavern is the one there is')],
+                    responses: {
+                        200: json({ type: 'object', properties: { doc: { type: 'object', description: 'the file, as SillyTavern reads it' }, report: { type: 'object', properties: { droppedBlocks: { type: 'array', items: STR, description: 'the ids of the blocks the file has no place for' }, droppedSettings: { type: 'array', items: STR, description: 'the settings the file has no key for' } } } } }),
+                        400: err('an unknown format'), 404: err('no such preset'),
+                    },
+                },
+            },
             '/api/presets/{id}': {
                 get: { tags: ['llm'], summary: 'One preset with its blocks', parameters: [pathId('id', 'preset uuid')], responses: { 200: json(ref('Preset')), 404: err('no such preset') } },
                 patch: {
-                    tags: ['llm'], summary: 'Update a preset. Supplying blocks REPLACES the list wholesale, because order is part of the data',
+                    tags: ['llm'], summary: 'Update a preset. Supplying blocks REPLACES the list wholesale, because order is part of the data; supplying settings replaces them whole too, a setting left out reading its default again',
                     parameters: [pathId('id', 'preset uuid')],
-                    requestBody: body({ type: 'object', properties: { name: STR, blocks: { type: 'array', items: ref('PresetBlock') } } }),
-                    responses: { 200: json(ref('Preset')), 400: err('blank name / invalid block'), 404: err('no such preset') },
+                    requestBody: body({ type: 'object', properties: { name: STR, blocks: { type: 'array', items: ref('PresetBlock') }, settings: ref('PresetSettings') } }),
+                    responses: { 200: json(ref('Preset')), 400: err('blank name / invalid block / a setting not listed, of another type, or a text past 20000 characters'), 404: err('no such preset') },
                 },
                 delete: {
                     tags: ['llm'], summary: 'Delete a preset; deleting the active one clears the selection so assembly falls back to the default',
                     parameters: [pathId('id', 'preset uuid')],
                     responses: { 200: json({ type: 'object', properties: { ok: { type: 'boolean' } } }), 404: err('no such preset') },
+                },
+            },
+            '/regex/engine.js': {
+                get: {
+                    tags: ['llm'], summary: 'The regex engine the server runs, as a JavaScript module served without signing in, so a client\'s screen pass gives the same results',
+                    responses: { 200: { description: 'the module', content: { 'application/javascript': { schema: { type: 'string' } } } } },
+                },
+            },
+            '/api/regex/chat/{chatId}': {
+                get: {
+                    tags: ['llm'],
+                    summary: 'The regex scripts a chat runs: the reader\'s own, then its preset\'s, then its character\'s, each source whole with its answer (allowed, declined, or null while unanswered); active is the run order, a preset\'s or a character\'s scripts only while allowed; names fills {{user}} and {{char}} for the screen\'s pass. The read first tries the scripts that change what is shown on the chat\'s newest 50 shown texts under the same time budget, so a pattern that runs out of time there is stopped (flagged stopped here, and skipped by every pass until saved again)',
+                    parameters: [pathId('chatId', 'chat uuid')],
+                    responses: {
+                        200: json({
+                            type: 'object',
+                            properties: {
+                                yours: { type: 'array', items: ref('RegexScript') },
+                                preset: { type: 'object', nullable: true, properties: { id: STR, name: STR, source: { ...STR, enum: ['chat', 'default'] }, consent: { ...STR, nullable: true, enum: ['allowed', 'declined', null] }, scripts: { type: 'array', items: ref('RegexScript') } } },
+                                character: { type: 'object', nullable: true, properties: { id: STR, name: STR, consent: { ...STR, nullable: true, enum: ['allowed', 'declined', null] }, scripts: { type: 'array', items: ref('RegexScript') } } },
+                                active: { type: 'array', items: ref('RegexScript') },
+                                names: { type: 'object', properties: { user: STR, char: STR } },
+                            },
+                        }),
+                        404: err('no such chat'),
+                    },
+                },
+            },
+            '/api/regex/scripts': {
+                get: {
+                    tags: ['llm'], summary: 'One list of regex scripts in run order: the reader\'s own, or a preset\'s when presetId names one',
+                    parameters: [p('presetId', STR, 'preset uuid; omit for the reader\'s own')],
+                    'x-collection': asWhole('one list of regex scripts'),
+                    responses: { 200: json({ type: 'object', properties: { presetId: { ...STR, nullable: true }, scripts: { type: 'array', items: ref('RegexScript') } } }), 404: err('no such preset') },
+                },
+                post: {
+                    tags: ['llm'], summary: 'Add regex scripts to the reader\'s list or a preset\'s: one as script, or several as scripts (an import); each gets a new id. after places them right below that script. A single script is first run over sample when sent, and one that runs out of time there is refused',
+                    requestBody: body({ type: 'object', properties: { presetId: { ...STR, nullable: true }, script: ref('RegexScript'), scripts: { type: 'array', items: ref('RegexScript') }, after: STR, sample: STR } }),
+                    responses: { 200: json({ type: 'object', properties: { scripts: { type: 'array', items: ref('RegexScript') } } }), 400: err('no script / a script not an object / a list past its limit'), 404: err('no such preset'), 422: err('the pattern ran out of time on the sample (kind timeout)') },
+                },
+            },
+            '/api/regex/scripts/{id}': {
+                patch: {
+                    tags: ['llm'], summary: 'Replace one regex script\'s fields; run over sample first when sent, and refused when it runs out of time there. Saving clears a stop for running out of time',
+                    parameters: [pathId('id', 'script uuid')],
+                    requestBody: body({ type: 'object', properties: { script: ref('RegexScript'), sample: STR }, required: ['script'] }),
+                    responses: { 200: json({ type: 'object', properties: { script: ref('RegexScript') } }), 400: err('not an object / bad field'), 404: err('no such script'), 422: err('the pattern ran out of time on the sample (kind timeout)') },
+                },
+                delete: {
+                    tags: ['llm'], summary: 'Remove one regex script from its list',
+                    parameters: [pathId('id', 'script uuid')],
+                    responses: { 200: json({ type: 'object', properties: { ok: { type: 'boolean' } } }), 404: err('no such script') },
+                },
+            },
+            '/api/regex/order': {
+                put: {
+                    tags: ['llm'], summary: 'Put the reader\'s list or a preset\'s in a new order; ids names every script in it, each once',
+                    requestBody: body({ type: 'object', properties: { presetId: { ...STR, nullable: true }, ids: { type: 'array', items: STR } }, required: ['ids'] }),
+                    responses: { 200: json({ type: 'object', properties: { scripts: { type: 'array', items: ref('RegexScript') } } }), 400: err('ids not exactly the list'), 404: err('no such preset') },
+                },
+            },
+            '/api/regex/characters/{charId}': {
+                get: {
+                    tags: ['llm'], summary: 'A character\'s regex scripts, as its card carries them',
+                    parameters: [pathId('charId', 'character uuid')],
+                    responses: { 200: json({ type: 'object', properties: { scripts: { type: 'array', items: ref('RegexScript') } } }), 404: err('no such character') },
+                },
+                put: {
+                    tags: ['llm'], summary: 'Replace a character\'s regex scripts on its card (an empty list removes them); it reaches open tabs as the character\'s update. With sample, each script is tried on it first and a list holding one that runs out of time is refused (422, kind timeout), nothing written',
+                    parameters: [pathId('charId', 'character uuid')],
+                    requestBody: body({ type: 'object', properties: { scripts: { type: 'array', items: ref('RegexScript') }, sample: STR }, required: ['scripts'] }),
+                    responses: { 200: json({ type: 'object', properties: { scripts: { type: 'array', items: ref('RegexScript') } } }), 400: err('scripts not a list / a script not an object'), 404: err('no such character'), 422: err('a script ran out of time on the sample') },
+                },
+            },
+            '/api/regex/consent': {
+                put: {
+                    tags: ['llm'], summary: 'Answer whether a preset\'s or a character\'s regex scripts may run: allowed, declined, or null to leave it unanswered. Name presetId or charId, not both. A character\'s allowed stands for the scripts its card held then: a card written over the character with other scripts (a Replace, a SillyTavern migration run again) leaves it unanswered',
+                    requestBody: body({ type: 'object', properties: { presetId: STR, charId: STR, answer: { ...STR, nullable: true, enum: ['allowed', 'declined', null] } }, required: ['answer'] }),
+                    responses: { 200: json({ type: 'object', properties: { answer: { ...STR, nullable: true } } }), 400: err('neither or both named / an unknown answer'), 404: err('no such preset or character') },
+                },
+            },
+            '/api/regex/test': {
+                post: {
+                    tags: ['llm'], summary: 'Run one regex script alone over a sample, under the same time limit a chat has: what the screen shows, what the model is sent, what a save would keep, and how many places it matches. error is timeout when it ran out of time, invalid when the find does not compile (matches is then 0). chatId fills macros from that chat',
+                    requestBody: body({ type: 'object', properties: { script: ref('RegexScript'), text: STR, where: { type: 'integer', enum: [1, 2, 3, 5, 6] }, depth: { type: 'integer' }, chatId: STR }, required: ['script'] }),
+                    responses: { 200: json({ type: 'object', properties: { screen: STR, prompt: STR, saved: STR, matches: { type: 'integer' }, error: { ...STR, nullable: true } } }), 400: err('not an object / bad field') },
+                },
+            },
+            '/api/regex/export': {
+                get: {
+                    tags: ['llm'], summary: 'A list of regex scripts as a SillyTavern script file holds them: the reader\'s own, a preset\'s (presetId) or a character\'s (charId)',
+                    'x-collection': asWhole('one list of regex scripts'),
+                    parameters: [p('presetId', STR, 'preset uuid'), p('charId', STR, 'character uuid')],
+                    responses: { 200: json({ type: 'array', items: ref('RegexScript') }), 404: err('no such preset or character') },
                 },
             },
             '/api/personas/{id}/avatar': {
@@ -1658,7 +1769,7 @@ export function buildOpenApiSpec(version) {
                 },
             },
             '/api/llm/profiles': {
-                get: { tags: ['llm'], summary: 'LLM profiles (api keys never returned; hasKey flag only)', 'x-collection': asWhole('the reader\'s own connection profiles'), responses: { 200: json({ type: 'array', items: ref('LlmProfile') }) } },
+                get: { tags: ['llm'], summary: 'LLM profiles (api keys never returned; hasKey and keyHint only)', 'x-collection': asWhole('the reader\'s own connection profiles'), responses: { 200: json({ type: 'array', items: ref('LlmProfile') }) } },
                 post: {
                     tags: ['llm'], summary: 'Create a profile (kind must be a registered adapter; params = neutral default generation params)',
                     requestBody: body({ type: 'object', properties: { name: STR, kind: STR, baseUrl: STR, apiKey: STR, model: STR, params: { type: 'object' }, contextSize: { type: 'integer', nullable: true, description: 'token window this connection declares; overrides the global chat budget, null uses it' }, vision: { type: 'boolean', nullable: true, description: 'whether the model sees pictures: true, false, or null when not checked; a call carrying pictures to a connection set false is refused' }, maxImages: { type: 'integer', nullable: true, description: 'the most pictures the host takes in one request; a chat prompt over it sends the oldest as text, null is no limit' } }, required: ['name'] }),
@@ -1789,6 +1900,18 @@ export function buildOpenApiSpec(version) {
                     summary: 'Enqueue (or re-enqueue) the one job a character can hold: a pending job takes the new name and phases, an active job is left to the worker',
                     requestBody: body({ type: 'object', required: ['charId'], properties: { charId: STR, name: STR, phases: { type: 'array', items: STR } } }),
                     responses: { 200: json({ type: 'object' }, 'the job'), 400: err('charId must be a character uuid; phases must be an array of strings'), 404: err('character not found') },
+                },
+            },
+            '/api/media-jobs/batch': {
+                post: {
+                    tags: ['media'],
+                    summary: "Queue a set's characters for a media download: those with a remote url in the card or a provider link get one pending job each (a pending job is kept, an active one left to its worker). The set is charIds, a selection's filter, or all: true for the library. rescan (default true, false with all) scans the set again: the processed mark of each character queued is cleared and comes back as its job finishes; false leaves the characters processed before out. Runs to its end once begun",
+                    requestBody: body({ type: 'object', properties: { charIds: { type: 'array', items: STR }, filter: STR, all: { type: 'boolean', enum: [true] }, rescan: { type: 'boolean' } } }),
+                    responses: {
+                        200: json({ type: 'object', properties: { total: INT, queued: INT, noMedia: INT, active: INT } }, 'total: the set (less the processed when rescan is false); queued: the characters with a pending job now; noMedia: those with no remote url and no provider link; active: those whose job a worker is running'),
+                        400: err(`charIds, filter or all, one of them; at most ${IDS_MAX} charIds a request; a filter the list cannot read; rescan or all of the wrong kind`),
+                        503: err('the library closed while the set was queued'),
+                    },
                 },
             },
             '/api/media-jobs/{id}': {
@@ -2271,7 +2394,7 @@ export function buildOpenApiSpec(version) {
                         probabilityPending: { ...INT, nullable: true, description: 'a fired entry that still rolls its probability at send, in percent' },
                         groupPending: { type: 'number', nullable: true, description: 'a fired member of a weighted inclusion group: the dry run names no winner, so each member that can win is kept with its odds of winning at send, in percent (one decimal)' },
                         timed: { type: 'object', description: 'the turns left of an active sticky and cooldown, each null when not running', properties: { sticky: { ...INT, nullable: true }, cooldown: { ...INT, nullable: true } } },
-                        suppressedReason: { ...STR, nullable: true, description: "why a matching entry was held back, eg. 'trigger', 'probability', 'characterFilter', 'cooldown'" },
+                        suppressedReason: { ...STR, nullable: true, description: "why a matching entry was held back, eg. 'trigger', 'probability', 'characterFilter', 'cooldown', 'budget' (every matched entry the lore budget left out says budget)" },
                         advanced: { type: 'object', description: "the engine fields under ST's own names (probability, sticky, cooldown, delay, the group cluster, the recursion flags, ignoreBudget, outletName, triggers, characterFilter, and matchFlags: the six match-source booleans). The bundled panel edits these, so values are raw config, never display labels" },
                         outlet: { ...STR, nullable: true, description: 'for a fired entry placed at an outlet: the outlet name, which the prompt writes as {{outlet::name}}' },
                         notHonoured: { type: 'object', description: 'stored and preserved but not acted on: vectorized, automationId' },
@@ -2281,9 +2404,10 @@ export function buildOpenApiSpec(version) {
                 WorldSource: { type: 'object', description: 'where a book came from: one source per book, following a rename and going with a delete; null for an authored book', properties: { provider: STR, externalId: { ...STR, description: 'the provider id or lowercased path the listing keys on' }, path: { ...STR, nullable: true }, url: { ...STR, nullable: true }, linkedAt: { ...INT, description: 'ms epoch of the link' } } },
                 PresetBlock: {
                 type: 'object',
-                description: 'One piece of the prompt. kind=text carries its own content; kind=marker names something the engine expands from the character, chat, persona or lore. Consecutive same-role blocks merge into one message',
+                description: 'One piece of the prompt. kind=text carries its own content; kind=marker names something the engine expands from the character, chat, persona or lore. Each block goes as its own message, save at_depth blocks sharing a depth, injectionOrder and role, which go as one with any lore or note placed there; PresetSettings.joinSystem joins system neighbours',
                 properties: {
                     id: STR, key: STR,
+                    name: { ...STR, nullable: true, description: 'the label the block is listed under, stored trimmed and null when empty; an import brings the SillyTavern prompt\'s name and an export writes it back' },
                     kind: { type: 'string', enum: ['text', 'marker'] },
                     marker: { type: 'string', nullable: true, enum: ['charDescription', 'charPersonality', 'scenario', 'personaDescription', 'worldInfoBefore', 'worldInfoAfter', 'dialogueExamples', 'chatHistory', 'characterPicture', null], description: 'what a marker block is filled with; characterPicture shows the model the character\'s portrait in a user turn, before or after the history, never at a depth' },
                     content: STR,
@@ -2296,6 +2420,11 @@ export function buildOpenApiSpec(version) {
                     depth: { ...INT, description: 'turns back from the newest message, at_depth only. 0 sits after the last turn' },
                     injectionOrder: { ...INT, description: 'at_depth only: of several blocks at one depth, a higher order sits nearer the reply. Default 100' },
                     forbidOverrides: { type: 'boolean', description: "main and jailbreak only: the card's system_prompt / post_history_instructions normally replaces the block, and this refuses that" },
+                    triggers: {
+                        type: 'array',
+                        items: { type: 'string', maxLength: 32 },
+                        description: "the generation types the block is sent on, SillyTavern's injection_trigger: normal (a sent turn), continue, impersonate, swipe, regenerate, quiet. Empty or absent: every type. A type the app does not make (quiet, or one it does not know) is kept, so the block is never sent for it",
+                    },
                     enabled: { type: 'boolean' }, pos: INT,
                 },
             },
@@ -2305,8 +2434,36 @@ export function buildOpenApiSpec(version) {
                 properties: {
                     id: STR, name: STR,
                     source: { type: 'string', nullable: true, description: "'sillytavern' for imports" },
+                    settings: { ...ref('PresetSettings'), description: 'the settings this preset sets; one absent reads its default (defaultSettings)' },
                     createdAt: INT, updatedAt: INT,
                     blocks: { type: 'array', items: ref('PresetBlock') },
+                },
+            },
+            PresetRow: {
+                type: 'object',
+                description: 'A preset as the list answers it: its name and how many blocks it holds, never the blocks',
+                properties: {
+                    id: STR, name: STR,
+                    source: { type: 'string', nullable: true, description: "'sillytavern' for imports" },
+                    createdAt: INT, updatedAt: INT,
+                    blockCount: { ...INT, description: 'how many blocks the preset holds' },
+                },
+            },
+            PresetSettings: {
+                type: 'object',
+                description: 'How a preset builds its prompt around its blocks. Every prompt is built one way: each block its own message, the persona as written, the card\'s examples as system turns that keep each speaker\'s name in their text, an empty block sending nothing; these settings are what a preset changes within that. A write naming a setting not listed here, a value of another type or a text past 20000 characters is refused 400 by name, never dropped; null puts a setting back to its default',
+                properties: {
+                    personalityFormat: { ...STR, description: 'sent for the personality, which goes where {{personality}} is; empty sends the personality as it is' },
+                    scenarioFormat: { ...STR, description: 'sent for the scenario, which goes where {{scenario}} is; empty sends it as it is' },
+                    loreFormat: { ...STR, description: 'sent for each lore group placed before or after the character, its entries where {{lore}} is; empty sends them as they are' },
+                    chatStart: { ...STR, description: 'a system message right before the history; empty sends none' },
+                    exampleSeparator: { ...STR, description: 'a system message before each example block; empty sends none' },
+                    joinSystem: { type: 'boolean', description: 'adjacent system messages join on a newline, save the chat start line, the example separators and the example turns; an empty text block, or a card or lore marker with nothing to place, in another role ends the run where it stands when it is on for the generation type (Main even when off) and not at a depth' },
+                    impersonateInstruction: { ...STR, description: 'the last message of a Write My Next Message; empty sends none' },
+                    continueInstruction: { ...STR, description: 'the last message of a continue; empty sends none' },
+                    guidedInstruction: { ...STR, description: 'the last message of a directed reply; empty sends none' },
+                    continueJoiner: { ...STR, description: 'joins a continuation onto the message it continues, unless that ends on a space' },
+                    continueAsOpening: { type: 'boolean', description: 'a continue ends the prompt on the message as the reply\'s opening, with no instruction after it; a continue with no message to open on (its target is not in the prompt) is sent the continue instruction' },
                 },
             },
             PresetImportReport: {
@@ -2317,7 +2474,29 @@ export function buildOpenApiSpec(version) {
                     droppedSamplers: { type: 'array', items: STR, description: 'sampler settings, dropped on purpose: they belong to the connection' },
                     droppedUnknown: { type: 'array', items: STR, description: 'keys with no equivalent here' },
                     unknownBlocks: { type: 'array', items: STR, description: 'prompt identifiers with no expressible equivalent' },
+                    regexScripts: { type: 'object', properties: { count: { type: 'integer' }, enabled: { type: 'integer' } }, description: 'the regex scripts the preset carries, stored as its own and off until the reader allows them' },
                     notes: { type: 'array', items: STR },
+                },
+            },
+            RegexScript: {
+                type: 'object',
+                description: 'A regex script in SillyTavern\'s file format. Fields it does not name are kept as sent',
+                properties: {
+                    id: STR,
+                    scriptName: STR,
+                    findRegex: { ...STR, description: 'a pattern written /pattern/flags, or bare' },
+                    replaceString: { ...STR, description: '{{match}} is the whole match, $1 a numbered group, $<name> a named one; macros expand after' },
+                    trimStrings: { type: 'array', items: STR, description: 'cut from every group before it fills the replacement' },
+                    placement: { type: 'array', items: { type: 'integer' }, description: '1 the reader\'s messages, 2 the character\'s, 3 narrator rows, 5 lore, 6 reasoning' },
+                    disabled: { type: 'boolean' },
+                    markdownOnly: { type: 'boolean', description: 'changes only what the screen shows' },
+                    promptOnly: { type: 'boolean', description: 'changes only what the model is sent' },
+                    runOnEdit: { type: 'boolean', description: 'for a script changing the text itself: it still applies to a message edited by hand (extra.edited), and with alterSaved it rewrites the edit as it is saved' },
+                    substituteRegex: { type: 'integer', enum: [0, 1, 2], description: 'macros in the find: 0 none, 1 expanded, 2 expanded with each value escaped' },
+                    minDepth: { type: 'integer', nullable: true },
+                    maxDepth: { type: 'integer', nullable: true },
+                    alterSaved: { type: 'boolean', description: 'for a script changing the text itself: rewrite the message when it is written instead of each time it is read' },
+                    stopped: { type: 'boolean', description: 'answers only: skipped since it ran out of time, until it is saved again' },
                 },
             },
             Playlist: {

@@ -180,7 +180,7 @@ function isNsfw(hit) {
 
 function isCharPossibleMatchObj(c) {
     if (view.isHitInLibrary(c)) return false;
-    return view.isCharPossibleMatch(c.name || '', getCreatorName(c));
+    return view.isHitPossibleMatch(c);
 }
 
 /**
@@ -203,7 +203,7 @@ function createDatacatCard(hit) {
     const charId = getCharId(hit);
     const creatorName = getCreatorName(hit);
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(hit.name || '', creatorName);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(hit);
 
     // Tags are only present on creator endpoint items, not recent-public
     const tags = resolveTagNames(hit.tags || []);
@@ -254,7 +254,7 @@ function createDatacatCard(hit) {
     const cardClass = libraryCardClass(inLibrary, possibleTier);
 
     return `
-        <div class="${cardClass}" data-datacat-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)} ${desc ? `title="${escapeHtml(desc)}"` : ''}>
+        <div class="${cardClass}" data-datacat-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)}${view.matchAttr(hit)} ${desc ? `title="${escapeHtml(desc)}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${nsfwBadge}
@@ -578,7 +578,7 @@ async function loadCharacters(append = false) {
                         <i class="fa-solid fa-user-lock browse-empty-icon is-warn"></i>
                         <p class="browse-empty-lead"><strong>${expired ? 'Your JanitorAI session expired' : 'JanitorAI requires an account for this request'}</strong></p>
                         <p class="u-mt-sm">${expired
-                            ? 'JanitorAI tokens last about 3 hours. Re-copy the sb-auth-auth-token cookie and paste it under Settings &rarr; Online &rarr; DataCat.'
+                            ? 'JanitorAI tokens last about 3 hours. Re-copy the sb-...-auth-token cookie and paste it under Settings &rarr; Online &rarr; DataCat.'
                             : 'The Hampter sorts show the first page without a login. Paste your JanitorAI token under Settings &rarr; Online &rarr; DataCat to browse further, or use the MeiliSearch sort orders, which need no login.'}</p>
                         <button class="glass-btn u-mt-md" id="datacatRetryBtn">
                             <i class="fa-solid fa-redo"></i> Retry
@@ -2006,7 +2006,7 @@ function stampDatacatImport(hit, character) {
     if (!importBtn || importBtn.dataset.extractId) return;
     const inLibrary = view.isHitInLibrary(hit);
     const creatorName = character?.creator_name || character?.creatorName || hit.creator_name || '';
-    view.stampImportButton(importBtn, { inLibrary, possibleMatch: !inLibrary && view.isCharPossibleMatch(character?.name || hit.name || '', creatorName) });
+    view.stampImportButton(importBtn, { inLibrary, possibleMatch: !inLibrary && view.isHitPossibleMatch(hit) });
 }
 
 function openPreviewModal(hit) {
@@ -2516,6 +2516,7 @@ async function importCharacter(charData) {
                     description: dupeBody,
                     first_mes: character.first_message || dupeV2?.first_mes || '',
                     scenario: character.scenario || dupeV2?.scenario || '',
+                    creator_notes: character.description || dupeV2?.creator_notes || '',
                 },
                 dialog: { name: charName, creator: charCreator, fullPath: String(charId), avatarUrl: resolveDatacatAvatarUrl(character) || resolveDatacatAvatarUrl(charData) || '/img/no-portrait.png' },
             };
@@ -2871,7 +2872,7 @@ const datacatBrowseView = new (class DatacatBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: hit.name || '', creator: getCreatorName(hit) };
+        return { name: hit.name || '', creator: getCreatorName(hit), text: hit.description || '' };
     }
 
     hitLinkKey(hit) {

@@ -194,12 +194,12 @@ function missedRow(m) {
                     <span class="notif-row-name">Scheduled backup did not run</span>
                 </div>
                 <div class="notif-row-sub">Missed the quiet hours of ${_shell.escapeHtml(day)}</div>
-                <div class="notif-row-choices">
-                    <button class="cl-btn cl-btn-primary cl-btn-sm" data-backup-answer="now" title="Back up the library now">Back Up Now</button>
-                    <button class="cl-btn cl-btn-secondary cl-btn-sm" data-backup-answer="tonight" title="Wait for the next quiet hours">Tonight</button>
-                    <button class="cl-btn cl-btn-secondary cl-btn-sm" data-backup-answer="skip" title="Skip this backup; the next one comes on its usual day">Skip This Time</button>
-                </div>
             </div>
+        </div>
+        <div class="notif-row-choices">
+            <button class="notif-choice is-primary" data-backup-answer="now" title="Back up the library now">Back Up Now</button>
+            <button class="notif-choice" data-backup-answer="tonight" title="Wait for the next quiet hours">Tonight</button>
+            <button class="notif-choice" data-backup-answer="skip" title="Skip this backup; the next one comes on its usual day">Skip</button>
         </div>`;
 }
 
@@ -245,7 +245,6 @@ export function startBackupJobs(shell) {
     registerFeedPatcher('backup', () => readBackup());
     // a schedule's settings saved here or in another tab change what is missed
     const scheduleTouched = (records) => !records || records.some(r => r.all || (r.ids || []).some(k => SCHEDULE_SETTINGS.has(k)));
-    registerFeedPatcher('setting', (records) => { if (scheduleTouched(records)) void readBackup(); });
-    registerFeedPatcher('setting', (records) => { if (scheduleTouched(records)) void readBackup(); }, { own: true });
+    registerFeedPatcher('setting', (records) => { if (scheduleTouched(records)) void readBackup(); }, { own: 'both' });
     return readBackup();
 }

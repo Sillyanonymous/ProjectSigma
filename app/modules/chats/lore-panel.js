@@ -1,7 +1,7 @@
 // The lorebook panel, shown inside the conversation.
 
 import CoreAPI from '../core-api.js';
-import { ENTRY_NUMBER_BLANKS } from '../lorebook-shelf.js';
+import { ENTRY_NUMBER_BLANKS, TRIGGER_TYPES, MATCH_SOURCES } from '../lorebook-shelf.js';
 import { mountChatWindow, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActions, runAction as extRunAction, loreEntryContext, extensionName } from '../extension-host.js';
 
@@ -282,9 +282,10 @@ const SUPPRESS_LABEL = {
 
 function statusHtml(entry) {
     const s = statusOf(entry);
-    const held = !entry.fired && entry.suppressedReason
-        ? ` (held back: ${SUPPRESS_LABEL[entry.suppressedReason] || entry.suppressedReason})` : '';
-    return `<span class="clp-status is-${s.cls}" title="${esc(s.label + held)}" aria-label="${esc(s.label + held)}">
+    const reason = !entry.fired && entry.suppressedReason ? (SUPPRESS_LABEL[entry.suppressedReason] || entry.suppressedReason) : '';
+    // a quiet entry that was held says its reason alone: its keys may well have matched
+    const label = !reason ? s.label : s === STATUS.idle ? `Held back this scan: ${reason}` : `${s.label} (held back: ${reason})`;
+    return `<span class="clp-status is-${s.cls}" title="${esc(label)}" aria-label="${esc(label)}">
         <i class="fa-solid ${s.icon}"></i>
     </span>`;
 }
@@ -343,11 +344,11 @@ function entryRowHtml(world, entry, { readOnly = false } = {}) {
             ${entryChipsHtml(entry)}
             <span class="clp-entry-keys">${entry.constant ? '<span class="clp-key clp-key-always">always on</span>' : (keys + more) || '<span class="clp-key clp-key-none">no keys</span>'}</span>
         </button>${readOnly ? '' : `
-        <button type="button" class="clp-icon" data-lore-act="edit" data-world="${esc(world)}" data-uid="${entry.uid}"
+        <button type="button" class="clp-icon cl-cwin-act" data-lore-act="edit" data-world="${esc(world)}" data-uid="${entry.uid}"
                 title="Edit this entry" aria-label="Edit this entry">
             <i class="fa-solid fa-pen"></i>
         </button>
-        <button type="button" class="clp-icon" data-lore-act="toggle" data-world="${esc(world)}" data-uid="${entry.uid}"
+        <button type="button" class="clp-icon cl-cwin-act" data-lore-act="toggle" data-world="${esc(world)}" data-uid="${entry.uid}"
                 title="${entry.disable ? 'Turn on' : 'Turn off'}" aria-label="${entry.disable ? 'Turn on' : 'Turn off'}">
             <i class="fa-solid ${entry.disable ? 'fa-toggle-off' : 'fa-toggle-on'}"></i>
         </button>`}
@@ -444,7 +445,7 @@ function bookHtml(book, { byExtension = false } = {}) {
                 : `<span class="clp-book-count" title="${firing} of ${book.entries.length} entries are in the prompt">
                 ${firing ? `<b>${firing}</b>/` : ''}${book.entries.length}
             </span>`}
-            <button type="button" class="clp-icon" data-lore-act="add" data-world="${w}" title="New entry in this book" aria-label="New entry in this book">
+            <button type="button" class="clp-icon cl-cwin-act" data-lore-act="add" data-world="${w}" title="New entry in this book" aria-label="New entry in this book">
                 <i class="fa-solid fa-plus"></i>
             </button>
         </header>
@@ -484,7 +485,7 @@ function pickerHtml() {
     return `<div class="clp-picker" id="clpPicker">
         <div class="clp-pick-head">
             <span>Add a lorebook</span>
-            <button type="button" class="clp-icon" data-lore-act="close-pick" title="Close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            <button type="button" class="clp-icon cl-cwin-act" data-lore-act="close-pick" title="Close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <input type="search" class="cl-cwin-input clp-input" id="clpPickFilter" placeholder="Search the shelf" autocomplete="off" value="${esc(_pickFilter)}">
         <div class="clp-pick-list">${_shelf === null
@@ -501,7 +502,7 @@ const LOGIC_LABELS = {
     1: 'NOT all (they must not all match)',
 };
 
-// The voice an at-depth injection arrives in (ST extension_prompt_roles).
+// The voice an at-depth entry arrives in, by its stored code.
 const ROLE_LABELS = { 0: 'System', 1: 'User', 2: 'Assistant' };
 
 // a nullable override as three options: a checkbox cant say inherit
@@ -535,7 +536,7 @@ function editorHtml() {
             </button>
             <span class="clp-editor-book">${esc(_editing.world)}</span>
             <span class="clp-crumb-title">${esc(entryTitle(e))}</span>
-            <button type="button" class="clp-icon" data-lore-act="delete" data-world="${esc(_editing.world)}" data-uid="${e.uid}" title="Delete entry" aria-label="Delete entry">
+            <button type="button" class="clp-icon cl-cwin-act" data-lore-act="delete" data-world="${esc(_editing.world)}" data-uid="${e.uid}" title="Delete entry" aria-label="Delete entry">
                 <i class="fa-solid fa-trash"></i>
             </button>
         </div>
@@ -559,8 +560,8 @@ function editorHtml() {
         </label>
         <div class="clp-ed-sep"></div>
         <div class="clp-field-row">
-            <label class="clp-check"><input type="checkbox" id="clpEnabled"${e.disable ? '' : ' checked'}> On</label>
-            <label class="clp-check"><input type="checkbox" id="clpConstant"${e.constant ? ' checked' : ''}> Always send</label>
+            <label class="cl-cwin-pick"><input type="checkbox" id="clpEnabled"${e.disable ? '' : ' checked'}> On</label>
+            <label class="cl-cwin-pick"><input type="checkbox" id="clpConstant"${e.constant ? ' checked' : ''}> Always send</label>
             <label class="clp-field clp-field-narrow">
                 <span>Order</span>
                 <input type="number" class="cl-cwin-input clp-input" id="clpOrder" value="${Number(e.order) || 0}">
@@ -655,21 +656,6 @@ function followPlacement(sel) {
     if (hint) hint.textContent = atDepthHint(pos === 4);
 }
 
-// The six generation types (ST's GENERATION_TYPE_TRIGGERS vocabulary) and the six extra
-// scan sources, under ST's own field names so the payload writes config, never labels.
-const TRIGGER_TYPES = [
-    ['normal', 'Normal'], ['continue', 'Continue'], ['impersonate', 'Impersonate'],
-    ['swipe', 'Swipe'], ['regenerate', 'Regenerate'], ['quiet', 'Quiet'],
-];
-const MATCH_FLAG_FIELDS = [
-    ['matchPersonaDescription', 'Persona description'],
-    ['matchCharacterDescription', 'Character description'],
-    ['matchCharacterPersonality', 'Personality'],
-    ['matchCharacterDepthPrompt', "Character's note"],
-    ['matchScenario', 'Scenario'],
-    ['matchCreatorNotes', 'Creator notes'],
-];
-
 // Every control here is HONOURED by the engine at scan time; nothing the engine ignores is
 // offered. These render INSIDE the editor's single Advanced disclosure.
 function engineSectionsHtml(e) {
@@ -682,7 +668,7 @@ function engineSectionsHtml(e) {
     // the route stores these as sent, so an imported book's value is escaped like any other field
     const num = (v) => (v === null || v === undefined ? '' : esc(v));
     const checkGrid = (cls, attr, items, isOn) => `<div class="clp-check-grid ${cls}">${items.map(([k, label]) =>
-        `<label class="clp-check"><input type="checkbox" ${attr}="${k}"${isOn(k) ? ' checked' : ''}> ${label}</label>`).join('')}</div>`;
+        `<label class="cl-cwin-pick"><input type="checkbox" ${attr}="${k}"${isOn(k) ? ' checked' : ''}> ${label}</label>`).join('')}</div>`;
     return `<div class="clp-eng-sect">Odds and timing</div>
             <div class="clp-field-row">
                 <label class="clp-field clp-field-narrow">
@@ -719,19 +705,19 @@ function engineSectionsHtml(e) {
                 ${inheritSelect('clpGroupScoring', adv.useGroupScoring, { onLabel: 'Most matched keys wins', offLabel: 'Weighted roll' })}
             </label>
             <div class="clp-field-row">
-                <label class="clp-check"><input type="checkbox" id="clpGroupOverride"${adv.groupOverride ? ' checked' : ''}> Beats its group outright</label>
+                <label class="cl-cwin-pick"><input type="checkbox" id="clpGroupOverride"${adv.groupOverride ? ' checked' : ''}> Beats its group outright</label>
             </div>
             <div class="clp-eng-sect">Recursion and budget</div>
             <div class="clp-field-row">
-                <label class="clp-check"><input type="checkbox" id="clpExcludeRec"${adv.excludeRecursion ? ' checked' : ''}> Not triggered by others</label>
-                <label class="clp-check"><input type="checkbox" id="clpPreventRec"${adv.preventRecursion ? ' checked' : ''}> Does not trigger others</label>
+                <label class="cl-cwin-pick"><input type="checkbox" id="clpExcludeRec"${adv.excludeRecursion ? ' checked' : ''}> Not triggered by others</label>
+                <label class="cl-cwin-pick"><input type="checkbox" id="clpPreventRec"${adv.preventRecursion ? ' checked' : ''}> Does not trigger others</label>
             </div>
             <div class="clp-field-row">
                 <label class="clp-field clp-field-narrow">
                     <span>Only on recursion</span>
                     <input type="number" class="cl-cwin-input clp-input" id="clpDelayRec" min="0" placeholder="0" value="${delayRec ? num(delayRec) : ''}">
                 </label>
-                <label class="clp-check"><input type="checkbox" id="clpIgnoreBudget"${adv.ignoreBudget ? ' checked' : ''}> Ignore the budget</label>
+                <label class="cl-cwin-pick"><input type="checkbox" id="clpIgnoreBudget"${adv.ignoreBudget ? ' checked' : ''}> Ignore the budget</label>
             </div>
             <div class="clp-eng-sect">Fires for <span class="clp-eng-sub">none checked = every kind</span></div>
             ${checkGrid('clp-trig-grid', 'data-trigger', TRIGGER_TYPES, k => trig.includes(k))}
@@ -754,7 +740,7 @@ function engineSectionsHtml(e) {
                 <input type="search" autocomplete="one-time-code" class="cl-cwin-input clp-input" id="clpCfTags" placeholder="tags, comma separated" value="${esc((cf?.tags || []).join(', '))}">
             </label>
             <div class="clp-eng-sect">Also scans</div>
-            ${checkGrid('clp-ms-grid', 'data-flag', MATCH_FLAG_FIELDS, k => !!flags[k])}`;
+            ${checkGrid('clp-ms-grid', 'data-flag', MATCH_SOURCES, k => !!flags[k])}`;
 }
 
 // Fields with genuinely no home here: no vector store, no Quick Reply automation. Stored,
@@ -805,20 +791,20 @@ function extensionDividerHtml() {
 function embeddedHtml() {
     if (!embeddedOffered()) return '';
     const n = _embedded.entries;
-    return `<section class="clp-embedded">
-        <i class="clp-embedded-glyph fa-solid fa-book-bookmark"></i>
-        <div class="clp-embedded-text">
-            <p class="clp-embedded-title">This card carries its own lorebook</p>
-            <p class="clp-embedded-body">${_embedded.placeholder
+    return `<section class="cl-cwin-offer">
+        <i class="cl-cwin-offer-glyph fa-solid fa-book-bookmark"></i>
+        <div class="cl-cwin-offer-text">
+            <p class="cl-cwin-offer-title">This card carries its own lorebook</p>
+            <p class="cl-cwin-offer-body">${_embedded.placeholder
                 ? `"${esc(_embedded.name)}" is linked here with no book yet. Import the card's ${n} entr${n === 1 ? 'y' : 'ies'} into it,
                 or leave them on the card.`
                 : `${n} entr${n === 1 ? 'y' : 'ies'}, not imported yet.
                 Import "${esc(_embedded.name)}" to put it on the shelf and link it here, or leave it on the card.`}</p>
-            <div class="clp-embedded-acts">
+            <div class="cl-cwin-offer-acts">
                 <button type="button" class="cl-cwin-btn-text" data-lore-act="import-embedded">
                     <i class="fa-solid fa-file-import"></i> Import
                 </button>
-                <button type="button" class="clp-embedded-dismiss" data-lore-act="dismiss-embedded"
+                <button type="button" class="cl-cwin-offer-dismiss" data-lore-act="dismiss-embedded"
                     title="Leave the lorebook on the card and stop mentioning it">Leave It Embedded</button>
             </div>
         </div>

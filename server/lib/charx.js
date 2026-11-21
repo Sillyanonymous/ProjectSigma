@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readZipIndex, readZipEntryAsync, checkArchive, ZIP_IMPORT_LIMITS, ZipFileWriter } from './zip.js';
 import { httpError } from './http-error.js';
 import { kindForFile, safeFileName } from './stored-file.js';
+import { nextTurn } from './steps.js';
 
 // Character Card V3's zip container. embeded:// is the spec's spelling; a RisuAI download may put a JPEG ahead of the zip
 
@@ -112,7 +113,7 @@ export async function writeCharx(zipPath, card, icon, files) {
     writer.add(ICON_PATH, icon);
     for (const f of files) {
         writer.add(f.path, f.source);
-        await new Promise(r => setImmediate(r));
+        await nextTurn();
     }
     writer.finalize();
 }

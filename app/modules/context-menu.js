@@ -8,6 +8,10 @@ async function copyLinks(urls) {
 
 let isInitialized = false;
 let menuElement = null;
+let openedFrom = null; // what held focus when the menu opened, given it back when the menu closes
+let opener = null; // the control whose click opened the menu: a click on it again closes the menu
+let dismissedBy = null; // the click that closed the menu on its opener, whose own handler then asks for it again
+const isOpen = () => menuElement.classList.contains('visible');
 
 export function init(deps) {
     if (isInitialized) {
@@ -23,7 +27,7 @@ export function init(deps) {
         id: 'clContextMenu',
         tier: 8,
         close: () => hide(),
-        visible: (el) => el.classList.contains('visible'),
+        visible: isOpen,
     });
 
     isInitialized = true;
@@ -34,15 +38,18 @@ function createMenu() {
     menuElement = document.createElement('div');
     menuElement.id = 'clContextMenu';
     menuElement.className = 'cl-context-menu';
+    menuElement.setAttribute('role', 'menu');
+    menuElement.addEventListener('keydown', onMenuKey);
     document.body.appendChild(menuElement);
 }
 
 function setupGlobalListeners() {
+    // capture, so a control that stops its own click (a select's trigger) still closes the menu
     document.addEventListener('click', (e) => {
-        if (!menuElement.contains(e.target)) {
-            hide();
-        }
-    });
+        if (menuElement.contains(e.target)) return;
+        dismissedBy = isOpen() && opener?.contains(e.target) ? e : null;
+        hide();
+    }, true);
     
     // a tall menu scrolls itself to reach its lower rows; only a scroll elsewhere closes it
     document.addEventListener('scroll', (e) => {
@@ -65,36 +72,84 @@ function setupGlobalListeners() {
     });
 }
 
+// last in the body, so it paints over and takes Escape before an equal-z popover opened earlier (a group's list)
+function toFront() {
+    if (document.body.lastElementChild !== menuElement) document.body.appendChild(menuElement);
+}
+
+// the one way the menu opens: its rows drawn, laid out unseen so its size can place it, then shown
+function open(items, x, y) {
+    toFront();
+    renderMenu(items);
+    menuElement.style.visibility = 'hidden';
+    menuElement.classList.add('visible');
+    placeMenu(menuElement, x, y);
+    menuElement.style.visibility = '';
+    opened();
+}
+
+// the control a click opened the menu from: its button, else what was clicked
+const openerOf = (event) => (typeof event.target?.closest === 'function' ? event.target.closest('button, [role="button"], a, summary') || event.target : null);
+
+/** A character's menu at the pointer (a card's right-click). */
 export function show(event, char, cardElement) {
     event.preventDefault();
     event.stopPropagation();
-    
-    const menuItems = buildMenuItems(char, cardElement);
-    renderMenu(menuItems);
-    
-    // Force layout for measurement
-    menuElement.style.visibility = 'hidden';
-    menuElement.classList.add('visible');
-    
-    positionMenu(event.clientX, event.clientY);
-    
-    menuElement.style.visibility = '';
+    opener = null;
+    open(buildMenuItems(char, cardElement), event.clientX, event.clientY);
 }
 
-/** A menu of the caller's own items on the same surface (and phone sheet), no character behind it; `at` anchors to a point. */
+/**
+ * A menu of the caller's own items, no character behind it; a click on the control that opened it closes it.
+ * @param {Event} event the click or right-click that asks for it, itself and never a copy
+ * @param {{x: number, y: number}|null} [at] a viewport point to anchor to, the pointer when absent
+ */
 export function showItems(event, items, at = null) {
     if (!menuElement) return;
     event.preventDefault();
     event.stopPropagation();
-    renderMenu(items);
-    menuElement.style.visibility = 'hidden';
-    menuElement.classList.add('visible');
-    positionMenu(at ? at.x : event.clientX, at ? at.y : event.clientY);
-    menuElement.style.visibility = '';
+    if (event === dismissedBy) { dismissedBy = null; return; }
+    opener = event.type === 'click' ? openerOf(event) : null;
+    open(items, at ? at.x : event.clientX, at ? at.y : event.clientY);
 }
 
 export function hide() {
+    if (!isOpen()) return;
     menuElement.classList.remove('visible');
+    opener = null;
+    const back = openedFrom;
+    openedFrom = null;
+    if (back?.isConnected && (menuElement.contains(document.activeElement) || document.activeElement === document.body)) back.focus({ preventScroll: true });
+}
+
+// the keyboard's way in: the first usable row takes focus (the phone reads the menu through its own sheet)
+function opened() {
+    const active = document.activeElement;
+    if (!menuElement.contains(active)) openedFrom = active && active !== document.body ? active : null;
+    if (document.documentElement.classList.contains('cl-mobile')) return;
+    menuElement.querySelector('.cl-context-menu-item:not(.disabled)')?.focus({ preventScroll: true });
+}
+
+function onMenuKey(e) {
+    menuKeys(e, [...menuElement.querySelectorAll('.cl-context-menu-item:not(.disabled)')], { press: (row) => row.click(), close: hide });
+}
+
+/**
+ * A menu's keys over its rows: arrows, Home and End move focus, Enter and Space press, Escape closes, Tab leaves.
+ * @param {KeyboardEvent} e
+ * @param {HTMLElement[]} rows the rows a press can reach, in order
+ * @param {{ press: (row: HTMLElement) => void, close: () => void, leave?: () => void }} acts leave defaults to close
+ */
+export function menuKeys(e, rows, { press, close, leave = close }) {
+    const at = rows.indexOf(document.activeElement);
+    const go = (i) => { e.preventDefault(); rows[(i + rows.length) % rows.length]?.focus({ preventScroll: true }); };
+    if (e.key === 'ArrowDown') go(at + 1);
+    else if (e.key === 'ArrowUp') go(at < 0 ? rows.length - 1 : at - 1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(rows.length - 1);
+    else if ((e.key === 'Enter' || e.key === ' ') && at >= 0) { e.preventDefault(); press(rows[at]); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Tab') leave();
 }
 
 function buildMenuItems(char, cardElement) {
@@ -136,6 +191,15 @@ function buildBulkMenuItems(count) {
             if (cardUpdates?.checkSelectedCharacters) {
                 cardUpdates.checkSelectedCharacters();
             }
+        }
+    });
+
+    items.push({
+        icon: 'fa-solid fa-cloud-arrow-down',
+        label: 'Download Media',
+        action: () => {
+            const selection = CoreAPI.getSelection();
+            if (selection.count) CoreAPI.queueMediaDownloads(selection);
         }
     });
 
@@ -290,6 +354,12 @@ function buildSingleMenuItems(char, cardElement) {
             }
         }
     });
+
+    items.push({
+        icon: 'fa-solid fa-cloud-arrow-down',
+        label: 'Download Media',
+        action: () => CoreAPI.downloadMediaForCharacter(char),
+    });
     
     items.push({ type: 'separator' });
     
@@ -328,11 +398,11 @@ function buildSingleMenuItems(char, cardElement) {
 function renderMenu(items) {
     menuElement.innerHTML = items.map(item => {
         if (item.type === 'separator') {
-            return '<div class="cl-context-menu-separator"></div>';
+            return '<div class="cl-context-menu-separator" role="separator"></div>';
         }
-        
+
         if (item.type === 'header') {
-            return `<div class="cl-context-menu-header">${CoreAPI.escapeHtml(item.label)}</div>`;
+            return `<div class="cl-context-menu-header" role="presentation">${CoreAPI.escapeHtml(item.label)}</div>`;
         }
         
         const className = `cl-context-menu-item ${item.className || ''} ${item.disabled ? 'disabled' : ''}`;
@@ -343,35 +413,46 @@ function renderMenu(items) {
             ? `<span class="cl-context-menu-text"><span>${CoreAPI.escapeHtml(item.label)}</span><span class="cl-context-menu-hint">${CoreAPI.escapeHtml(item.hint)}</span></span>`
             : `<span>${CoreAPI.escapeHtml(item.label)}</span>`;
         return `
-            <div class="${className}" data-action="${CoreAPI.escapeHtml(item.label)}">
+            <div class="${className}" role="menuitem" tabindex="-1"${item.disabled ? ' aria-disabled="true"' : ''} data-action="${CoreAPI.escapeHtml(item.label)}">
                 ${lead}
                 ${text}
             </div>
         `;
     }).join('');
     
+    // the rows a press can reach, in the order they were drawn
+    const live = items.filter(i => i.type !== 'separator' && i.type !== 'header' && !i.disabled);
     menuElement.querySelectorAll('.cl-context-menu-item:not(.disabled)').forEach((el, index) => {
-        const item = items.filter(i => i.type !== 'separator' && i.type !== 'header' && !i.disabled)[index];
+        const item = live[index];
         if (item?.action) {
             el.addEventListener('click', () => {
                 hide();
                 item.action();
             });
         }
+        // a row's own right-click (a collapsed opener behind a bar's More answers with the opener's menu)
+        if (typeof item?.onContext === 'function') {
+            el.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.onContext(e);
+            });
+        }
     });
 }
 
-function positionMenu(x, y) {
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+/** Place a menu-shaped popover at a viewport point, kept on screen (opening upward when there is more room above). */
+export function placeMenu(el, x, y) {
+    const zoom = CoreAPI.uiZoom();
     x /= zoom;
     y /= zoom;
 
-    menuElement.style.left = '0';
-    menuElement.style.top = '0';
-    
+    el.style.left = '0';
+    el.style.top = '0';
+
     // layout size, not the painted box: the open animation starts scaled down, so a mid-scale box is short
-    const menuWidth = menuElement.offsetWidth;
-    const menuHeight = menuElement.offsetHeight;
+    const menuWidth = el.offsetWidth;
+    const menuHeight = el.offsetHeight;
     const vw = window.innerWidth / zoom;
     const vh = window.innerHeight / zoom;
     const pad = 10;
@@ -387,16 +468,16 @@ function positionMenu(x, y) {
     let finalY;
     if (openUpward) {
         finalY = Math.max(pad, y - menuHeight);
-        menuElement.style.transformOrigin = 'bottom left';
+        el.style.transformOrigin = 'bottom left';
     } else {
         finalY = y;
         if (finalY + menuHeight + pad > vh) finalY = vh - menuHeight - pad;
         if (finalY < pad) finalY = pad;
-        menuElement.style.transformOrigin = 'top left';
+        el.style.transformOrigin = 'top left';
     }
-    
-    menuElement.style.left = `${finalX}px`;
-    menuElement.style.top = `${finalY}px`;
+
+    el.style.left = `${finalX}px`;
+    el.style.top = `${finalY}px`;
 }
 
 async function toggleFavorite(char) {
@@ -674,6 +755,8 @@ export default {
     show,
     showItems,
     hide,
+    placeMenu,
+    menuKeys,
     // Bulk actions - exposed for multi-select toolbar + batch-transfer chooser
     bulkToggleFavorites,
     bulkExport,

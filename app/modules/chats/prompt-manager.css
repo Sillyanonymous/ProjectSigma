@@ -28,39 +28,8 @@
     min-width: 0;
 }
 
-/* mobile's stand-ins (the preset chip, the overflow): display:none here, switched on in the mobile block */
-.cpm-preset-chip {
-    display: none;
-    flex: 1;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-xs);
-    min-height: var(--touch-target-min);
-    padding: var(--space-2xs) var(--space-sm);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--cl-ghost-mid);
-    background: var(--cl-ghost-faint);
-    color: var(--text-secondary);
-    font-size: var(--font-sm);
-    text-align: left;
-    cursor: pointer;
-}
-
-.cpm-preset-chip > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* The one home of the preset verbs on both platforms: desktop opens a menu under it,
-   mobile the canonical sheet. */
-.cpm-pbtn-more {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
+/* the one home of the preset verbs on both platforms, the family's text button */
+.cpm-more { flex-shrink: 0; }
 
 .cpm-tokens {
     flex-shrink: 0;
@@ -260,6 +229,8 @@
 }
 
 .cpm-role { color: var(--accent); }
+/* the trigger mark sits beside the role glyph: quieter, so the two read as different things */
+.cpm-role.cpm-fires { color: var(--text-muted); }
 
 .cpm-depth {
     flex-shrink: 0;
@@ -298,11 +269,6 @@
     cursor: pointer;
 }
 
-.cpm-toggle input {
-    cursor: pointer;
-    accent-color: var(--accent);
-}
-
 /* ========================================
    ROW ACTIONS, PRESET BAR, FOOTER, DRAWER
    ======================================== */
@@ -315,41 +281,11 @@
     flex-shrink: 0;
 }
 
-.cpm-act {
-    background: none;
-    border: 0;
-    padding: var(--space-2xs) var(--space-2xs);
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: var(--font-2xs);
-    opacity: 0.4;
-    transition: opacity var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
-}
-
-.cpm-act:hover { opacity: 0.8; color: var(--accent); }
+/* each verb is the family's .cl-cwin-act; Delete goes red on hover */
 .cpm-act-danger:hover { color: var(--cl-error); }
 
 /* Desktop keeps the inline cluster; the kebab is the mobile face of the same verbs. */
 .cpm-kebab { display: none; }
-
-.cpm-pbtn {
-    background: var(--cl-ghost-faint);
-    border: 1px solid var(--cl-ghost-mid);
-    border-radius: var(--radius-md);
-    padding: var(--space-2xs) var(--space-sm);
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: var(--font-2xs);
-    opacity: 0.7;
-    transition: background var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
-}
-
-.cpm-pbtn:hover:not(:disabled) { background: var(--cl-ghost-mid); border-color: var(--cl-ghost-strong); opacity: 1; color: var(--text-primary); }
-.cpm-pbtn:disabled { opacity: var(--op-disabled); cursor: default; }
-
-/* The preset verbs live behind the More button now; in the sheet this is where the menu
-   anchors, from the button's own rect. */
-.cpm-preset-menu { position: absolute; z-index: 12; min-width: 190px; }
 
 .cpm-footer {
     display: flex;
@@ -370,8 +306,7 @@
     background: var(--cl-ghost-soft);
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    flex-shrink: 0;
+    overflow: hidden;
 }
 
 .cpm-drawer-head {
@@ -379,7 +314,22 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-sm);
+    flex-shrink: 0;
 }
+
+/* the head and the buttons stay put and the fields between scroll, so Save is never under the fold */
+.cpm-drawer-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm-md);
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: var(--space-2xs);
+}
+
+/* too short for its fields, the body scrolls: a row that gave up height would draw its label over the row above */
+.cpm-drawer-body > * { flex-shrink: 0; }
 
 /* Title case at weight 700, the surface family's heading dialect. */
 .cpm-drawer-title {
@@ -404,7 +354,8 @@
 /* The form itself is the window family's form language (defined once in
    chats.css); only genuinely local pieces stay named here. */
 
-.cpm-field-grow { flex: 1; min-height: 0; }
+/* the text takes the room left over and keeps its own floor when there is none */
+.cpm-field-grow { flex: 1 0 auto; }
 
 /* The history marker is the boundary the other placements are measured from, so it is the
    one block whose placement is stated rather than offered. */
@@ -433,7 +384,24 @@
     display: flex;
     align-items: center;
     gap: var(--space-sm);
+    flex-shrink: 0;
+    padding-top: var(--space-xs-sm);
+    border-top: 1px solid var(--cl-ghost-mid);
 }
+
+/* a box another setting turns off reads as off, as a field the window family turns off does */
+.cpm-set-text:disabled { opacity: var(--op-disabled); cursor: not-allowed; }
+
+/* Preset Settings: a setting's way back to its default sits under its field, at the field's left edge */
+.cpm-set-reset { align-self: flex-start; }
+
+/* a built-in setting shown read only keeps its line breaks */
+.cpm-set-static { white-space: pre-wrap; }
+
+/* a preset named without a space still wraps inside the window */
+.cpm-set-intro { overflow-wrap: anywhere; }
+/* a joiner a file spells long wraps inside its pick, never widening the view */
+.cpm-drawer .cl-cwin-pick > span { overflow-wrap: anywhere; min-width: 0; }
 
 /* The row being edited keeps a marker, so the drawer is never orphaned from its subject. */
 
@@ -450,19 +418,11 @@
 /* The sheet's own mobile geometry lives with the other window rules at the end of this
    file, not here. */
 html.cl-mobile .cpm-footer { padding-bottom: max(var(--space-sm), var(--safe-bottom)); }
-
-/* a chip opening the canonical sheet replaces the native select (an OS picker isnt this app's dropdown) */
-html.cl-mobile .cpm-preset-select { display: none; }
-html.cl-mobile .cpm-preset-chip { display: flex; }
-html.cl-mobile .cpm-pbtn-more {
+/* the editor hides the footer, so its own last row clears the home bar */
+html.cl-mobile .cpm-drawer { padding-bottom: max(var(--space-md), var(--safe-bottom)); }
+html.cl-mobile .cpm-drawer-close {
     min-width: var(--touch-target-slim);
     min-height: var(--touch-target-slim);
-}
-
-html.cl-mobile .cpm-act {
-    min-width: var(--touch-target-slim);
-    min-height: var(--touch-target-slim);
-    opacity: 0.8;
 }
 
 /* one kebab for the three actions (their floors ate the name); the grip goes too, touch has no HTML5 drag */
@@ -528,5 +488,10 @@ html.cl-mobile .cpm-head {
 }
 
 html.cl-mobile .cpm-list { gap: 1px; }
+
+html.cl-mobile .cpm-toggle {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}
 
 

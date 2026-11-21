@@ -1,4 +1,4 @@
-// Who a server with accounts off answers, by Host and Origin; the feed's upgrade asks the same rules
+// Who a server with accounts off answers, by Host and Origin (the feed's upgrade asks the same rules), and whether a caller still waits
 
 import net from 'node:net';
 import { config } from '../config.js';
@@ -63,13 +63,26 @@ function nextGuarded() {
     run();
 }
 
+const _closeSignals = new WeakMap();
+
+/** Aborted when the response closes before it was ended (the caller hung up); one signal per response. */
+export function closeSignal(res) {
+    let gone = _closeSignals.get(res);
+    if (!gone) {
+        gone = new AbortController();
+        _closeSignals.set(res, gone);
+        if (res.closed && !res.writableEnded) gone.abort();
+        else res.on('close', () => { if (!res.writableEnded) gone.abort(); });
+    }
+    return gone.signal;
+}
+
 /** A search read its caller may drop: it waits its turn, and not at all once the caller has hung up. */
 export function skipIfGone(req, res, next) {
-    let gone = false;
-    res.on('close', () => { if (!res.writableEnded) gone = true; });
+    const gone = closeSignal(res);
     // a hang-up read in the same pass as the request marks the socket before its close event fires
     guarded.push(() => {
-        if (gone || req.socket?.destroyed || req.socket?.readableEnded) return;
+        if (gone.aborted || req.socket?.destroyed || req.socket?.readableEnded) return;
         next();
     });
     if (!guardTurn) { guardTurn = true; setImmediate(nextGuarded); }

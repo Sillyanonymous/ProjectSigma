@@ -8,45 +8,11 @@
     flex-direction: column;
 }
 
-/* --- Tabs (segmented pill control, the browse Browse/Following toggle shape) --- */
+/* --- Tabs: the segmented control, set in from the dialog's edge --- */
 
 .tgm-tabs {
-    display: flex;
-    background: var(--cl-shade-30);
-    border-radius: var(--radius-lg);
-    padding: var(--space-xs);
-    gap: var(--space-2xs);
-    border: 1px solid var(--glass-border);
     margin: var(--space-md) var(--space-lg) 0;
     align-self: flex-start;
-}
-
-.tgm-tab {
-    padding: var(--space-sm) var(--space-lg);
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-radius: var(--radius-md);
-    font-size: var(--font-md);
-    font-weight: 500;
-    transition: all var(--dur-base) ease;
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.tgm-tab:hover {
-    color: var(--text-primary);
-    background: var(--cl-ghost-mid);
-}
-
-/* Weight stays constant across states: the container is content-sized, so a bolder
-   active label would resize the whole bar on every click */
-.tgm-tab.active {
-    background: var(--accent);
-    color: var(--accent-text);
-    box-shadow: 0 2px 8px var(--accent-glow);
 }
 
 .tgm-body {
@@ -588,11 +554,7 @@ html.cl-mobile .tgm-tabs {
 html.cl-mobile .tgm-tab {
     flex: 1 1 0;
     min-width: 0;
-    justify-content: center;
-    min-height: var(--touch-target-slim);
     padding: var(--space-xs) var(--space-sm);
-    white-space: nowrap;
-    touch-action: manipulation;
 }
 
 @media (max-width: 480px) {

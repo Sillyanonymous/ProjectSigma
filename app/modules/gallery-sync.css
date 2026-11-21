@@ -78,10 +78,11 @@
 
 /* Each notification section reads as its own inset card */
 .notif-section {
+    --notif-pad: var(--space-md);
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    padding: var(--space-md);
+    padding: var(--notif-pad);
 }
 
 /* nothing to report: the shell shows it when no section is (a phone opens the sheet regardless) */
@@ -170,12 +171,55 @@
     flex-shrink: 0;
 }
 
-/* a row that asks: its answers as buttons under the line, wrapping on a narrow sheet */
+/* the answers as the card's footer strip, edge to edge; it must be the section's last child */
 .notif-row-choices {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-    margin-top: var(--space-xs);
+    margin: var(--space-2xs) calc(-1 * var(--notif-pad)) calc(-1 * var(--notif-pad));
+    border-top: 1px solid var(--glass-border);
+}
+
+.notif-choice {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: none;
+    border: none;
+    padding: var(--space-sm) var(--space-xs);
+    font-family: inherit;
+    font-size: var(--font-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.notif-choice + .notif-choice {
+    border-left: 1px solid var(--glass-border);
+}
+
+.notif-choice:first-child { border-bottom-left-radius: var(--radius-lg); }
+.notif-choice:last-child { border-bottom-right-radius: var(--radius-lg); }
+
+.notif-choice:hover {
+    color: var(--text-primary);
+    background: var(--cl-ghost-soft);
+}
+
+.notif-choice.is-primary {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.notif-choice.is-primary:hover {
+    color: var(--accent-hover);
+    background: var(--cl-accent-tint);
+}
+
+.notif-choice:focus-visible {
+    outline: 2px solid rgba(var(--accent-rgb), 0.5);
+    outline-offset: -2px;
 }
 
 .notif-row-btn {
@@ -292,5 +336,9 @@ html.cl-mobile [data-notif-host] .gallery-sync-dropdown {
 
 html.cl-mobile .notif-row-btn {
     min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+}
+
+html.cl-mobile .notif-choice {
     min-height: var(--touch-target-slim);
 }

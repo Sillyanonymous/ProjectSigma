@@ -7,7 +7,7 @@ are open and welcome.
 
 Bug reports, questions and ideas all go in the issue tracker. A good bug report
 names what you did, what you expected and what happened instead, with the
-version from Settings > About and, where it helps, a screenshot or the server's
+version from Settings > Info and, where it helps, a screenshot or the server's
 log lines. Search the open issues first; a thumbs-up on an existing one counts.
 
 Describe a problem or an idea in words rather than as a patch. If an issue does

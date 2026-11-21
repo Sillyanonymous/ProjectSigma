@@ -13,6 +13,7 @@ import { addAttachment, attachmentDirFor, setMessageAttachments } from '../db/at
 import { imageSizeOf } from '../lib/image-size.js';
 import { nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
+import { nextTurn } from '../lib/steps.js';
 
 function worldHash(data) {
     return crc32(Buffer.from(JSON.stringify(data?.entries || {}), 'utf8'));
@@ -84,7 +85,7 @@ export async function importBundle(zipPath, { worlds = true, only = null, copyUi
         // card filename: two entries can share a filename, and a uuid cannot collide.
         if (only && !only.has(String(c.uid))) continue;
         // one yield per character, as the export takes them, or a whole restore holds every account's requests
-        await new Promise(r => setImmediate(r));
+        await nextTurn();
         // the client hung up (the import's Cancel): the entries already restored stay, whole
         if (signal?.aborted) break;
         // an entry lands whole or not at all: a refusal anywhere rolls back its rows, and its files go with them

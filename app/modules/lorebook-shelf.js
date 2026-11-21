@@ -1,5 +1,5 @@
-// The shelf's import funnel: a book from anywhere lands on the shelf through ONE path. Entry defaults
-// and both embedded-book converters live here too.
+// The shelf's import funnel: a book from anywhere lands through ONE path. Entry defaults, the
+// editors' shared lists and both embedded-book converters live here too.
 import CoreAPI from './core-api.js';
 import { PROBE_PAGE } from './providers/provider-utils.js';
 
@@ -35,6 +35,22 @@ export const ENTRY_NUMBER_BLANKS = Object.freeze({
     probability: 100, groupWeight: 100, delayUntilRecursion: 0, order: 0,
     depth: null, scanDepth: null, sticky: null, cooldown: null, delay: null,
 });
+
+/** The kinds of request an entry can be limited to, by stored name; none listed means every kind. */
+export const TRIGGER_TYPES = Object.freeze([
+    ['normal', 'Normal'], ['continue', 'Continue'], ['impersonate', 'Impersonate'],
+    ['swipe', 'Swipe'], ['regenerate', 'Regenerate'], ['quiet', 'Quiet'],
+]);
+
+/** The card and persona fields an entry's keys are also looked for in, by stored flag name. */
+export const MATCH_SOURCES = Object.freeze([
+    ['matchPersonaDescription', 'Persona description'],
+    ['matchCharacterDescription', 'Character description'],
+    ['matchCharacterPersonality', 'Character personality'],
+    ['matchCharacterDepthPrompt', "Character's Note"],
+    ['matchScenario', 'Scenario'],
+    ['matchCreatorNotes', 'Creator notes'],
+]);
 
 const atIndex = (entry, index) => index;
 

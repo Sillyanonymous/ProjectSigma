@@ -1,8 +1,7 @@
 // Combine a message's alternates into one new reply; it lands as a fresh swipe, so nothing it replaces is touched.
 
 import CoreAPI from '../core-api.js';
-import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
-import { mountChatWindow, wireCwinInputGrow, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
+import { mountChatWindow, wireCwinInputGrow, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 
 
 const DEFAULT_INSTRUCTION = 'Combine the strongest elements of all the drafts into a single best version.';
@@ -39,6 +38,7 @@ let _previewIdx = 0;
 let _busy = false;
 let _result = null;     // null = compose view; a string = result view
 let _onApply = null;    // (seq, text) => Promise<boolean>, the conversation's writer
+let _render = (text) => CoreAPI.escapeHtml(text);   // the conversation's renderer (its producer and gate), handed at init
 let _fitField = () => {};
 
 function buildPanelHTML() {
@@ -104,13 +104,12 @@ function renderChips() {
         </span>`).join('');
 }
 
-// Model output and card greetings are third-party content: the preview renders through
-// the chat producer and the chat gate, exactly like the transcript it previews.
+// Model output and card greetings are third-party content: the preview renders through the transcript's own renderer
 function renderPreview() {
     const el = document.getElementById('cswPreview');
     if (!el) return;
     const text = _result !== null ? _result : (_swipes[_previewIdx] ?? '');
-    el.innerHTML = CoreAPI.safePurify(CoreAPI.formatChatText(text, _charName, STORED_TEXT), CHAT_PURIFY_CONFIG);
+    el.innerHTML = _render(text, _charName);
     el.classList.toggle('is-result', _result !== null);
 }
 
@@ -141,13 +140,20 @@ function setBusy(busy) {
 
 let _abort = null;
 
+// The run in flight belongs to one open; a close or a reopen stops it and forgets it.
+function dropRun() {
+    _abort?.abort();
+    _abort = null;
+}
+
 async function generateCombined() {
     if (_busy) return;
     const included = [..._included].sort((a, b) => a - b);
     if (included.length < 2) { CoreAPI.showToast('Pick at least two swipes to combine', 'info'); return; }
     const instruction = document.getElementById('cswInstruction')?.value ?? '';
     const prompt = buildCombinePrompt(_swipes, included, instruction, _charName || 'the character');
-    _abort = new AbortController();
+    const ctrl = new AbortController();
+    _abort = ctrl;
     setBusy(true);
     try {
         // the connection this chat answers on, as the server resolves it: its own, else the default
@@ -159,19 +165,23 @@ async function generateCombined() {
             [{ role: 'user', content: prompt }],
             {
                 profile: { id: profileId },
-                temperature: null, maxTokens: null, signal: _abort.signal,
+                temperature: null, maxTokens: null, signal: ctrl.signal,
                 checkFinishReason: true, stripSurrogates: true, debugTag: 'Swipe Combiner',
             },
         ) ?? '').trim();
+        // closed or reopened while it ran: the answer belongs to a message the panel has left
+        if (_abort !== ctrl) return;
         if (!text) throw new Error('the model returned an empty response');
         _result = text;
         renderAll();
     } catch (err) {
         // A stop is the reader's own verb, not a failure to report.
-        if (!err.isCancelled) CoreAPI.showToast(`Could not combine: ${err.message}`, 'error');
+        if (!err.isCancelled && _abort === ctrl) CoreAPI.showToast(`Could not combine: ${err.message}`, 'error');
     } finally {
-        _abort = null;
-        setBusy(false);
+        if (_abort === ctrl) {
+            _abort = null;
+            setBusy(false);
+        }
     }
 }
 
@@ -248,6 +258,7 @@ function injectPanel() {
  */
 function openPanel(ctx) {
     if (!Array.isArray(ctx?.swipes) || ctx.swipes.length < 2) return;
+    dropRun();
     _chatId = ctx.chatId;
     _seq = ctx.seq;
     _charName = ctx.charName || 'the character';
@@ -272,12 +283,17 @@ function openPanel(ctx) {
 }
 
 function closePanel() {
+    dropRun();
     const panel = document.getElementById('chatCombinePanel');
     panelOpen = false;
     closeChatWindow(panel);
 }
 
-function init() {
+/**
+ * @param {{ render?: (text: string, charName: string) => string }} [ctx] the conversation's renderer
+ */
+function init({ render } = {}) {
+    if (render) _render = render;
     // one message in one chat, captured at open: a switch closes rather than combine into the wrong chat
     document.addEventListener('cl-chat-changed', (e) => {
         if (panelOpen && e.detail?.chatId !== _chatId) closePanel();

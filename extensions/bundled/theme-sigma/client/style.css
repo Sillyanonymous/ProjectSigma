@@ -496,6 +496,22 @@ body {
     background: var(--sx-fill-text);
 }
 
+.cl-seg {
+    border-color: var(--sx-bezel-line);
+    border-radius: var(--radius-lg);
+    background: var(--sx-field-bg);
+}
+
+.cl-seg-btn {
+    border-radius: var(--radius-lg);
+}
+
+.cl-seg-btn.active {
+    color: var(--text-primary);
+    background: var(--sx-thumb);
+    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
+}
+
 /* ========================================================================
  * FLOATING SURFACES: menus, popovers, toasts, on the chat windows' material
  * ======================================================================== */
@@ -547,8 +563,7 @@ body {
     color: var(--text-muted);
 }
 
-.cl-empty-state-title,
-.chats-empty h3 {
+.cl-empty-state-title {
     font-weight: 600;
     letter-spacing: -0.015em;
 }
@@ -888,22 +903,6 @@ html.cl-mobile:where(:not(.sx-hero-off)) :where(.char-modal) .modal-controls .cl
 .chat-group-name {
     font-weight: 600;
     letter-spacing: -0.01em;
-}
-
-.chats-seg {
-    border-color: var(--sx-bezel-line);
-    border-radius: var(--radius-lg);
-    background: var(--sx-field-bg);
-}
-
-.chats-seg-btn {
-    border-radius: var(--radius-lg);
-}
-
-.chats-seg-btn.active {
-    color: var(--text-primary);
-    background: var(--sx-thumb);
-    box-shadow: inset 0 1px 0 var(--cl-sheet-highlight), var(--cl-shadow-sm);
 }
 
 .chat-band-label {

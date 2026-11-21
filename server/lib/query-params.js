@@ -48,6 +48,9 @@ export function pageOf(query, { def = PAGE_DEFAULT, max = PAGE_MAX, what = '', c
 // the client pages its probes by the same number, PROBE_PAGE
 export const PROBE_MAX_KEYS = 500;
 
+// the most of a remote card's text the browse hint reads: a tagline or a description's opening is all its signature needs
+export const HINT_TEXT_MAX = 4000;
+
 // the most character ids a set write or tally names a request: a write's one transaction locks for all of them, so clients chunk
 export const IDS_MAX = 10000;
 

@@ -247,6 +247,7 @@ async function initModuleSystem() {
         loadModuleCSS('./chats/settings-panel.css');
         loadModuleCSS('./chats/personas-panel.css');
         loadModuleCSS('./chats/card-texts-panel.css');
+        loadModuleCSS('./chats/regex-panel.css');
         loadModuleCSS('./chats/assistant.css');
         setupLazyChats();
     }
@@ -421,6 +422,7 @@ async function initModuleSystem() {
         ModuleLoader.register('media-download-queue', mediaQueueModule.default);
 
         window.enqueueMediaDownloadJob = mediaQueueModule.enqueueJob;
+        window.adoptMediaDownloadRows = mediaQueueModule.adoptQueuedRows;
     } catch (err) {
         console.warn('[ModuleLoader] Could not load media-download-queue module:', err);
     }

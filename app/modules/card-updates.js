@@ -198,95 +198,14 @@ async function getLinkedCharacters() {
     return all.map(item => item.char);
 }
 
+// the shared side-by-side diff, the line counts its summary
 function generateSideBySideDiff(localValue, remoteValue) {
-    const localStr = formatValueForDisplay(localValue);
-    const remoteStr = formatValueForDisplay(remoteValue);
-    
-    const localLines = localStr.split('\n');
-    const remoteLines = remoteStr.split('\n');
-    
-    const lineDiff = CoreAPI.computeLineDiff(localLines, remoteLines);
-    
-    const localOutput = [];
-    const remoteOutput = [];
-    let changedLines = 0;
-    let addedLines = 0;
-    let removedLines = 0;
-    
-    let i = 0;
-    while (i < lineDiff.length) {
-        const item = lineDiff[i];
-        
-        if (item.type === 'context') {
-            localOutput.push({ type: 'context', html: CoreAPI.escapeHtml(item.line) });
-            remoteOutput.push({ type: 'context', html: CoreAPI.escapeHtml(item.line) });
-            i++;
-        } else if (item.type === 'removed' && i + 1 < lineDiff.length && lineDiff[i + 1].type === 'added') {
-            const { oldHtml, newHtml } = wordDiffHtml(item.line, lineDiff[i + 1].line);
-            localOutput.push({ type: 'changed', html: oldHtml });
-            remoteOutput.push({ type: 'changed', html: newHtml });
-            changedLines++;
-            i += 2;
-        } else if (item.type === 'removed') {
-            localOutput.push({ type: 'removed', html: CoreAPI.escapeHtml(item.line) });
-            remoteOutput.push({ type: 'empty', html: '' });
-            removedLines++;
-            i++;
-        } else if (item.type === 'added') {
-            localOutput.push({ type: 'empty', html: '' });
-            remoteOutput.push({ type: 'added', html: CoreAPI.escapeHtml(item.line) });
-            addedLines++;
-            i++;
-        } else {
-            i++;
-        }
-    }
-    
-    const localHtml = localOutput.map(item => {
-        if (item.type === 'empty') {
-            return '<div class="diff-line empty"></div>';
-        }
-        const className = item.type === 'context' ? 'diff-line' : 
-                         item.type === 'changed' ? 'diff-line changed' : 
-                         'diff-line removed';
-        return `<div class="${className}">${item.html || '&nbsp;'}</div>`;
-    }).join('');
-    
-    const remoteHtml = remoteOutput.map(item => {
-        if (item.type === 'empty') {
-            return '<div class="diff-line empty"></div>';
-        }
-        const className = item.type === 'context' ? 'diff-line' : 
-                         item.type === 'changed' ? 'diff-line changed' : 
-                         'diff-line added';
-        return `<div class="${className}">${item.html || '&nbsp;'}</div>`;
-    }).join('');
-    
+    const d = CoreAPI.diffSplitView(formatValueForDisplay(localValue), formatValueForDisplay(remoteValue), { heads: ['Your version', 'Remote version'] });
     const statParts = [];
-    if (changedLines > 0) statParts.push(`${changedLines} modified`);
-    if (addedLines > 0) statParts.push(`${addedLines} added`);
-    if (removedLines > 0) statParts.push(`${removedLines} removed`);
-    const stats = statParts.length > 0 ? statParts.join(', ') : 'different';
-    
-    return { localHtml, remoteHtml, stats };
-}
-
-// Both LCS walks live in library.js now; only this panel's span markup stays here.
-function wordDiffHtml(oldLine, newLine) {
-    const d = CoreAPI.computeWordDiff(oldLine, newLine);
-    const oldHtml = d.old.map(item => {
-        const escaped = CoreAPI.escapeHtml(item.text);
-        return item.type === 'removed'
-            ? `<span class="word-removed">${escaped}</span>`
-            : escaped;
-    }).join('');
-    const newHtml = d.new.map(item => {
-        const escaped = CoreAPI.escapeHtml(item.text);
-        return item.type === 'added'
-            ? `<span class="word-added">${escaped}</span>`
-            : escaped;
-    }).join('');
-    return { oldHtml, newHtml };
+    if (d.changed > 0) statParts.push(`${d.changed} modified`);
+    if (d.added > 0) statParts.push(`${d.added} added`);
+    if (d.removed > 0) statParts.push(`${d.removed} removed`);
+    return { html: d.html, stats: statParts.length > 0 ? statParts.join(', ') : 'different' };
 }
 
 // a remote with nothing where the card has text empties the field on apply; the flag lets the UI say so
@@ -560,7 +479,7 @@ function renderDiffItem(diff, idx) {
     }
     
     if (diff.isLongText) {
-        const { localHtml, remoteHtml, stats } = generateSideBySideDiff(diff.local, diff.remote);
+        const { html: diffHtml, stats } = generateSideBySideDiff(diff.local, diff.remote);
         return `
             <div class="cl-cwin-row card-update-diff-item long-text">
                 <div class="card-update-diff-header">
@@ -573,26 +492,7 @@ function renderDiffItem(diff, idx) {
                         <i class="fa-solid fa-chevron-down"></i>
                     </button>
                 </div>
-                <div class="card-update-diff-content collapsed">
-                    <div class="card-update-diff-sidebyside">
-                        <div class="card-update-diff-panel local">
-                            <div class="card-update-diff-panel-header">
-                                <i class="fa-solid fa-house"></i> Your version
-                            </div>
-                            <div class="card-update-diff-panel-content">
-                                ${localHtml}
-                            </div>
-                        </div>
-                        <div class="card-update-diff-panel remote">
-                            <div class="card-update-diff-panel-header">
-                                <i class="fa-solid fa-cloud"></i> Remote version
-                            </div>
-                            <div class="card-update-diff-panel-content">
-                                ${remoteHtml}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <div class="card-update-diff-content collapsed">${diffHtml}</div>
             </div>
         `;
     }

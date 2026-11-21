@@ -101,7 +101,7 @@ let view; // module-scoped BrowseView instance reference (set once in constructo
 
 function isCharPossibleMatchObj(h) {
     if (view.isHitInLibrary(h)) return false;
-    return view.isCharPossibleMatch(getCtCharName(h), h.author_username || h.author || h.path?.split('/')[0] || '');
+    return view.isHitPossibleMatch(h);
 }
 
 // ========================================
@@ -115,7 +115,7 @@ function createCtCard(hit) {
     const tokens = formatNumber(hit.totalTokens || 0);
     const author = hit.author || hit.path?.split('/')[0] || '';
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(getCtCharName(hit), author);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(hit);
 
     const badges = [];
     const importing = view.importingBadge(hit);
@@ -132,7 +132,7 @@ function createCtCard(hit) {
     const cardClass = libraryCardClass(inLibrary, possibleTier);
 
     return `
-        <div class="${cardClass}" data-ct-path="${escapeHtml(hit.path || '')}"${view.linkKeyAttr(hit)} data-match-name="${escapeHtml(getCtCharName(hit))}" ${desc ? `title="${escapeHtml(desc)}"` : ''}>
+        <div class="${cardClass}" data-ct-path="${escapeHtml(hit.path || '')}"${view.linkKeyAttr(hit)}${view.matchAttr(hit)} ${desc ? `title="${escapeHtml(desc)}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${badges.length > 0 ? `<div class="browse-feature-badges">${badges.join('')}</div>` : ''}
@@ -476,11 +476,7 @@ function openPreviewModal(hit) {
         });
 
         // Import button state, kept in step with the library while the preview is open
-        const restampImport = () => {
-            const inLibraryNow = view.isHitInLibrary(hit);
-            // scorer gets '' for a missing creator (its name-only branch); the display keeps 'Unknown'
-            view.stampImportButton(document.getElementById('ctImportBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && !!view.getPossibleMatchTier(getCtCharName(hit), rawAuthor)?.show });
-        };
+        const restampImport = () => view.stampPreviewImport(document.getElementById('ctImportBtn'), hit);
         restampImport();
         view.trackPreview(restampImport, hit);
     } catch (err) {
@@ -640,19 +636,25 @@ async function importCharacter(charData) {
     if (!charData?.path) return;
     const charName = charData.name || charData.path.split('/').pop() || '';
     const charCreator = charData.author || charData.path?.split('/')[0] || '';
-    const full = charData._fullDetail;
     await view.importFromPreview({
         button: document.getElementById('ctImportBtn'), hit: charData, provider: 'chartavern', id: charData.path, data: charData, label: 'CTBrowse',
         closePreview: closePreviewModal,
-        // the page card the preview loaded, when it did: a search hit carries no definition to compare
-        probe: {
-            name: charName, creator: charCreator, fullPath: charData.path,
-            description: full?.definition_character_description || charData.characterDefinition || '',
-            first_mes: full?.definition_first_message || charData.characterFirstMessage || '',
-            personality: full?.definition_personality || charData.characterPersonality || '',
-            scenario: full?.definition_scenario || charData.characterScenario || '',
+        prepare: async () => {
+            // a search hit carries no definition to compare: the page card, read now when the preview has not loaded it
+            const [author, slug] = charData.path.split('/');
+            const full = charData._fullDetail || (slug ? (await fetchCharacterDetail(author, slug, apiRequest).catch(() => null))?.card : null) || null;
+            return {
+                probe: {
+                    name: charName, creator: charCreator, fullPath: charData.path,
+                    description: full?.definition_character_description || charData.characterDefinition || '',
+                    first_mes: full?.definition_first_message || charData.characterFirstMessage || '',
+                    personality: full?.definition_personality || charData.characterPersonality || '',
+                    scenario: full?.definition_scenario || charData.characterScenario || '',
+                    creator_notes: full?.description || charData.pageDescription || '',
+                },
+                dialog: { name: charName, creator: charCreator, fullPath: charData.path, avatarUrl: getAvatarUrl(charData.path) },
+            };
         },
-        dialog: { name: charName, creator: charCreator, fullPath: charData.path, avatarUrl: getAvatarUrl(charData.path) },
     });
 }
 
@@ -1220,11 +1222,11 @@ class ChartavernBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: getCtCharName(hit), creator: hit.author_username || hit.author || hit.path?.split('/')[0] || '' };
+        return { name: getCtCharName(hit), creator: hit.author_username || hit.author || hit.path?.split('/')[0] || '', text: hit.pageDescription || '' };
     }
 
     hitLinkKey(hit) {
-        return hit?.path || null;
+        return hit?.id ? String(hit.id) : null;
     }
 
     get previewModalId() { return 'ctCharModal'; }

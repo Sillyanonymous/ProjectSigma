@@ -1,5 +1,6 @@
 // The search box's card-text arm: a typed word finds the indexed words holding it (search_terms), then characters_fts their cards
 import { subscribeChanges } from './changes.js';
+import { nextTurn, scheduleLibraryJob } from '../lib/steps.js';
 import { textMatch } from './rule-filters.js';
 
 // past this many terms a word reads the card text instead: an ORed term costs about 60 us, a read of every card about a second
@@ -183,20 +184,9 @@ export function refreshSearchTerms(db, max = REFRESH_SLICE) {
     })();
 }
 
-const _timers = new WeakMap();
-
 /** Bring search_terms up to date with every pending row soon, a slice per turn; a call while one waits joins it. */
 function scheduleSearchTermsRefresh(db, wait = REFRESH_WAIT_MS) {
-    if (_timers.has(db)) return;
-    const timer = setTimeout(() => {
-        _timers.delete(db);
-        if (!db.open) return;
-        let folded = 0;
-        try { folded = refreshSearchTerms(db); } catch (e) { console.error('[search] the term list refresh failed:', e.message); return; }
-        if (folded === REFRESH_SLICE) scheduleSearchTermsRefresh(db, 0);
-    }, wait);
-    timer.unref?.();
-    _timers.set(db, timer);
+    scheduleLibraryJob(db, 'search', async () => { while (db.open && refreshSearchTerms(db) === REFRESH_SLICE) await nextTurn(); }, { wait });
 }
 
 /** search_terms rebuilt whole from the index's vocabulary, for a bulk load that ran without the triggers. */

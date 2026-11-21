@@ -447,7 +447,7 @@ function initCustomSelect(select) {
     }
 
     function positionMenu() {
-        const zoom = parseFloat(document.body.style.zoom) || 1;
+        const zoom = uiZoom();
         const rawRect = trigger.getBoundingClientRect();
         const rect = { left: rawRect.left / zoom, top: rawRect.top / zoom, bottom: rawRect.bottom / zoom, width: rawRect.width / zoom };
         const viewportH = window.innerHeight / zoom;
@@ -578,12 +578,13 @@ function initCustomSelect(select) {
         e.stopPropagation();
     });
 
+    // capture, so an opener that stops its own click (a window's More) still closes the list
     const onWindowClick = (e) => {
         if (!menu.classList.contains('hidden') && !container.contains(e.target) && !menu.contains(e.target)) {
             close();
         }
     };
-    window.addEventListener('click', onWindowClick);
+    window.addEventListener('click', onWindowClick, true);
 
     // Close on scroll - only if the trigger's viewport position actually changed
     // (avoids false closes from unrelated scrolls behind fixed-position modals)
@@ -603,7 +604,7 @@ function initCustomSelect(select) {
     window.addEventListener('keydown', onWindowKeydown);
     // a select that a rebuild throws away takes its menu and its window listeners with it
     const destroy = () => {
-        window.removeEventListener('click', onWindowClick);
+        window.removeEventListener('click', onWindowClick, true);
         window.removeEventListener('scroll', onWindowScroll, true);
         window.removeEventListener('keydown', onWindowKeydown);
         menu.remove();
@@ -677,6 +678,8 @@ function initAllCustomSelects() {
 
 const FIT_COLLAPSED = 'cl-overflowed';
 const FIT_LIFTED = 'cl-overflow-lifted';
+// an entry's states as the spec names them, and the class the More and its list rows wear for each
+const FIT_MARKS = Object.freeze([['current', 'is-current'], ['marked', 'is-marked'], ['working', 'is-working'], ['waiting', 'is-waiting']]);
 const _fitRows = new Set();
 const _fitQueued = new Set();
 let _fitObserver = null;
@@ -691,9 +694,11 @@ let _fitObserver = null;
  * @param {string} [spec.current] a collapsed entry matching this lights the More (is-current)
  * @param {string} [spec.marked] a collapsed entry matching this puts its dot on the More (is-marked)
  * @param {string} [spec.working] a collapsed entry matching this shows the More working (is-working)
+ * @param {string} [spec.waiting] a collapsed entry matching this puts its waiting dot on the More (is-waiting)
  * @param {string} [spec.separators] dividers in the row that hide when nothing shows on one side
  * @param {boolean} [spec.watch] refit on its own when an entry changes size or the row's controls are rebuilt
  * @param {(el: HTMLElement) => string} [spec.label] the words a collapsed control's row reads; overflowLabel when absent
+ * @param {(el: HTMLElement, e: MouseEvent) => void} [spec.context] a collapsed entry's right-click, from its row in the More list
  */
 function fitRow(row, spec) {
     if (!row || !spec?.more || typeof spec.entries !== 'function') return;
@@ -720,7 +725,7 @@ function fitRow(row, spec) {
     }
     // an entry lit, marked or working by its own surface shows on the More while collapsed, whoever
     // changed it
-    if ((spec.current || spec.marked || spec.working) && !row._fitMarks && typeof MutationObserver === 'function') {
+    if (FIT_MARKS.some(([k]) => spec[k]) && !row._fitMarks && typeof MutationObserver === 'function') {
         row._fitMarks = new MutationObserver(() => syncRowMore(row));
         row._fitMarks.observe(row, { attributes: true, attributeFilter: ['class'], subtree: true });
     }
@@ -767,29 +772,42 @@ function fitRowNow(row) {
     const live = all.filter(el => el.getClientRects().length);
     const syncSeparators = () => {
         if (!separators) return;
+        // every read before any write: a read after a write lays the row out again, once per divider
+        const kids = [...row.children];
+        const kind = kids.map(k => (k.matches(separators) ? 'divider' : k !== more && k.getClientRects().length ? 'shown' : 'gone'));
+        const kept = new Set();
         let seen = false, pending = null;
-        for (const k of row.children) {
-            if (k.matches(separators)) {
-                k.classList.add(FIT_COLLAPSED);
-                if (seen) pending = k;
-            } else if (k !== more && k.getClientRects().length) {
-                if (pending) { pending.classList.remove(FIT_COLLAPSED); pending = null; }
+        kids.forEach((k, i) => {
+            if (kind[i] === 'divider') { if (seen) pending = k; }
+            else if (kind[i] === 'shown') {
+                if (pending) { kept.add(pending); pending = null; }
                 seen = true;
             }
-        }
+        });
+        kids.forEach((k, i) => { if (kind[i] === 'divider') k.classList.toggle(FIT_COLLAPSED, !kept.has(k)); });
     };
     syncSeparators();
     const over = () => row.scrollWidth > row.clientWidth;
     // a hidden row fits nothing, the observer refits it when it shows; one squeezed to no width fits nothing either
     if (row.getClientRects().length) {
-        const pinned = always ? live.filter(el => always(el)) : [];
-        pinned.forEach(el => el.classList.add(FIT_COLLAPSED));
-        if (pinned.length || over()) {
+        const pinned = new Set(always ? live.filter(el => always(el)) : []);
+        const collapseLast = (n) => {
+            live.forEach((el, i) => el.classList.toggle(FIT_COLLAPSED, i >= live.length - n || pinned.has(el)));
+            syncSeparators();
+        };
+        collapseLast(0);
+        if (pinned.size || over()) {
             more.classList.remove(FIT_COLLAPSED);
             syncSeparators();
-            for (let i = live.length - 1; i >= 0 && over(); i--) {
-                live[i].classList.add(FIT_COLLAPSED);
-                syncSeparators();
+            if (over()) {
+                // the fewest entries off the end that make it fit, found by halving: each try lays the row out
+                let lo = 1, hi = live.length;
+                while (lo < hi) {
+                    const mid = (lo + hi) >> 1;
+                    collapseLast(mid);
+                    if (over()) lo = mid + 1; else hi = mid;
+                }
+                collapseLast(lo);
             }
         }
     }
@@ -797,11 +815,9 @@ function fitRowNow(row) {
 }
 
 function syncRowMore(row) {
-    const { entries, more, current, marked, working } = row._fit;
+    const { entries, more } = row._fit;
     const collapsed = entries().filter(el => el?.classList.contains(FIT_COLLAPSED));
-    more.classList.toggle('is-current', !!current && collapsed.some(el => el.matches(current)));
-    more.classList.toggle('is-marked', !!marked && collapsed.some(el => el.matches(marked)));
-    more.classList.toggle('is-working', !!working && collapsed.some(el => el.matches(working)));
+    for (const [k, cls] of FIT_MARKS) more.classList.toggle(cls, !!row._fit[k] && collapsed.some(el => el.matches(row._fit[k])));
 }
 
 /**
@@ -810,7 +826,7 @@ function syncRowMore(row) {
  */
 function fitListToViewport(el, pad = 12) {
     el.style.maxHeight = '';
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = uiZoom();
     const room = (window.innerHeight - el.getBoundingClientRect().top) / zoom - pad;
     el.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
     el.style.overflowY = 'auto';
@@ -837,7 +853,7 @@ function liftRowEntry(row, entry) {
     row._fitLifted = entry;
     entry.classList.replace(FIT_COLLAPSED, FIT_LIFTED);
     Object.assign(entry.style, { position: 'absolute', right: '0px', top: '0px' });
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = uiZoom();
     const at = entry.getBoundingClientRect(), door = row._fit.more.getBoundingClientRect();
     entry.style.right = `${(at.right - door.right) / zoom}px`;
     entry.style.top = `${(door.top - at.top) / zoom}px`;
@@ -880,6 +896,7 @@ function openRowOverflow(row, e) {
     const collapsed = row._fit.entries().filter(el => el?.classList.contains(FIT_COLLAPSED));
     if (!menu?.showItems || !collapsed.length) return;
     const label = row._fit.label || overflowLabel;
+    const { context } = row._fit;
     const items = [];
     let group = null, wasSet = false;
     for (const el of collapsed) {
@@ -895,7 +912,11 @@ function openRowOverflow(row, e) {
             const icon = [...(c.querySelector('i')?.classList || [])].filter(k => k.startsWith('fa')).join(' ');
             // a control that cannot be used now folds as a disabled row that says why
             const why = unavailableReason(c, el);
-            items.push({ icon: icon || 'fa-solid fa-circle', label: label(c), className: c.matches('.active, [aria-pressed="true"]') ? 'is-current' : '', disabled: why !== null, hint: why || undefined, action: () => pressFromMore(row, el, c) });
+            // the row says what its entry says on the bar: lit while its surface is open, the entry's dot beside it
+            const lit = c.matches('.active, [aria-pressed="true"]');
+            const state = FIT_MARKS.filter(([k]) => (k === 'current' && lit) || (row._fit[k] && el.matches(row._fit[k]))).map(([, cls]) => cls).join(' ');
+            items.push({ icon: icon || 'fa-solid fa-circle', label: label(c), className: state, disabled: why !== null, hint: why || undefined, action: () => pressFromMore(row, el, c),
+                onContext: typeof context === 'function' ? (ev) => context(el, ev) : undefined });
         }
     }
     const r = e.currentTarget.getBoundingClientRect();
@@ -1035,8 +1056,8 @@ const DEFAULT_SETTINGS = {
     chatReserveForReply: 350,
     // Desktop only. Off: each panel keeps its own size and place like a window; mobile pins them full screen.
     chatPanelsExclusive: false,
-    // extension chat windows taken out of the header and the phone's picker, by window key (<extId>/<id>)
-    chatExtHiddenHeader: [],
+    // the desktop header's arrangement (null: the page's own order); extension windows hidden from the phone's Windows tiles, by key (<extId>/<id>)
+    chatHeaderLayout: null,
     chatExtHiddenPhone: [],
     // Apart from chatProfileId on purpose: a side assistant often runs somewhere cheaper than the story.
     assistantProfileId: '',
@@ -1066,11 +1087,6 @@ const DEFAULT_SETTINGS = {
     assistantReasoningEffort: '',
     assistantMaxReply: '',
     assistantTemperature: '',
-    // Blank means the server's wording. Impersonate is the one a preset refuses, and rewording is the
-    // reader's only fix.
-    chatImpersonatePrompt: '',
-    chatContinuePrompt: '',
-    chatGuidedPrompt: '',
     chatQuoteFamilies: 'default',
     chatRepairEmphasis: true,
     chatEscapeStrings: '',
@@ -1103,6 +1119,8 @@ const DEFAULT_SETTINGS = {
     chatLiveFormatting: false,
     // Collapsed by default: a 2,000 word think block is many screens before the answer.
     chatReasoningDefaultOpen: false,
+    // A shut thinking is filled on its first open, which keeps a long chat quick to open; on fills every one up front.
+    chatRenderClosedThinking: false,
     // The in-chat gallery shows the character's pictures and the chat's own; added pictures go to the character's.
     chatGalleryShowCharacter: true,
     chatGalleryShowChat: true,
@@ -1190,6 +1208,8 @@ const DEFAULT_SETTINGS = {
     backupWindowEnd: 6,
     // the search index tidied in the background while the library sits idle, once its lookups have slowed
     autoTidySearchIndex: true,
+    // the server reads the library file once after it starts, so the first search reads memory, not the disk
+    preloadLibrary: true,
     // an admin hears when an installed extension has a newer version; off, nothing asks a repository unasked
     notifyExtensionUpdates: false,
 };
@@ -1206,6 +1226,7 @@ const WINDOW_DEFAULTS = {
     chatBgPanel: { w: 34, h: 74, x: 33, y: 13 },
     chatPersonasPanel: { w: 30, h: 70, x: 35, y: 15 },
     chatCardTextsPanel: { w: 34, h: 80, x: 33, y: 10 },
+    chatRegexPanel: { w: 34, h: 100, x: 66, y: 0 },
     chatSettingsPanel: { w: 32, h: 82, x: 34, y: 9 },
     chatInspectPanel: { w: 62, h: 86, x: 19, y: 7 },
     chatAssistPanel: { w: 30, h: 100, x: 70, y: 0 },
@@ -1847,6 +1868,12 @@ function getDefaultSetting(key) {
     return DEFAULT_SETTINGS[key];
 }
 
+// a numeric setting as the reader set it, or the shipped default when the stored value is no number (0 is a choice)
+function numberSetting(key) {
+    const n = Number(getSetting(key));
+    return Number.isFinite(n) ? n : getDefaultSetting(key);
+}
+
 function setSetting(key, value) {
     gallerySettings[key] = value;
     saveGallerySettings([key]);
@@ -2198,6 +2225,11 @@ function applyUiScale(level) {
     document.body.style.zoom = zoom;
     document.body.style.height = zoom !== 1 ? `calc(100vh / ${zoom})` : '';
     cacheViewportChrome({ uiScale: level });
+}
+
+// the factor a screen rect is divided by to land in the page's css pixels (1 at 100% and on a phone)
+function uiZoom() {
+    return parseFloat(document.body.style.zoom) || 1;
 }
 
 function applyModalSize(level) {
@@ -2590,7 +2622,13 @@ function wireDragReorder(list, { item, handle, key = 'id', onReorder = null }) {
     if (!list || list.dataset.dragWired) return;
     list.dataset.dragWired = '1';
     const items = () => [...list.querySelectorAll(item)];
-    const clearOver = () => items().forEach(el => el.classList.remove('drag-over'));
+    const clearOver = () => items().forEach(el => el.classList.remove('drag-over', 'drag-after'));
+    // the line goes on the side the row will land: after the target going down, before it going up
+    const markOver = (target, held) => {
+        const all = items();
+        target.classList.add('drag-over');
+        target.classList.toggle('drag-after', all.indexOf(held) < all.indexOf(target));
+    };
     let dragItem = null;
     list.addEventListener('dragstart', (e) => {
         const it = e.target.closest(item);
@@ -2611,15 +2649,17 @@ function wireDragReorder(list, { item, handle, key = 'id', onReorder = null }) {
         const target = e.target.closest(item);
         if (!target || target === dragItem) return;
         clearOver();
-        target.classList.add('drag-over');
+        markOver(target, dragItem);
     });
-    list.addEventListener('dragleave', (e) => e.target.closest(item)?.classList.remove('drag-over'));
+    list.addEventListener('dragleave', (e) => e.target.closest(item)?.classList.remove('drag-over', 'drag-after'));
     list.addEventListener('drop', (e) => {
         e.preventDefault();
         const target = e.target.closest(item);
         if (!target || !dragItem || target === dragItem) return;
-        target.classList.remove('drag-over');
-        list.insertBefore(dragItem, target);
+        target.classList.remove('drag-over', 'drag-after');
+        // going down, the row lands after the one it is dropped on; going up, before it
+        const all = items();
+        list.insertBefore(dragItem, all.indexOf(dragItem) < all.indexOf(target) ? target.nextSibling : target);
         onReorder?.();
     });
     let touchItem = null;
@@ -2644,13 +2684,14 @@ function wireDragReorder(list, { item, handle, key = 'id', onReorder = null }) {
             const rect = el.getBoundingClientRect();
             return y >= rect.top && y <= rect.bottom;
         });
-        over?.classList.add('drag-over');
+        if (over) markOver(over, touchItem);
     }, { passive: false });
     list.addEventListener('touchend', () => {
         if (!touchItem) return;
         const over = list.querySelector(`${item}.drag-over`);
         const moved = !!over && over !== touchItem;
-        if (moved) list.insertBefore(touchItem, over);
+        const all = items();
+        if (moved) list.insertBefore(touchItem, all.indexOf(touchItem) < all.indexOf(over) ? over.nextSibling : over);
         endTouch();
         if (moved) onReorder?.();
     });
@@ -2686,39 +2727,64 @@ function isMultiSelectEnabled() {
  * @returns {Array<{type: 'context'|'added'|'removed', line: string}>}
  */
 function computeLineDiff(oldLines, newLines) {
-    const m = oldLines.length;
-    const n = newLines.length;
-    
-    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            if (oldLines[i - 1] === newLines[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1] + 1;
-            } else {
-                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+    const rows = lcsDiff(oldLines, newLines);
+    return rows.map(r => ({ type: r.type === 'same' ? 'context' : r.type, line: r.text }));
+}
+
+// past this many edits two texts are different texts: the changed middle is marked whole, never walked further
+const DIFF_EDITS = 1000;
+
+// the fewest edits turning x into y (Myers): time by the edits made, not the length, so ten changes in a long text cost ten
+function myersDiff(x, y, maxEdits) {
+    const n = x.length, m = y.length;
+    const off = n + m + 1;
+    const v = new Int32Array(2 * off + 1);
+    const trace = [];
+    for (let d = 0; d <= Math.min(n + m, maxEdits); d++) {
+        // the reach before this round, k from -d-1 to d+1, all the walk back reads
+        trace.push(v.slice(off - d - 1, off + d + 2));
+        for (let k = -d; k <= d; k += 2) {
+            let i = k === -d || (k !== d && v[off + k - 1] < v[off + k + 1]) ? v[off + k + 1] : v[off + k - 1] + 1;
+            let j = i - k;
+            while (i < n && j < m && x[i] === y[j]) { i++; j++; }
+            v[off + k] = i;
+            if (i >= n && j >= m) {
+                const rows = [];
+                let xi = n, yi = m;
+                for (let e = d; e >= 0; e--) {
+                    const t = trace[e], at = (kk) => t[kk + e + 1];
+                    const kk = xi - yi;
+                    const pk = kk === -e || (kk !== e && at(kk - 1) < at(kk + 1)) ? kk + 1 : kk - 1;
+                    const pi = at(pk), pj = pi - pk;
+                    while (xi > pi && yi > pj) { rows.push({ type: 'same', text: x[--xi] }); yi--; }
+                    if (e > 0) {
+                        if (xi === pi) rows.push({ type: 'added', text: y[--yi] });
+                        else rows.push({ type: 'removed', text: x[--xi] });
+                    }
+                }
+                return rows.reverse();
             }
         }
     }
-    
-    const result = [];
-    let i = m, j = n;
-    
-    while (i > 0 || j > 0) {
-        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-            result.unshift({ type: 'context', line: oldLines[i - 1] });
-            i--;
-            j--;
-        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-            result.unshift({ type: 'added', line: newLines[j - 1] });
-            j--;
-        } else {
-            result.unshift({ type: 'removed', line: oldLines[i - 1] });
-            i--;
-        }
-    }
+    return null;
+}
 
-    return result;
+// two lists as same / removed / added rows: shared head and tail walked once, the middle by its edits, past DIFF_EDITS whole
+function lcsDiff(a, b) {
+    let head = 0;
+    while (head < a.length && head < b.length && a[head] === b[head]) head++;
+    let tail = 0;
+    while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+    const out = a.slice(0, head).map(text => ({ type: 'same', text }));
+    const x = a.slice(head, a.length - tail), y = b.slice(head, b.length - tail);
+    const mid = myersDiff(x, y, DIFF_EDITS);
+    if (mid) out.push(...mid);
+    else {
+        for (const text of x) out.push({ type: 'removed', text });
+        for (const text of y) out.push({ type: 'added', text });
+    }
+    for (const text of a.slice(a.length - tail)) out.push({ type: 'same', text });
+    return out;
 }
 
 /**
@@ -2730,36 +2796,79 @@ function computeLineDiff(oldLines, newLines) {
  */
 function computeWordDiff(oldLine, newLine) {
     const tokenize = (s) => String(s ?? '').match(/\S+|\s+/g) || [];
-    const oldWords = tokenize(oldLine);
-    const newWords = tokenize(newLine);
-    const m = oldWords.length;
-    const n = newWords.length;
-    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            dp[i][j] = oldWords[i - 1] === newWords[j - 1]
-                ? dp[i - 1][j - 1] + 1
-                : Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-    }
     const oldResult = [];
     const newResult = [];
-    let i = m, j = n;
-    while (i > 0 || j > 0) {
-        if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
-            oldResult.unshift({ type: 'same', text: oldWords[i - 1] });
-            newResult.unshift({ type: 'same', text: newWords[j - 1] });
-            i--;
-            j--;
-        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-            newResult.unshift({ type: 'added', text: newWords[j - 1] });
-            j--;
-        } else {
-            oldResult.unshift({ type: 'removed', text: oldWords[i - 1] });
-            i--;
-        }
+    for (const r of lcsDiff(tokenize(oldLine), tokenize(newLine))) {
+        if (r.type !== 'added') oldResult.push(r);
+        if (r.type !== 'removed') newResult.push(r);
     }
     return { old: oldResult, new: newResult };
+}
+
+/**
+ * Side-by-side diff of every review and comparison surface: line hunks, each one word diff, unchanged lines folded to a gap.
+ * @param {{ heads?: [string, string] }} [opts] the two columns' heads
+ * @returns {{ html: string, changed: number, added: number, removed: number }} html '' when nothing differs; the counts in lines
+ */
+function diffSplitView(before, after, { heads = ['Now', 'Proposed'] } = {}) {
+    // an empty side has no lines, not one empty line (which would pair with a blank line as context)
+    const lines = (s) => { const t = String(s ?? ''); return t ? t.split('\n') : []; };
+    const groups = [];
+    for (const r of computeLineDiff(lines(before), lines(after))) {
+        const last = groups[groups.length - 1];
+        if (r.type === 'context') groups.push({ ctx: r.line });
+        else if (last && !('ctx' in last)) (r.type === 'removed' ? last.old : last.new).push(r.line);
+        else groups.push({ old: r.type === 'removed' ? [r.line] : [], new: r.type === 'added' ? [r.line] : [] });
+    }
+    const hunkAt = (i) => i >= 0 && i < groups.length && !('ctx' in groups[i]);
+    const counts = { changed: 0, added: 0, removed: 0 };
+    if (!groups.some((g, i) => hunkAt(i))) return { html: '', ...counts };
+    // one side of a hunk, its tokens back into lines; a run of marked tokens is one span
+    const linesOf = (tokens, mark, word) => {
+        const out = [[]];
+        for (const t of tokens) {
+            if (!t.text.includes('\n')) { out[out.length - 1].push(t); continue; }
+            t.text.split('\n').forEach((part, k) => {
+                if (k) out.push([]);
+                if (part) out[out.length - 1].push({ type: t.type, text: part });
+            });
+        }
+        return out.map(l => {
+            const runs = [];
+            for (const t of l) {
+                const on = t.type === mark;
+                if (runs.length && runs[runs.length - 1].on === on) runs[runs.length - 1].text += t.text;
+                else runs.push({ on, text: t.text });
+            }
+            return { marked: runs.some(r => r.on), html: runs.map(r => (r.on ? `<span class="${word}">${escapeHtml(r.text)}</span>` : escapeHtml(r.text))).join('') };
+        });
+    };
+    const cell = (l, cls) => (l ? `<div class="cl-diff-cell ${l.marked ? cls : 'is-ctx'}">${l.html}</div>` : '<div class="cl-diff-cell is-empty"></div>');
+    const gap = '<div class="cl-diff-gap">…</div><div class="cl-diff-gap">…</div>';
+    const out = [];
+    let elided = false;
+    groups.forEach((g, i) => {
+        if ('ctx' in g) {
+            if (!hunkAt(i - 1) && !hunkAt(i + 1)) { elided = true; return; }
+            if (elided) { out.push(gap); elided = false; }
+            out.push(`<div class="cl-diff-cell is-ctx">${escapeHtml(g.ctx)}</div><div class="cl-diff-cell is-ctx">${escapeHtml(g.ctx)}</div>`);
+            return;
+        }
+        const paired = Math.min(g.old.length, g.new.length);
+        counts.changed += paired;
+        counts.removed += g.old.length - paired;
+        counts.added += g.new.length - paired;
+        const d = computeWordDiff(g.old.join('\n'), g.new.join('\n'));
+        const left = g.old.length ? linesOf(d.old, 'removed', 'cl-diff-word-del') : [];
+        const right = g.new.length ? linesOf(d.new, 'added', 'cl-diff-word-add') : [];
+        for (let k = 0; k < Math.max(left.length, right.length); k++) out.push(cell(left[k], 'is-del') + cell(right[k], 'is-add'));
+    });
+    if (elided) out.push(gap);
+    const html = `<div class="cl-diff">
+        <div class="cl-diff-col-head is-del">${escapeHtml(heads[0])}</div><div class="cl-diff-col-head is-add">${escapeHtml(heads[1])}</div>
+        ${out.join('')}
+    </div>`;
+    return { html, ...counts };
 }
 
 // ========================================
@@ -4235,6 +4344,12 @@ function buildConfirmContentHtml(blocks) {
                 if (t) out.push(`<label class="cl-confirm-ack"><input type="checkbox" class="cl-switch-input cl-confirm-ack-input"><span class="cl-switch" aria-hidden="true"></span><span>${escapeHtml(t)}</span></label>`);
                 break;
             }
+            case 'switch': {
+                // a choice the answer carries along (its onChange hears each flip); an ack gates, this never does
+                const t = String(b.text ?? '');
+                if (t) out.push(`<label class="cl-confirm-ack cl-confirm-switch"><input type="checkbox" class="cl-switch-input" data-confirm-switch="${escapeHtml(b.key ?? '')}"${b.checked ? ' checked' : ''}><span class="cl-switch" aria-hidden="true"></span><span>${escapeHtml(t)}</span></label>`);
+                break;
+            }
             case 'note': {
                 const tone = ['info', 'warning', 'danger'].includes(b.tone) ? b.tone : 'info';
                 const icon = b.icon || (tone === 'info' ? 'fa-solid fa-circle-info' : 'fa-solid fa-triangle-exclamation');
@@ -4378,11 +4493,11 @@ function showConfirm({
     const blocks = Array.isArray(content) ? content : [];
     const ackEl = document.getElementById('clConfirmAcks');
     if (ackEl) {
-        ackEl.innerHTML = buildConfirmContentHtml(blocks.filter(b => b?.type === 'ack'));
+        ackEl.innerHTML = buildConfirmContentHtml(blocks.filter(b => b?.type === 'ack' || b?.type === 'switch'));
         ackEl.hidden = !ackEl.innerHTML;
     }
     if (msgEl) {
-        const blocksHtml = buildConfirmContentHtml(blocks.filter(b => b?.type !== 'ack'));
+        const blocksHtml = buildConfirmContentHtml(blocks.filter(b => b?.type !== 'ack' && b?.type !== 'switch'));
         if (blocksHtml) {
             const lead = message ? `<p class="cl-confirm-p">${escapeHtml(message)}</p>` : '';
             msgEl.innerHTML = lead + blocksHtml;
@@ -4411,6 +4526,10 @@ function showConfirm({
     };
     for (const a of acks) a.addEventListener('change', sync);
     sync();
+    for (const sw of ackEl ? ackEl.querySelectorAll('[data-confirm-switch]') : []) {
+        const block = blocks.find(b => b?.type === 'switch' && String(b.key ?? '') === sw.dataset.confirmSwitch);
+        sw.addEventListener('change', () => block?.onChange?.(sw.checked));
+    }
     overlay.classList.toggle('cl-confirm-three', !!extraLabel);
 
     // Optional text answer; the default lands via .value, never innerHTML, so markup in a name stays text.
@@ -7506,6 +7625,8 @@ async function openModalNow(char, { navList } = {}) {
 
     renderSidebarPlaylists(char.id);
 
+    // another character opens on Details: the last one's Related lookup is left behind
+    cancelRelatedSearch();
     syncExtensionTabs({ fresh: true });
     deactivateAllTabs();
     document.querySelector('.tab-btn[data-tab="details"]').classList.add('active');
@@ -7877,6 +7998,7 @@ function closeModal() {
     modal.classList.add('hidden');
     _modalOpenGen++;
     activeChar = null;
+    cancelRelatedSearch();
     setCharModalChangedBand(false);
 
     // Clear avatar so stale image doesn't flash on next open
@@ -7908,10 +8030,6 @@ function closeModal() {
     if (duplicateModalState.wasOpen) {
         restoreDuplicateModalState();
         duplicateModalState.wasOpen = false;
-    }
-    else if (bulkSummaryModalState.wasOpen) {
-        restoreBulkSummaryModalState();
-        bulkSummaryModalState.wasOpen = false;
     }
 }
 
@@ -8237,6 +8355,15 @@ async function copyTextToClipboard(text) {
 let _relatedSearchId = 0;
 // the entries on screen by their shown character's id, so a copies button finds its versions
 let _relatedShown = new Map();
+let _relatedAbort = null;
+
+// the lookup in flight is dropped when the reader leaves the tab or the details; the server stops at its next step
+function cancelRelatedSearch() {
+    if (!_relatedAbort) return;
+    _relatedSearchId++;
+    _relatedAbort.abort();
+    _relatedAbort = null;
+}
 
 /**
  * Related characters in one request: the server scores tags, creator and content in SQL; no
@@ -8246,7 +8373,9 @@ async function findRelatedCharacters(sourceChar) {
     const resultsEl = document.getElementById('relatedResults');
     if (!resultsEl) return;
 
+    cancelRelatedSearch();
     const searchId = ++_relatedSearchId;
+    const ctl = _relatedAbort = new AbortController();
     resultsEl.innerHTML = '<div class="related-loading"><i class="fa-solid fa-spinner fa-spin"></i> Finding related characters...</div>';
 
     const useTags = document.getElementById('relatedFilterTags')?.checked ?? true;
@@ -8258,11 +8387,12 @@ async function findRelatedCharacters(sourceChar) {
         if (!useTags) qs.set('tags', 'false');
         if (!useCreator) qs.set('creator', 'false');
         if (!useContent) qs.set('content', 'false');
-        const resp = await apiRequest(`/characters/${encodeURIComponent(sourceChar.id)}/related?${qs.toString()}`, 'GET');
+        const resp = await apiRequest(`/characters/${encodeURIComponent(sourceChar.id)}/related?${qs.toString()}`, 'GET', null, { signal: ctl.signal });
         if (searchId !== _relatedSearchId) return;
         if (!resp.ok) throw new Error(`related query failed (HTTP ${resp.status})`);
         const data = await resp.json();
         if (searchId !== _relatedSearchId) return;
+        if (_relatedAbort === ctl) _relatedAbort = null;
         const chars = mergeServerRows((data.items || []).map(it => it.character));
         const related = (data.items || []).map((it, i) => ({
             char: chars[i],
@@ -8270,10 +8400,12 @@ async function findRelatedCharacters(sourceChar) {
             breakdown: it.breakdown || {},
             matchReasons: it.matchReasons || [],
             copies: mergeServerRows(it.copies || []),
+            copyCount: Number.isFinite(it.copyCount) ? it.copyCount : (it.copies || []).length,
         }));
         renderRelatedResults(related, sourceChar);
     } catch (e) {
-        if (searchId !== _relatedSearchId) return;
+        if (searchId !== _relatedSearchId || e?.name === 'AbortError') return;
+        if (_relatedAbort === ctl) _relatedAbort = null;
         console.warn('[Related] query failed:', e);
         // a failed lookup renders an honest error state, never an empty "no results"
         resultsEl.innerHTML = `
@@ -8370,15 +8502,15 @@ function renderRelatedCards(related) {
             const words = (r.breakdown.terms || []).join(', ');
             pills.push(`<span class="related-pill content" title="${escapeHtml(words ? `Both mention ${words}` : 'Similar content')}"><i class="fa-solid fa-file-lines"></i></span>`);
         }
-        const versions = r.copies.length + 1;
+        const versions = r.copyCount + 1;
         const copiesBtn = r.copies.length
             ? `<button type="button" class="cl-btn cl-btn-secondary cl-btn-sm related-copies" data-copies-of="${escapeHtml(char.id)}" title="Choose a version" aria-haspopup="menu"><i class="fa-solid fa-clone"></i> ${versions} Copies</button>`
             : '';
 
         return `
             <div class="related-card" data-char-id="${escapeHtml(char.id)}" title="${escapeHtml(r.matchReasons.join('\n'))}">
-                <img class="related-card-avatar" src="${avatarPath}" alt="${escapeHtml(name)}" loading="lazy"
-                     onerror="this.src='${AVATAR_FALLBACK_SVG}'">
+                <span class="related-card-avatar-wrap"><img class="related-card-avatar" src="${avatarPath}" alt="${escapeHtml(name)}" loading="lazy"
+                     onload="this.parentElement.classList.add('loaded')" onerror="this.src='${AVATAR_FALLBACK_SVG}'"></span>
                 <div class="related-card-info">
                     <div class="related-card-name">${escapeHtml(name)}</div>
                     ${creator ? `<div class="related-card-creator">by ${escapeHtml(creator)}</div>` : ''}
@@ -8399,7 +8531,8 @@ function openRelatedCopies(e, btn) {
     const menu = window.ModuleLoader?.get('context-menu');
     if (!entry || !menu?.showItems) return;
     const versions = [entry.char, ...entry.copies];
-    const items = [{ type: 'header', label: `${versions.length} copies of ${getCharField(entry.char, 'name') || 'this character'}` }];
+    const all = entry.copyCount + 1;
+    const items = [{ type: 'header', label: `${all} copies of ${getCharField(entry.char, 'name') || 'this character'}${all > versions.length ? `, ${versions.length} listed` : ''}` }];
     for (const c of versions) {
         const creator = getCharField(c, 'creator');
         const added = c.date_added ? new Date(Number(c.date_added)) : null;
@@ -9334,15 +9467,13 @@ function setEditLock(locked) {
         if (removeLorebookBtn) removeLorebookBtn.disabled = true;
         const promoteLorebookBtn = document.getElementById('promoteLorebookBtn');
         if (promoteLorebookBtn) promoteLorebookBtn.disabled = true;
-        document.querySelectorAll('.lorebook-entry-edit input, .lorebook-entry-edit textarea').forEach(input => {
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-edit input, #lorebookEntriesEdit .lorebook-entry-edit textarea').forEach(input => {
             input.classList.add('locked');
             input.readOnly = true;
             if (input.type === 'checkbox') input.disabled = true;
         });
-        document.querySelectorAll('.lorebook-entry-delete, .lorebook-entry-toggle').forEach(btn => {
-            btn.style.pointerEvents = 'none';
-            btn.style.opacity = '0.5';
-        });
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-delete').forEach(btn => { btn.disabled = true; });
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-toggle').forEach(label => { label.style.opacity = '0.5'; });
 
         // Linked-lorebook add/unlink follow the lock.
         const addAuxLbBtn = document.getElementById('addAuxLorebookBtn');
@@ -9388,15 +9519,13 @@ function setEditLock(locked) {
         if (removeLorebookBtn) removeLorebookBtn.disabled = false;
         const promoteLorebookBtn = document.getElementById('promoteLorebookBtn');
         if (promoteLorebookBtn) promoteLorebookBtn.disabled = false;
-        document.querySelectorAll('.lorebook-entry-edit input, .lorebook-entry-edit textarea').forEach(input => {
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-edit input, #lorebookEntriesEdit .lorebook-entry-edit textarea').forEach(input => {
             input.classList.remove('locked');
             input.readOnly = false;
             if (input.type === 'checkbox') input.disabled = false;
         });
-        document.querySelectorAll('.lorebook-entry-delete, .lorebook-entry-toggle').forEach(btn => {
-            btn.style.pointerEvents = '';
-            btn.style.opacity = '';
-        });
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-delete').forEach(btn => { btn.disabled = false; });
+        document.querySelectorAll('#lorebookEntriesEdit .lorebook-entry-toggle').forEach(label => { label.style.opacity = ''; });
 
         const addAuxLbBtn = document.getElementById('addAuxLorebookBtn');
         if (addAuxLbBtn) addAuxLbBtn.disabled = false;
@@ -9902,45 +10031,61 @@ function fitTagRows(container, look) {
     pill.title = tags.slice(keep).map(t => t.textContent.trim()).join(', ');
 }
 
+const _tagSuggestAsks = new WeakMap();
 /**
- * Show tag autocomplete dropdown: the server's suggestions for the text, a late answer for text
- * typed over dropped
+ * Fill a tag suggestion list: the server's names for the text less the ones held, a late answer for text typed over dropped
+ * @param {string} [filterText]
+ * @param {{dropdown: HTMLElement, exclude?: string[], onPick: (tag: string) => void, allowCreate?: boolean, limit?: number}} opts - the list; names held, any case (none by default); what a pick does; a Create row for text nothing matches; the most shown
  */
-let _tagAutocompleteSeq = 0;
-async function showTagAutocomplete(filterText = '') {
-    const autocomplete = document.getElementById('tagAutocomplete');
-    if (!autocomplete) return;
+async function showTagAutocomplete(filterText = '', { dropdown, exclude = [], onPick, allowCreate = true, limit = 10 } = {}) {
+    const autocomplete = dropdown;
+    if (!autocomplete || typeof onPick !== 'function') return;
 
-    const currentTags = getCurrentTagsArray().map(t => t.toLowerCase());
-    const mine = ++_tagAutocompleteSeq;
-    const named = await suggestTags(filterText, { limit: 10 + currentTags.length });
-    if (mine !== _tagAutocompleteSeq) return;
-    const suggestions = named.filter(tag => !currentTags.includes(tag.toLowerCase())).slice(0, 10);
+    const text = String(filterText ?? '').trim();
+    const held = exclude.map(t => t.toLowerCase());
+    const mine = (_tagSuggestAsks.get(autocomplete) || 0) + 1;
+    _tagSuggestAsks.set(autocomplete, mine);
+    const named = await suggestTags(text, { limit: limit + held.length });
+    if (mine !== _tagSuggestAsks.get(autocomplete)) return;
+    const suggestions = named.filter(tag => !held.includes(tag.toLowerCase())).slice(0, limit);
 
-    if (suggestions.length === 0 && filterText.trim()) {
-        autocomplete.innerHTML = `
-            <div class="tag-autocomplete-item create-new" data-tag="${escapeHtml(filterText.trim())}">
-                <i class="fa-solid fa-plus"></i> Create "${escapeHtml(filterText.trim())}"
-            </div>
-        `;
-        autocomplete.classList.add('visible');
-    } else if (suggestions.length > 0) {
-        autocomplete.innerHTML = suggestions.map(tag => `
-            <div class="tag-autocomplete-item" data-tag="${escapeHtml(tag)}">
-                ${escapeHtml(tag)}
-            </div>
-        `).join('');
-        autocomplete.classList.add('visible');
+    if (suggestions.length) {
+        autocomplete.innerHTML = suggestions.map(tag => `<div class="tag-autocomplete-item" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</div>`).join('');
+    } else if (text && allowCreate) {
+        autocomplete.innerHTML = `<div class="tag-autocomplete-item create-new" data-tag="${escapeHtml(text)}"><i class="fa-solid fa-plus"></i> Create "${escapeHtml(text)}"</div>`;
     } else {
-        hideTagAutocomplete();
+        autocomplete.classList.remove('visible');
         return;
     }
-    
+    autocomplete.classList.add('visible');
     autocomplete.querySelectorAll('.tag-autocomplete-item').forEach(item => {
-        item.onclick = () => {
-            addTag(item.dataset.tag);
-        };
+        item.addEventListener('click', () => onPick(item.dataset.tag));
     });
+}
+
+/**
+ * A tag suggestion list's keys: the arrows light an item, wrapping; Enter picks the lit one. True when the key was taken.
+ * @param {KeyboardEvent} e
+ * @param {HTMLElement} dropdown - the list
+ * @returns {boolean}
+ */
+function tagAutocompleteKeydown(e, dropdown) {
+    const items = dropdown?.classList.contains('visible') ? [...dropdown.querySelectorAll('.tag-autocomplete-item')] : [];
+    if (!items.length) return false;
+    const lit = items.findIndex(item => item.classList.contains('selected'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = e.key === 'ArrowDown' ? (lit + 1) % items.length : (lit <= 0 ? items.length - 1 : lit - 1);
+        items.forEach((item, i) => item.classList.toggle('selected', i === next));
+        items[next].scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    if (e.key === 'Enter' && lit >= 0) {
+        e.preventDefault();
+        items[lit].click();
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -9956,20 +10101,22 @@ function hideTagAutocomplete() {
 // Tag Input Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
     const tagInput = document.getElementById('tagInput');
-    const tagAutocomplete = document.getElementById('tagAutocomplete');
-    
+
     if (tagInput) {
+        // the pick is read at the press, so the phone's wrapper of addTag is the one that runs
+        const detailsList = () => ({ dropdown: document.getElementById('tagAutocomplete'), exclude: getCurrentTagsArray(), onPick: (tag) => addTag(tag) });
         // each keystroke asks the server, so a typing burst asks once
-        const askSuggestions = debounce((text) => showTagAutocomplete(text), 150);
+        const askSuggestions = debounce((text) => showTagAutocomplete(text, detailsList()), 150);
         tagInput.addEventListener('input', (e) => {
             askSuggestions(e.target.value);
         });
 
         tagInput.addEventListener('focus', () => {
-            showTagAutocomplete(tagInput.value);
+            showTagAutocomplete(tagInput.value, detailsList());
         });
         
         tagInput.addEventListener('keydown', (e) => {
+            if (tagAutocompleteKeydown(e, document.getElementById('tagAutocomplete'))) return;
             if (e.key === 'Enter') {
                 e.preventDefault();
                 const value = tagInput.value.trim();
@@ -9979,12 +10126,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (e.key === 'Escape') {
                 hideTagAutocomplete();
                 tagInput.blur();
-            } else if (e.key === 'ArrowDown') {
-                const firstItem = tagAutocomplete?.querySelector('.tag-autocomplete-item');
-                if (firstItem) {
-                    e.preventDefault();
-                    firstItem.focus();
-                }
             }
         });
     }
@@ -10475,24 +10616,10 @@ function openLorebookModal() {
         return;
     }
     
-    // Collect entries from the form, each carrying its full data on _full so the expanded editor
-    // round-trips it losslessly.
-    const entries = [];
-    lorebookContainer.querySelectorAll('.lorebook-entry-edit').forEach((entryEl, idx) => {
-        const cur = readInlineLorebookInputs(entryEl);
-        const full = buildLorebookEntryFromInputs(entryEl._originalEntry, entryEl._populated || {}, cur, idx);
-        entries.push({
-            name: cur.name, keys: cur.keys, secondaryKeys: cur.secondaryKeys, content: cur.content,
-            enabled: cur.enabled, selective: cur.selective, constant: cur.constant, order: cur.order, priority: cur.priority,
-            _full: full,
-        });
-    });
-    
-    let entriesHtml = '';
-    entries.forEach((entry, idx) => {
-        entriesHtml += buildExpandedLorebookEntryHtml(entry, idx);
-    });
-    
+    // each row's entry as Save would write it: the dialog's rows start from it, so they round-trip losslessly
+    const entries = [...lorebookContainer.querySelectorAll('.lorebook-entry-edit')].map((entryEl, idx) =>
+        buildLorebookEntryFromInputs(entryEl._originalEntry, entryEl._populated || {}, readInlineLorebookInputs(entryEl), idx));
+
     const modalHtml = `
         <div id="lorebookExpandModal" class="modal-overlay">
             <div class="modal-glass section-expand-modal lorebook-expand-modal" id="lorebookExpandModalInner">
@@ -10525,7 +10652,7 @@ function openLorebookModal() {
                         </div>
                     </div>
                     <div id="expandedLorebookContainer" class="expanded-lorebook-list">
-                        ${entriesHtml || '<div class="no-lorebook-entries">No lorebook entries yet. Click "Add Entry" to create one.</div>'}
+                        ${entries.length ? '' : '<div class="no-lorebook-entries">No lorebook entries yet. Click "Add Entry" to create one.</div>'}
                     </div>
                 </div>
             </div>
@@ -10548,55 +10675,24 @@ function openLorebookModal() {
     document.getElementById('lorebookModalClose').onclick = closeModal;
     modal.onclick = (e) => { if (e.target === modal) closeModal(); };
     
-    document.getElementById('collapseAllLorebookBtn').onclick = () => {
-        const container = document.getElementById('expandedLorebookContainer');
-        container.querySelectorAll('.expanded-lorebook-entry').forEach(entry => {
-            entry.classList.add('collapsed');
-            const btn = entry.querySelector('.expanded-lorebook-collapse-btn');
-            if (btn) btn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-            const preview = entry.querySelector('.expanded-lorebook-preview');
-            if (preview) preview.innerHTML = lorebookKeysPreviewHtml(entry.querySelector('.expanded-lorebook-keys')?.value || '');
-        });
-    };
-    
-    document.getElementById('expandAllLorebookBtn').onclick = () => {
-        const container = document.getElementById('expandedLorebookContainer');
-        container.querySelectorAll('.expanded-lorebook-entry').forEach(entry => {
-            entry.classList.remove('collapsed');
-            const btn = entry.querySelector('.expanded-lorebook-collapse-btn');
-            if (btn) btn.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
-        });
-    };
-    
-    document.getElementById('addExpandedLorebookEntryBtn').onclick = () => {
-        const container = document.getElementById('expandedLorebookContainer');
-        
-        const noEntriesMsg = container.querySelector('.no-lorebook-entries');
-        if (noEntriesMsg) noEntriesMsg.remove();
-        
-        const idx = container.querySelectorAll('.expanded-lorebook-entry').length;
-        const newEntry = { name: '', keys: '', secondaryKeys: '', content: '', enabled: true, selective: false, constant: false, order: idx, priority: 10 };
-        const newEntryHtml = buildExpandedLorebookEntryHtml(newEntry, idx);
-        container.insertAdjacentHTML('beforeend', newEntryHtml);
-        
-        const newEntryEl = container.lastElementChild;
-        setupExpandedLorebookEntryHandlers(newEntryEl);
-        // No original to preserve; the populated baseline matches the freshly-rendered empty inputs.
-        newEntryEl._fullEntry = null;
-        newEntryEl._populated = {
-            name: '', keys: '', secondaryKeys: '', content: '',
-            order: String(idx), priority: '10', enabled: true, selective: false, constant: false,
-        };
-        updateExpandedLorebookCount();
+    const container = document.getElementById('expandedLorebookContainer');
+    const rowOpts = { collapsible: true, onRemove: () => { renumberExpandedLorebookEntries(); updateExpandedLorebookCount(); } };
+    entries.forEach((entry, idx) => addLorebookEntryField(container, entry, idx, rowOpts));
+    const rows = () => [...container.querySelectorAll('.lorebook-entry-edit')];
 
-        const nameInput = newEntryEl.querySelector('.expanded-lorebook-name');
-        nameInput.focus();
+    document.getElementById('collapseAllLorebookBtn').onclick = () => rows().forEach(row => setLorebookRowCollapsed(row, true));
+    document.getElementById('expandAllLorebookBtn').onclick = () => rows().forEach(row => setLorebookRowCollapsed(row, false));
+
+    document.getElementById('addExpandedLorebookEntryBtn').onclick = () => {
+        container.querySelector('.no-lorebook-entries')?.remove();
+        addLorebookEntryField(container, null, rows().length, rowOpts);
+        updateExpandedLorebookCount();
+        container.lastElementChild?.querySelector('.lorebook-entry-name-input')?.focus();
     };
 
     // Remove book: empty the list and let the save path write the empty list and close, as an edit lands.
     document.getElementById('removeExpandedLorebookBtn').onclick = async () => {
-        const container = document.getElementById('expandedLorebookContainer');
-        const n = container.querySelectorAll('.expanded-lorebook-entry').length;
+        const n = rows().length;
         if (!n) return;
         const ok = await confirmRemoveEmbeddedLorebook(n);
         if (!ok) return;
@@ -10606,45 +10702,12 @@ function openLorebookModal() {
         if (nameEl) nameEl.textContent = '';
         document.getElementById('lorebookModalSave').onclick();
     };
-    
-    modal.querySelectorAll('.expanded-lorebook-entry').forEach(setupExpandedLorebookEntryHandlers);
 
-    // Stash the full entry on each expanded row (_fullEntry) so Save merges the 9 editable fields back losslessly.
-    document.getElementById('expandedLorebookContainer')?.querySelectorAll('.expanded-lorebook-entry').forEach((el, idx) => {
-        const e = entries[idx];
-        if (!e) return;
-        el._fullEntry = e._full ?? null;
-        el._populated = {
-            name: e.name, keys: e.keys, secondaryKeys: e.secondaryKeys, content: e.content,
-            order: String(e.order), priority: String(e.priority),
-            enabled: e.enabled, selective: e.selective, constant: e.constant,
-        };
-    });
-    
     document.getElementById('lorebookModalSave').onclick = () => {
-        const expandedContainer = document.getElementById('expandedLorebookContainer');
-        const mergedEntries = [];
+        // each row's edits merged onto its entry, so position, ids and extensions survive; only changed fields override
+        const mergedEntries = rows().map((row, idx) => buildLorebookEntryFromInputs(row._originalEntry, row._populated || {}, readInlineLorebookInputs(row), idx));
 
-        if (expandedContainer) {
-            expandedContainer.querySelectorAll('.expanded-lorebook-entry').forEach((entryEl, idx) => {
-                const cur = {
-                    name: entryEl.querySelector('.expanded-lorebook-name')?.value || '',
-                    keys: entryEl.querySelector('.expanded-lorebook-keys')?.value || '',
-                    secondaryKeys: entryEl.querySelector('.expanded-lorebook-secondary-keys')?.value || '',
-                    content: entryEl.querySelector('.expanded-lorebook-content')?.value || '',
-                    enabled: entryEl.querySelector('.expanded-lorebook-enabled')?.checked ?? true,
-                    selective: entryEl.querySelector('.expanded-lorebook-selective')?.checked ?? false,
-                    constant: entryEl.querySelector('.expanded-lorebook-constant')?.checked ?? false,
-                    order: entryEl.querySelector('.expanded-lorebook-order')?.value ?? idx,
-                    priority: entryEl.querySelector('.expanded-lorebook-priority')?.value ?? 10,
-                };
-                // Merge edits onto _fullEntry so position/insertion_order/id/extensions survive; only changed fields override.
-                mergedEntries.push(buildLorebookEntryFromInputs(entryEl._fullEntry, entryEl._populated || {}, cur, idx));
-            });
-        }
-
-        // Feed the full merged entries back into the inline editor. addLorebookEntryField re-stashes each as
-        // _originalEntry + _populated, so the subsequent performSave read-back stays lossless.
+        // the merged entries back into the Edit tab, each its row's original again, so the Save read-back stays lossless
         const lorebookContainerCurrent = document.getElementById('lorebookEntriesEdit');
         if (lorebookContainerCurrent) {
             lorebookContainerCurrent.innerHTML = '';
@@ -10659,111 +10722,17 @@ function openLorebookModal() {
     };
 }
 
-// a collapsed entry's one line of keys: the build and both collapse paths (the keys are card data)
+// a collapsed row's one line of keys (the keys are card data)
 function lorebookKeysPreviewHtml(keys) {
     const text = keys ? keys.substring(0, 100) + (keys.length > 100 ? '...' : '') : 'No keys';
     return `<i class="fa-solid fa-key"></i> ${escapeHtml(text)}`;
-}
-
-function buildExpandedLorebookEntryHtml(entry, idx) {
-    return `
-        <div class="expanded-lorebook-entry${entry.enabled ? '' : ' disabled'}" data-index="${idx}">
-            <div class="expanded-lorebook-entry-header">
-                <button type="button" class="expanded-lorebook-collapse-btn" title="Expand/Collapse">
-                    <i class="fa-solid fa-chevron-down"></i>
-                </button>
-                <input type="search" autocomplete="one-time-code" class="glass-input expanded-lorebook-name" placeholder="Entry name/comment" value="${escapeHtml(entry.name)}">
-                <span class="expanded-lorebook-preview">${lorebookKeysPreviewHtml(entry.keys)}</span>
-                <div class="expanded-lorebook-entry-controls">
-                    <label class="expanded-lorebook-toggle ${entry.enabled ? 'enabled' : 'disabled'}" title="Toggle enabled">
-                        <input type="checkbox" class="expanded-lorebook-enabled" ${entry.enabled ? 'checked' : ''} hidden>
-                        ${entry.enabled ? '<i class="fa-solid fa-toggle-on"></i> On' : '<i class="fa-solid fa-toggle-off"></i> Off'}
-                    </label>
-                    <button type="button" class="expanded-lorebook-delete" title="Delete entry">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="expanded-lorebook-entry-body">
-                <div class="expanded-lorebook-row">
-                    <div class="form-group flex-1">
-                        <label>Keys <span class="label-hint">(comma-separated)</span></label>
-                        <input type="search" autocomplete="one-time-code" class="glass-input expanded-lorebook-keys" placeholder="keyword1, keyword2" value="${escapeHtml(entry.keys)}">
-                    </div>
-                </div>
-                <div class="expanded-lorebook-row">
-                    <div class="form-group flex-1">
-                        <label>Secondary Keys <span class="label-hint">(optional, for selective)</span></label>
-                        <input type="search" autocomplete="one-time-code" class="glass-input expanded-lorebook-secondary-keys" placeholder="secondary1, secondary2" value="${escapeHtml(entry.secondaryKeys)}">
-                    </div>
-                </div>
-                <div class="expanded-lorebook-row">
-                    <div class="form-group flex-1">
-                        <label>Content</label>
-                        <textarea class="glass-input expanded-lorebook-content" rows="5" placeholder="Lore content...">\n${escapeHtml(entry.content)}</textarea>
-                    </div>
-                </div>
-                <div class="expanded-lorebook-options">
-                    <label>
-                        <input type="checkbox" class="expanded-lorebook-selective" ${entry.selective ? 'checked' : ''}>
-                        <span>Selective</span>
-                    </label>
-                    <label>
-                        <input type="checkbox" class="expanded-lorebook-constant" ${entry.constant ? 'checked' : ''}>
-                        <span>Constant</span>
-                    </label>
-                    <div class="expanded-lorebook-number">
-                        <label>Order:</label>
-                        <input type="number" class="glass-input expanded-lorebook-order" value="${entry.order}">
-                    </div>
-                    <div class="expanded-lorebook-number">
-                        <label>Priority:</label>
-                        <input type="number" class="glass-input expanded-lorebook-priority" value="${entry.priority}">
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function setupExpandedLorebookEntryHandlers(entryEl) {
-    const collapseBtn = entryEl.querySelector('.expanded-lorebook-collapse-btn');
-    const preview = entryEl.querySelector('.expanded-lorebook-preview');
-    
-    collapseBtn.onclick = () => {
-        const isCollapsed = entryEl.classList.toggle('collapsed');
-        collapseBtn.innerHTML = isCollapsed 
-            ? '<i class="fa-solid fa-chevron-right"></i>' 
-            : '<i class="fa-solid fa-chevron-down"></i>';
-        if (isCollapsed && preview) preview.innerHTML = lorebookKeysPreviewHtml(entryEl.querySelector('.expanded-lorebook-keys')?.value || '');
-    };
-    
-    const toggleLabel = entryEl.querySelector('.expanded-lorebook-toggle');
-    
-    toggleLabel.onclick = (e) => {
-        e.preventDefault();
-        const checkbox = entryEl.querySelector('.expanded-lorebook-enabled');
-        const isEnabled = checkbox.checked;
-        const newEnabled = !isEnabled;
-        checkbox.checked = newEnabled;
-        toggleLabel.className = `expanded-lorebook-toggle ${newEnabled ? 'enabled' : 'disabled'}`;
-        toggleLabel.innerHTML = `<input type="checkbox" class="expanded-lorebook-enabled" ${newEnabled ? 'checked' : ''} hidden>${newEnabled ? '<i class="fa-solid fa-toggle-on"></i> On' : '<i class="fa-solid fa-toggle-off"></i> Off'}`;
-        entryEl.classList.toggle('disabled', !newEnabled);
-    };
-    
-    const deleteBtn = entryEl.querySelector('.expanded-lorebook-delete');
-    deleteBtn.onclick = () => {
-        entryEl.remove();
-        renumberExpandedLorebookEntries();
-        updateExpandedLorebookCount();
-    };
 }
 
 function renumberExpandedLorebookEntries() {
     const container = document.getElementById('expandedLorebookContainer');
     if (!container) return;
     
-    const entries = container.querySelectorAll('.expanded-lorebook-entry');
+    const entries = container.querySelectorAll('.lorebook-entry-edit');
     entries.forEach((entry, idx) => {
         entry.dataset.index = idx;
     });
@@ -10778,7 +10747,7 @@ function updateExpandedLorebookCount() {
     const countEl = document.getElementById('expandedLorebookCount');
     if (!container || !countEl) return;
     
-    const count = container.querySelectorAll('.expanded-lorebook-entry').length;
+    const count = container.querySelectorAll('.lorebook-entry-edit').length;
     countEl.textContent = `${count} ${count === 1 ? 'entry' : 'entries'}`;
     document.getElementById('removeExpandedLorebookBtn')?.classList.toggle('hidden', count === 0);
 }
@@ -11426,7 +11395,7 @@ function toggleAdvFilterPanel() {
 function keepAdvFilterPanelInView(panel) {
     panel.style.left = '';
     if (isMobileMode()) return;
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = uiZoom();
     const over = panel.getBoundingClientRect().right / zoom - (window.innerWidth / zoom - 10);
     if (over > 0) panel.style.left = `${-over}px`;
 }
@@ -12788,6 +12757,8 @@ function setupEventListeners() {
     modal.querySelector('.tab-nav')?.addEventListener('click', (e) => {
         const btn = e.target.closest('.tab-btn');
         if (!btn) return;
+        // every tab click passes here after the tab's own onclick: leaving Related drops its lookup, Related's own click keeps it
+        if (btn.dataset.tab !== 'related') cancelRelatedSearch();
         deactivateAllTabs();
         btn.classList.add('active');
         const pane = document.getElementById(`pane-${btn.dataset.tab}`);
@@ -13097,16 +13068,18 @@ function populateLorebookEditor(characterBook) {
 }
 
 /**
- * Add a lorebook entry's row to the editor; a null entry makes a blank one.
+ * Add a lorebook entry's row to an embedded editor (the Edit tab's or the Edit Lorebook dialog's); a null entry makes a blank one.
  * @param {Object} entry
  * @param {number} index - its position in the book, the row count when omitted
+ * @param {{collapsible?: boolean, onRemove?: Function}} [opts] - the dialog's rows fold to their keys; onRemove runs after a delete
  */
-function addLorebookEntryField(container, entry = null, index = null) {
+function addLorebookEntryField(container, entry = null, index = null, opts = {}) {
     if (!container) {
         container = document.getElementById('lorebookEntriesEdit');
     }
     if (!container) return;
-    
+    const { collapsible = false, onRemove = updateLorebookCount } = opts;
+
     const idx = index !== null ? index : container.children.length;
     
     const name = entry?.comment || entry?.name || '';
@@ -13127,15 +13100,18 @@ function addLorebookEntryField(container, entry = null, index = null) {
     
     wrapper.innerHTML = `
         <div class="lorebook-entry-header">
+            ${collapsible ? '<button type="button" class="lorebook-entry-collapse-btn" title="Expand/Collapse" aria-expanded="true"><i class="fa-solid fa-chevron-down"></i></button>' : ''}
             <input type="search" autocomplete="one-time-code" class="glass-input lorebook-entry-name-input" placeholder="Entry name/comment">
+            ${collapsible ? '<span class="lorebook-entry-preview"></span>' : ''}
             <div class="lorebook-entry-controls">
-                <label class="lorebook-entry-toggle ${enabled ? 'enabled' : 'disabled'}" title="Toggle enabled">
-                    <input type="checkbox" class="lorebook-enabled-checkbox" ${enabled ? 'checked' : ''} hidden>
-                    ${enabled ? '<i class="fa-solid fa-toggle-on"></i> On' : '<i class="fa-solid fa-toggle-off"></i> Off'}
+                <label class="lorebook-entry-toggle" title="Toggle enabled">
+                    <input type="checkbox" class="cl-switch-input lorebook-enabled-checkbox" aria-label="Entry on"${enabled ? ' checked' : ''}>
+                    <span class="cl-switch is-sm" aria-hidden="true"></span>
+                    <span class="lorebook-entry-state" aria-hidden="true"></span>
                 </label>
-                <span class="lorebook-entry-delete" title="Delete entry">
+                <button type="button" class="lorebook-entry-delete" title="Delete entry" aria-label="Delete entry">
                     <i class="fa-solid fa-trash"></i>
-                </span>
+                </button>
             </div>
         </div>
         <div class="lorebook-entry-fields">
@@ -13154,10 +13130,10 @@ function addLorebookEntryField(container, entry = null, index = null) {
             <div class="lorebook-entry-row">
                 <div class="form-group flex-1">
                     <label>Content</label>
-                    <textarea class="glass-input lorebook-content-input" rows="3" placeholder="Lore content..."></textarea>
+                    <textarea class="glass-input lorebook-content-input" rows="${collapsible ? 5 : 3}" placeholder="Lore content..."></textarea>
                 </div>
             </div>
-            <div class="lorebook-entry-row">
+            <div class="lorebook-entry-row lorebook-entry-options">
                 <label class="u-row-tight u-pointer">
                     <input type="checkbox" class="lorebook-selective-checkbox" ${selective ? 'checked' : ''}>
                     <span class="u-text-sm">Selective</span>
@@ -13202,23 +13178,27 @@ function addLorebookEntryField(container, entry = null, index = null) {
         constant: wrapper.querySelector('.lorebook-constant-checkbox').checked,
     };
 
-    const toggleLabel = wrapper.querySelector('.lorebook-entry-toggle');
-    toggleLabel.addEventListener('click', (e) => {
-        e.preventDefault();
-        const checkbox = wrapper.querySelector('.lorebook-enabled-checkbox');
-        const isEnabled = checkbox.checked;
-        const newEnabled = !isEnabled;
-        checkbox.checked = newEnabled;
-        toggleLabel.className = `lorebook-entry-toggle ${newEnabled ? 'enabled' : 'disabled'}`;
-        toggleLabel.innerHTML = `<input type="checkbox" class="lorebook-enabled-checkbox" ${newEnabled ? 'checked' : ''} hidden>${newEnabled ? '<i class="fa-solid fa-toggle-on"></i> On' : '<i class="fa-solid fa-toggle-off"></i> Off'}`;
-        wrapper.classList.toggle('disabled', !newEnabled);
-    });
-    
-    const deleteBtn = wrapper.querySelector('.lorebook-entry-delete');
-    deleteBtn.addEventListener('click', () => {
+    const enabledBox = wrapper.querySelector('.lorebook-enabled-checkbox');
+    enabledBox.addEventListener('change', () => wrapper.classList.toggle('disabled', !enabledBox.checked));
+    wrapper.querySelector('.lorebook-entry-delete').addEventListener('click', () => {
         wrapper.remove();
-        updateLorebookCount();
+        onRemove();
     });
+    if (collapsible) {
+        wrapper.querySelector('.lorebook-entry-collapse-btn').addEventListener('click', () => setLorebookRowCollapsed(wrapper, !wrapper.classList.contains('collapsed')));
+    }
+}
+
+// a dialog row folds to its name and one line of its keys
+function setLorebookRowCollapsed(row, collapsed) {
+    row.classList.toggle('collapsed', collapsed);
+    const btn = row.querySelector('.lorebook-entry-collapse-btn');
+    if (btn) {
+        btn.innerHTML = `<i class="fa-solid fa-chevron-${collapsed ? 'right' : 'down'}"></i>`;
+        btn.setAttribute('aria-expanded', String(!collapsed));
+    }
+    const preview = row.querySelector('.lorebook-entry-preview');
+    if (collapsed && preview) preview.innerHTML = lorebookKeysPreviewHtml(row.querySelector('.lorebook-keys-input')?.value || '');
 }
 
 /**
@@ -13440,7 +13420,7 @@ function getCharacterBookFromEditor() {
     }
     
     const existing = activeChar?.data?.character_book;
-    // Spread the whole existing book so unmodelled fields survive; defaults only seed a new book. An
+    // Spread the whole existing book so unmodelled fields survive; the defaults fill what it lacks. An
     // insert replaced it: the world's now
     const replaced = !!_insertedBookName;
     return {
@@ -13826,6 +13806,20 @@ function stripStyleCommentMarkers(node, data) {
     if (text.includes('<!--') || text.includes('-->')) node.textContent = text.replace(/<!--|-->/g, ' ');
 }
 
+// a config frozen with its lists cant change, so its own sanitizer reads it once; DOMPurify re-reads a passed config every call
+const frozenPurifiers = new WeakMap();
+function frozenPurifier(config) {
+    if (!config || typeof config !== 'object' || typeof DOMPurify !== 'function') return null;
+    const held = frozenPurifiers.get(config);
+    if (held?.from === DOMPurify) return held.purifier;
+    if (!Object.isFrozen(config) || !Object.values(config).every(v => v === null || typeof v !== 'object' || Object.isFrozen(v))) return null;
+    const purifier = DOMPurify(window);
+    purifier.setConfig(config);
+    purifier.addHook('uponSanitizeElement', stripStyleCommentMarkers);
+    frozenPurifiers.set(config, { from: DOMPurify, purifier });
+    return purifier;
+}
+
 /**
  * Sanitizes HTML, failing closed (escaped) without DOMPurify; forces rel=noopener noreferrer on
  * targeted links.
@@ -13839,13 +13833,22 @@ function safePurify(html, config) {
         return escapeHtml(html);
     }
     let sanitized;
-    DOMPurify.addHook('uponSanitizeElement', stripStyleCommentMarkers);
-    try {
-        sanitized = DOMPurify.sanitize(html, config || {});
-    } catch {
-        return escapeHtml(html);
-    } finally {
-        DOMPurify.removeHook('uponSanitizeElement', stripStyleCommentMarkers);
+    const own = frozenPurifier(config);
+    if (own) {
+        try {
+            sanitized = own.sanitize(html);
+        } catch {
+            return escapeHtml(html);
+        }
+    } else {
+        DOMPurify.addHook('uponSanitizeElement', stripStyleCommentMarkers);
+        try {
+            sanitized = DOMPurify.sanitize(html, config || {});
+        } catch {
+            return escapeHtml(html);
+        } finally {
+            DOMPurify.removeHook('uponSanitizeElement', stripStyleCommentMarkers);
+        }
     }
     // Tab-nabbing post-pass: every <a target="..."> must have rel="noopener noreferrer"
     if (typeof sanitized === 'string' && sanitized.indexOf('<a') !== -1 && sanitized.indexOf('target') !== -1) {
@@ -14245,8 +14248,38 @@ const INLINE_HTML_RE = /<\/?(?:b|i|u|s|em|strong|del|mark|small|sub|sup|code|kbd
 
 // Block-level HTML islands: a BALANCED run from a block open tag to its close, lifted verbatim, the
 // sanitizer re-validating it; unbalanced stays literal.
-const BLOCK_HTML_RE = /<(div|details|table|blockquote|h[1-6]|ul|ol|p|center|figure|section|article|aside)(?=[\s>])/gi;
+const BLOCK_HTML_RE = /<(div|details|table|blockquote|h[1-6]|ul|ol|dl|p|pre|center|figure|section|article|aside)(?=[\s>])/gi;
 const VOID_BLOCK_HTML_RE = /<hr\b[^<>]*\/?>/gi;
+
+// HTML's element names; a tag naming none of them is a model's or a preset's own marker (<internal_states>, <think>)
+const HTML_ELEMENT_NAMES = new Set(('a abbr acronym address area article aside audio b base basefont bdi bdo big blockquote body br button '
+    + 'canvas caption center cite code col colgroup data datalist dd del details dfn dialog dir div dl dt em embed fieldset figcaption '
+    + 'figure font footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li '
+    + 'link main map mark marquee math menu meta meter nav nobr noframes noscript object ol optgroup option output p param picture plaintext '
+    + 'pre progress q rp rt ruby s samp script search section select slot small source span strike strong style sub summary sup svg '
+    + 'table tbody td template textarea tfoot th thead time title tr track tt u ul var video wbr xmp').split(' '));
+
+/** What a browser never shows: a comment (unclosed, to the end), and the tags of an element HTML does not have, their text kept. */
+function hideForeignMarkup(src) {
+    return src.replace(/<!--[\s\S]*?(?:-->|$)/g, '')
+        .replace(/<\/?([A-Za-z][\w:.-]*)(?:\s[^<>]*)?\/?>/g, (tag, name) => (HTML_ELEMENT_NAMES.has(name.toLowerCase()) ? tag : ''));
+}
+
+// the plain stream boxes no fence, so the code still arriving keeps its tags: only the text between fences is read
+function hideForeignOutsideFences(src) {
+    const out = [];
+    let run = [];
+    let fenced = false;
+    const flush = () => { if (run.length) out.push(fenced ? run.join('\n') : hideForeignMarkup(run.join('\n'))); run = []; };
+    for (const line of src.split('\n')) {
+        const fence = /^[ \t]*(?:```|~~~)/.test(line);
+        if (fence && !fenced) { flush(); fenced = true; run.push(line); continue; }
+        run.push(line);
+        if (fence && fenced) { flush(); fenced = false; }
+    }
+    flush();
+    return out.join('\n');
+}
 
 // An unclosed block opener that is surely markup: attributes, a tag right after it, or a line to itself.
 function looksLikeOpenMarkup(src, start) {
@@ -14509,7 +14542,7 @@ function formatChatText(text, charName = '', opts = {}) {
         .replace(/\n{4,}/g, '\n\n\n');
 
     // a tag or emphasis opener still arriving would draw as text, then vanish: a jolt per line
-    if (streaming) src = src.replace(/<\/?(?:[A-Za-z][^<>]*)?$/, '').replace(/(^|\s)[*_]{1,3}$/, '$1');
+    if (streaming) src = src.replace(/<(?:!-?|\/?(?:[A-Za-z][^<>]*)?)$/, '').replace(/(^|\s)[*_]{1,3}$/, '$1');
     // held for a frame: a fence line still arriving, half an entity, a bare block opener whose next character decides
     if (live) {
         src = holdLiveFenceLine(src).replace(/&[#A-Za-z0-9]{0,10}$/, '')
@@ -14544,6 +14577,8 @@ function formatChatText(text, charName = '', opts = {}) {
     // before repair so attr quotes arent counted, before media embeds so island srcs stay put
     const renderHtml = opts.renderHtml !== undefined ? opts.renderHtml : getSetting('chatRenderHtml') !== false;
     if ((!streaming || live) && renderHtml) src = extractChatHtmlIslands(src, ph.add, blockTokens, { live, openAtEnd: live && opts.openIslands !== false });
+    // a chat message as a browser shows it: comments and tags HTML lacks vanish, their text kept
+    if (renderHtml && opts.hideForeign === true) src = streaming && !live ? hideForeignOutsideFences(src) : hideForeignMarkup(src);
 
     // after code extraction so the counts ignore code, before escaping so it counts " not &quot;
     if (repair) src = src.split('\n').map(repairChatLine).join('\n');
@@ -16609,8 +16644,9 @@ function openProviderLinkModal(char) {
             if (statsEl) statsEl.classList.add('hidden');
         }
 
-        updateLockToggleUI(isUpdateLocked(activeChar));
-        
+        const lockBtn = document.getElementById('providerLinkUpdateLockBtn');
+        if (lockBtn) paintUpdateLock(lockBtn, isUpdateLocked(activeChar));
+
     } else {
         // Unlinked state
         linkedState.classList.add('hidden');
@@ -17136,34 +17172,33 @@ on('providerLinkViewInGalleryBtn', 'click', viewOnLinkedProvider);
 on('providerLinkGalleryBtn', 'click', downloadLinkedGallery);
 on('providerLinkUnlinkBtn', 'click', unlinkFromProvider);
 
-// Update Lock toggle in provider link modal
-function updateLockToggleUI(locked) {
-    const btn = document.getElementById('providerLinkUpdateLockBtn');
-    if (!btn) return;
-    const statusSpan = btn.querySelector('.update-lock-status');
-    const toggleIcon = btn.querySelector('.update-lock-toggle-icon');
-    if (statusSpan) statusSpan.textContent = locked ? 'Locked' : 'Unlocked';
-    if (toggleIcon) {
-        toggleIcon.className = locked
-            ? 'fa-solid fa-toggle-on update-lock-toggle-icon'
-            : 'fa-solid fa-toggle-off update-lock-toggle-icon';
-    }
+// Update Lock in the provider link modal: the state in words beside the toggle glyph
+function paintUpdateLock(btn, locked) {
+    btn.setAttribute('aria-pressed', String(locked));
     btn.classList.toggle('active', locked);
+    const status = btn.querySelector('.update-lock-status');
+    if (status) status.textContent = locked ? 'Locked' : 'Unlocked';
+    const icon = btn.querySelector('.update-lock-toggle-icon');
+    if (icon) icon.className = `fa-solid ${locked ? 'fa-toggle-on' : 'fa-toggle-off'} update-lock-toggle-icon`;
 }
 
-on('providerLinkUpdateLockBtn', 'click', async () => {
+// writes the opposite of what the button shows, so quick clicks end where the button ends
+async function toggleUpdateLock(btn) {
     if (!activeChar) return;
-    const newState = !isUpdateLocked(activeChar);
+    const locked = btn.getAttribute('aria-pressed') !== 'true';
+    paintUpdateLock(btn, locked);
     try {
-        await setUpdateLocked(activeChar.id, newState);
-        updateLockToggleUI(newState);
+        await setUpdateLocked(activeChar.id, locked);
         updateProviderLinkIndicator(activeChar);
-        showToast(newState ? 'Updates locked for this character' : 'Updates unlocked', newState ? 'info' : 'success');
+        showToast(locked ? 'Updates locked for this character' : 'Updates unlocked', locked ? 'info' : 'success');
     } catch (err) {
         console.error('[UpdateLock] Failed to toggle:', err);
+        paintUpdateLock(btn, isUpdateLocked(activeChar));
         if (!err.told) showToast('Failed to save update lock', 'error');
     }
-});
+}
+
+on('providerLinkUpdateLockBtn', 'click', (e) => toggleUpdateLock(e.currentTarget));
 
 // Version History button in provider link modal: the modal's own character, opened as the card menu opens it
 on('providerLinkVersionsBtn', 'click', () => {
@@ -17288,7 +17323,7 @@ async function runBulkAutoLinkScan() {
     bulkAutoLinkScanState.scanComplete = false;
 
     const registry = window.ProviderRegistry;
-    // a provider turned off in Settings isnt searched: janitorai's search is owner-only on a shared
+    // a provider turned off in Settings isnt searched: janitorai's search is admin-only on a shared
     // server and 403s everyone else
     const disabled = new Set(getSetting('disabledProviders') || []);
     const providers = registry ? registry.getAllProviders().filter(p => p.supportsBulkLink && !disabled.has(p.id)) : [];
@@ -17857,8 +17892,10 @@ function clearBulkAutoLinkSelection(idx, checkbox) {
 function switchBulkAutoLinkTab(tabName) {
     debugLog('[bulkAutoLink] Switching to tab:', tabName);
     
-    document.querySelectorAll('.bulk-auto-link-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === tabName);
+    document.querySelectorAll('#bulkAutoLinkResults .cl-cwin-tab').forEach(tab => {
+        const on = tab.dataset.tab === tabName;
+        tab.classList.toggle('is-on', on);
+        tab.setAttribute('aria-selected', String(on));
     });
     
     const confidentList = document.getElementById('bulkAutoLinkConfidentList');
@@ -18045,7 +18082,7 @@ async function applyBulkAutoLinks() {
     
     // Reset button state in case modal is reopened
     applyBtn.disabled = false;
-    applyBtn.innerHTML = '<i class="fa-solid fa-link"></i> Link Selected (<span id="bulkAutoLinkSelectedCount">0</span>)';
+    applyBtn.innerHTML = '<i class="fa-solid fa-link"></i> <span>Link Selected (<span id="bulkAutoLinkSelectedCount">0</span>)</span>';
 }
 
 // Event handlers for Bulk Auto-Link
@@ -18090,7 +18127,7 @@ document.getElementById('bulkAutoLinkApplyBtn')?.addEventListener('click', apply
 
 // Delegated handlers for bulk auto-link results
 document.getElementById('bulkAutoLinkResults')?.addEventListener('click', (e) => {
-    const tab = e.target.closest('.bulk-auto-link-tab');
+    const tab = e.target.closest('.bulk-auto-link-tabs .cl-cwin-tab');
     if (tab) { switchBulkAutoLinkTab(tab.dataset.tab); return; }
 
     if (e.target.closest('.bulk-auto-link-select-all')) { bulkAutoLinkSelectAll(); return; }
@@ -19271,12 +19308,8 @@ function closeLocalizeModalHandler() {
 closeLocalizeModal?.addEventListener('click', closeLocalizeModalHandler);
 closeLocalizeBtn?.addEventListener('click', closeLocalizeModalHandler);
 
-// Localize Media button click handler (embedded media + linked provider gallery)
-localizeMediaBtn?.addEventListener('click', async () => {
-    if (!activeChar) {
-        showToast('No character selected', 'error');
-        return;
-    }
+// Download Media for one character in its dialog: every phase logged as it runs, the gallery reread when it is the one open
+async function runMediaDownloadDialog(char) {
     
     localizeModal.classList.add('visible');
     localizeStatus.textContent = 'Scanning character...';
@@ -19298,7 +19331,7 @@ localizeMediaBtn?.addEventListener('click', async () => {
     
     localizeAbortController = new AbortController();
 
-    const result = await downloadCharacterMedia(activeChar, {
+    const result = await downloadCharacterMedia(char, {
         signal: localizeAbortController.signal,
         onPhaseStart: (phase, ctx) => {
             if (!isFirstPhase) addLocalizeLogEntry('', 'divider');
@@ -19391,8 +19424,8 @@ localizeMediaBtn?.addEventListener('click', async () => {
         localizeStatus.textContent = 'Stopped.';
         if (result.totals.success > 0) {
             showToast(`Stopped. Downloaded ${result.totals.success} file(s) before stopping.`, 'warning');
-            if (activeChar?.id) clearMediaLocalizationCache(activeChar.id);
-            if (activeChar) fetchCharacterImages(activeChar);
+            clearMediaLocalizationCache(char.id);
+            if (activeChar?.id === char.id) fetchCharacterImages(activeChar);
         }
         return;
     }
@@ -19406,422 +19439,79 @@ localizeMediaBtn?.addEventListener('click', async () => {
     
     if (totals.success > 0) {
         showToast(`Downloaded ${totals.success} new media file(s)`, 'success');
-        if (activeChar?.id) clearMediaLocalizationCache(activeChar.id);
-        if (activeChar) fetchCharacterImages(activeChar);
+        clearMediaLocalizationCache(char.id);
+        if (activeChar?.id === char.id) fetchCharacterImages(activeChar);
     } else if (totals.skipped > 0 && totals.errors === 0) {
         showToast('All files already exist', 'info');
     } else if (totals.errors > 0) {
         showToast('Some downloads failed', 'error');
     }
     
-    if (totals.errors === 0 && activeChar?.id) {
-        markMediaLocalizationComplete(activeChar.id);
-    }
-});
-
-// ==============================================
-// Bulk Media Localization
-// ==============================================
-
-// Bulk Localize Modal Elements
-const bulkLocalizeModal = document.getElementById('bulkLocalizeModal');
-const closeBulkLocalizeModal = document.getElementById('closeBulkLocalizeModal');
-const cancelBulkLocalizeBtn = document.getElementById('cancelBulkLocalizeBtn');
-const bulkLocalizeCharAvatar = document.getElementById('bulkLocalizeCharAvatar');
-const bulkLocalizeCharName = document.getElementById('bulkLocalizeCharName');
-const bulkLocalizeStatus = document.getElementById('bulkLocalizeStatus');
-const bulkLocalizeProgressCount = document.getElementById('bulkLocalizeProgressCount');
-const bulkLocalizeProgressFill = document.getElementById('bulkLocalizeProgressFill');
-const bulkLocalizeFileCount = document.getElementById('bulkLocalizeFileCount');
-const bulkLocalizeFileFill = document.getElementById('bulkLocalizeFileFill');
-const bulkStatDownloaded = document.getElementById('bulkStatDownloaded');
-const bulkStatSkipped = document.getElementById('bulkStatSkipped');
-const bulkStatErrors = document.getElementById('bulkStatErrors');
-
-// Bulk Summary Modal Elements
-const bulkSummaryModal = document.getElementById('bulkLocalizeSummaryModal');
-const closeBulkSummaryModal = document.getElementById('closeBulkSummaryModal');
-const closeBulkSummaryBtn = document.getElementById('closeBulkSummaryBtn');
-const bulkSummaryOverview = document.getElementById('bulkSummaryOverview');
-const bulkSummaryFilterSelect = document.getElementById('bulkSummaryFilterSelect');
-const bulkSummarySearch = document.getElementById('bulkSummarySearch');
-const bulkSummaryList = document.getElementById('bulkSummaryList');
-const bulkSummaryPrevBtn = document.getElementById('bulkSummaryPrevBtn');
-const bulkSummaryNextBtn = document.getElementById('bulkSummaryNextBtn');
-const bulkSummaryPageInfo = document.getElementById('bulkSummaryPageInfo');
-
-// Bulk localization state
-let bulkLocalizeAborted = false;
-let bulkLocalizeAbortController = null;
-let bulkLocalizeResults = [];
-let bulkSummaryCurrentPage = 1;
-const BULK_SUMMARY_PAGE_SIZE = 50;
-
-// Close bulk localize modal
-closeBulkLocalizeModal?.addEventListener('click', () => {
-    bulkLocalizeAborted = true;
-    bulkLocalizeAbortController?.abort();
-    bulkLocalizeModal.classList.remove('visible');
-});
-
-cancelBulkLocalizeBtn?.addEventListener('click', () => {
-    bulkLocalizeAborted = true;
-    bulkLocalizeAbortController?.abort();
-    setRunVerb(cancelBulkLocalizeBtn, 'stopping');
-});
-
-// Close summary modal
-closeBulkSummaryModal?.addEventListener('click', () => {
-    bulkSummaryModal.classList.remove('visible');
-});
-
-closeBulkSummaryBtn?.addEventListener('click', () => {
-    bulkSummaryModal.classList.remove('visible');
-});
-
-// Summary filter and search handlers
-bulkSummaryFilterSelect?.addEventListener('change', () => {
-    bulkSummaryCurrentPage = 1;
-    renderBulkSummaryList();
-});
-
-bulkSummarySearch?.addEventListener('input', () => {
-    bulkSummaryCurrentPage = 1;
-    renderBulkSummaryList();
-});
-
-bulkSummaryPrevBtn?.addEventListener('click', () => {
-    if (bulkSummaryCurrentPage > 1) {
-        bulkSummaryCurrentPage--;
-        renderBulkSummaryList();
-    }
-});
-
-bulkSummaryNextBtn?.addEventListener('click', () => {
-    bulkSummaryCurrentPage++;
-    renderBulkSummaryList();
-});
-
-document.getElementById('bulkSummaryList')?.addEventListener('click', (e) => {
-    const link = e.target.closest('.char-name-link');
-    if (link) {
-        e.preventDefault();
-        const charId = link.dataset.charId;
-        if (charId) openCharFromBulkSummary(charId);
-    }
-});
-
-/**
- * Filter bulk summary results based on current filter and search
- */
-function getFilteredBulkResults() {
-    const filter = bulkSummaryFilterSelect?.value || 'all';
-    const search = (bulkSummarySearch?.value || '').toLowerCase().trim();
-    
-    return bulkLocalizeResults.filter(r => {
-        const totalDownloaded = (r.downloaded || 0) + (r.galleryDownloaded || 0) + (r.extGalleryDownloaded || 0);
-        const totalSkipped = (r.skipped || 0) + (r.gallerySkipped || 0) + (r.extGallerySkipped || 0);
-        const totalErrors = (r.errors || 0) + (r.galleryErrors || 0) + (r.extGalleryErrors || 0);
-        const hasAnyMedia = r.totalUrls > 0;
-        
-        if (filter === 'localized' && (!hasAnyMedia || totalErrors > 0 || r.incomplete)) return false;
-        if (filter === 'downloaded' && totalDownloaded === 0) return false;
-        if (filter === 'skipped' && totalSkipped === 0) return false;
-        if (filter === 'errors' && totalErrors === 0) return false;
-        if (filter === 'incomplete' && !r.incomplete) return false;
-        if (filter === 'none' && hasAnyMedia) return false;
-        
-        if (search && !r.name.toLowerCase().includes(search)) return false;
-        
-        return true;
-    });
+    if (totals.errors === 0) markMediaLocalizationComplete(char.id);
 }
 
 /**
- * Save bulk summary modal state before opening character modal
+ * Download Media for one character: on the background queue when the media setting downloads in the background, else in its dialog.
+ * @param {{id: string}} char
  */
-function saveBulkSummaryModalState() {
-    const modal = bulkSummaryModal;
-    bulkSummaryModalState.wasOpen = modal && modal.classList.contains('visible');
-    bulkSummaryModalState.scrollPosition = bulkSummaryList ? bulkSummaryList.scrollTop : 0;
-    bulkSummaryModalState.currentPage = bulkSummaryCurrentPage;
-    bulkSummaryModalState.filterValue = bulkSummaryFilterSelect?.value || 'all';
-    bulkSummaryModalState.searchValue = bulkSummarySearch?.value || '';
+async function downloadMediaForCharacter(char) {
+    if (!char?.id) { showToast('No character selected', 'error'); return; }
+    await queueMediaDownloads({ ids: [char.id] });
 }
 
+// the details' button shows each file as it goes, so a failure is seen with its reason, whatever the media setting
+localizeMediaBtn?.addEventListener('click', () => { if (activeChar?.id) runMediaDownloadDialog(activeChar); else showToast('No character selected', 'error'); });
+
+// ==============================================
+// Download Media for a set, on the background queue
+// ==============================================
+
+// a selection's ids a request at a time, under the server's cap on named ids
+const MEDIA_BATCH_IDS = 1000;
+
 /**
- * Restore bulk summary modal state after closing character modal
+ * Download Media for a set on the background queue. A selection ({ ids } or { filter }) is scanned again; { all: true } skips the processed.
+ * @returns {Promise<{total: number, queued: number, noMedia: number, active: number}|null>} null when the server refused it
  */
-function restoreBulkSummaryModalState() {
-    if (!bulkSummaryModalState.wasOpen) return;
-    
-    if (bulkSummaryFilterSelect) bulkSummaryFilterSelect.value = bulkSummaryModalState.filterValue;
-    if (bulkSummarySearch) bulkSummarySearch.value = bulkSummaryModalState.searchValue;
-    bulkSummaryCurrentPage = bulkSummaryModalState.currentPage;
-    
-    bulkSummaryModal.classList.add('visible');
-    
-    renderBulkSummaryList();
-    
-    setTimeout(() => {
-        if (bulkSummaryList) {
-            bulkSummaryList.scrollTop = bulkSummaryModalState.scrollPosition;
+async function queueMediaDownloads(target) {
+    const bodies = target.all ? [{ all: true }]
+        : target.filter !== undefined ? [{ filter: target.filter }]
+        : Array.from({ length: Math.ceil((target.ids || []).length / MEDIA_BATCH_IDS) }, (_, i) => ({ charIds: target.ids.slice(i * MEDIA_BATCH_IDS, (i + 1) * MEDIA_BATCH_IDS) }));
+    const sum = { total: 0, queued: 0, noMedia: 0, active: 0 };
+    try {
+        for (const body of bodies) {
+            const out = await readAnswer(await apiRequest('/media-jobs/batch', 'POST', body));
+            for (const k of Object.keys(sum)) sum[k] += out[k] || 0;
         }
-    }, 50);
-}
-
-/**
- * Open character modal from bulk summary list
- */
-async function openCharFromBulkSummary(charId) {
-    saveBulkSummaryModalState();
-    bulkSummaryModal.classList.remove('visible');
-    // the door reads a character the cache does not hold; nothing opened puts the summary back
-    if (!await openCharacterById(charId)) {
-        bulkSummaryModal.classList.add('visible');
-        showToast('Character not found', 'error');
+    } catch (e) {
+        showToast(`Could not queue the media downloads: ${e.message}`, 'error');
+        if (!sum.queued) return null;
     }
+    if (sum.queued) await window.adoptMediaDownloadRows?.();
+    sayMediaQueued(sum, target);
+    return sum;
 }
 
-/**
- * Render the bulk summary list with pagination
- */
-function renderBulkSummaryList() {
-    const filtered = getFilteredBulkResults();
-    const totalPages = Math.max(1, Math.ceil(filtered.length / BULK_SUMMARY_PAGE_SIZE));
-    
-    if (bulkSummaryCurrentPage > totalPages) bulkSummaryCurrentPage = totalPages;
-    
-    const startIdx = (bulkSummaryCurrentPage - 1) * BULK_SUMMARY_PAGE_SIZE;
-    const pageResults = filtered.slice(startIdx, startIdx + BULK_SUMMARY_PAGE_SIZE);
-    
-    if (pageResults.length === 0) {
-        bulkSummaryList.innerHTML = '<div class="bulk-summary-empty"><i class="fa-solid fa-filter-circle-xmark"></i><br>No characters match the current filter</div>';
-    } else {
-        bulkSummaryList.innerHTML = pageResults.map(r => {
-            const hasGalleryStats = r.galleryDownloaded > 0 || r.gallerySkipped > 0 || r.galleryErrors > 0;
-            const hasExtGalleryStats = (r.extGalleryDownloaded || 0) > 0 || (r.extGallerySkipped || 0) > 0 || (r.extGalleryErrors || 0) > 0;
-            const totalEmbedded = (r.downloaded || 0) + (r.skipped || 0) + (r.errors || 0);
-            const hasEmbeddedStats = totalEmbedded > 0;
-            const hasAnyMedia = hasEmbeddedStats || hasGalleryStats || hasExtGalleryStats;
-            
-            let embeddedHtml = '';
-            if (hasEmbeddedStats) {
-                const parts = [];
-                if (r.downloaded > 0) parts.push(`<span class="downloaded" title="${r.downloaded} new file(s) downloaded"><i class="fa-solid fa-download"></i>${r.downloaded}</span>`);
-                if (r.skipped > 0) parts.push(`<span class="skipped" title="${r.filenameSkipped > 0 ? `${r.skipped} already local (${r.filenameSkipped} by filename)` : `${r.skipped} file(s) already local`}"><i class="fa-solid fa-check"></i>${r.skipped}</span>`);
-                if (r.errors > 0) parts.push(`<span class="errors" title="${r.errors} file(s) failed"><i class="fa-solid fa-xmark"></i>${r.errors}</span>`);
-                embeddedHtml = `<div class="media-source-group embedded" title="Embedded media from character data"><i class="fa-solid fa-file-code source-icon"></i>${parts.join('')}</div>`;
-            }
-            
-            let galleryHtml = '';
-            if (hasGalleryStats) {
-                const parts = [];
-                if (r.galleryDownloaded > 0) parts.push(`<span class="downloaded" title="${r.galleryDownloaded} gallery image(s) downloaded"><i class="fa-solid fa-download"></i>${r.galleryDownloaded}</span>`);
-                if (r.gallerySkipped > 0) parts.push(`<span class="skipped" title="${r.galleryFilenameSkipped > 0 ? `${r.gallerySkipped} already local (${r.galleryFilenameSkipped} by filename)` : `${r.gallerySkipped} gallery image(s) already local`}"><i class="fa-solid fa-check"></i>${r.gallerySkipped}</span>`);
-                if (r.galleryErrors > 0) parts.push(`<span class="errors" title="${r.galleryErrors} gallery image(s) failed"><i class="fa-solid fa-xmark"></i>${r.galleryErrors}</span>`);
-                galleryHtml = `<div class="media-source-group gallery" title="Provider gallery images"><i class="fa-solid fa-images source-icon"></i>${parts.join('')}</div>`;
-            }
-            
-            let extGalleryHtml = '';
-            if (hasExtGalleryStats) {
-                const parts = [];
-                if (r.extGalleryDownloaded > 0) parts.push(`<span class="downloaded" title="${r.extGalleryDownloaded} image(s) downloaded from external galleries"><i class="fa-solid fa-download"></i>${r.extGalleryDownloaded}</span>`);
-                if (r.extGallerySkipped > 0) parts.push(`<span class="skipped" title="${r.extGallerySkipped} external gallery image(s) already local"><i class="fa-solid fa-check"></i>${r.extGallerySkipped}</span>`);
-                if (r.extGalleryErrors > 0) parts.push(`<span class="errors" title="${r.extGalleryErrors} external gallery image(s) failed"><i class="fa-solid fa-xmark"></i>${r.extGalleryErrors}</span>`);
-                extGalleryHtml = `<div class="media-source-group ext-gallery" title="External gallery pages (Imgchest, ImgBB, etc.)"><i class="fa-solid fa-globe source-icon"></i>${parts.join('')}</div>`;
-            }
-            
-            return `
-            <div class="bulk-summary-item${r.incomplete ? ' incomplete' : ''}">
-                <img src="${getCharacterAvatarSmallThumbUrl(r.id)}" alt="" onerror="this.src='${AVATAR_FALLBACK_SVG}'">
-                <a class="char-name-link" href="#" data-char-id="${escapeHtml(r.id)}" title="Click to view ${escapeHtml(r.name)}">${escapeHtml(r.name)}</a>
-                <div class="char-stats">
-                    ${r.incomplete ? '<span class="incomplete-badge" title="Has errors or was interrupted"><i class="fa-solid fa-exclamation-triangle"></i></span>' : ''}
-                    ${!hasAnyMedia 
-                        ? '<span class="none" title="Character has no embedded remote media URLs and no linked provider gallery"><i class="fa-solid fa-minus"></i> No media</span>'
-                        : `${embeddedHtml}${galleryHtml}${extGalleryHtml}`
-                    }
-                </div>
-            </div>
-        `}).join('');
+// what a queueing did, in one toast: how many were queued, and why the rest were not
+function sayMediaQueued({ queued, noMedia, active }, target) {
+    const chars = (n) => `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
+    const why = [];
+    if (noMedia) why.push(`${chars(noMedia)} ${noMedia === 1 ? 'has' : 'have'} no remote media or provider link`);
+    if (active) why.push(`${chars(active)} already downloading`);
+    if (!queued) {
+        showToast(target.all ? 'Every character with remote media or a provider link is already processed' : `Nothing to download: ${why.join(', ') || 'no remote media found'}`, 'info');
+        return;
     }
-    
-    bulkSummaryPageInfo.textContent = `Page ${bulkSummaryCurrentPage} of ${totalPages}`;
-    bulkSummaryPrevBtn.disabled = bulkSummaryCurrentPage <= 1;
-    bulkSummaryNextBtn.disabled = bulkSummaryCurrentPage >= totalPages;
+    showToast(`Queued media downloads for ${chars(queued)}${why.length ? `; ${why.join(', ')}` : ''}. Follow them in the notifications.`, 'success', 7000);
 }
 
-/**
- * Show the bulk summary modal with results
- */
-function showBulkSummary(wasAborted = false, skippedCompleted = 0) {
-    const totals = bulkLocalizeResults.reduce((acc, r) => {
-        acc.characters++;
-        acc.downloaded += r.downloaded || 0;
-        acc.skipped += r.skipped || 0;
-        acc.errors += r.errors || 0;
-        acc.filenameSkipped += r.filenameSkipped || 0;
-        acc.galleryDownloaded += r.galleryDownloaded || 0;
-        acc.gallerySkipped += r.gallerySkipped || 0;
-        acc.galleryErrors += r.galleryErrors || 0;
-        acc.galleryFilenameSkipped += r.galleryFilenameSkipped || 0;
-        acc.extGalleryDownloaded += r.extGalleryDownloaded || 0;
-        acc.extGallerySkipped += r.extGallerySkipped || 0;
-        acc.extGalleryErrors += r.extGalleryErrors || 0;
-        if (r.totalUrls > 0) acc.withMedia++;
-        if (r.galleryDownloaded > 0 || r.gallerySkipped > 0 || r.galleryErrors > 0) acc.withGallery++;
-        if (r.extGalleryDownloaded > 0 || r.extGallerySkipped > 0 || r.extGalleryErrors > 0) acc.withExtGallery++;
-        if (r.incomplete) acc.incomplete++;
-        return acc;
-    }, { characters: 0, downloaded: 0, skipped: 0, errors: 0, filenameSkipped: 0, withMedia: 0, incomplete: 0, galleryDownloaded: 0, gallerySkipped: 0, galleryErrors: 0, galleryFilenameSkipped: 0, withGallery: 0, extGalleryDownloaded: 0, extGallerySkipped: 0, extGalleryErrors: 0, withExtGallery: 0 });
-    
-    const hasEmbedded = totals.downloaded > 0 || totals.skipped > 0 || totals.errors > 0;
-    const hasGallery = totals.galleryDownloaded > 0 || totals.gallerySkipped > 0 || totals.galleryErrors > 0;
-    const hasExtGallery = totals.extGalleryDownloaded > 0 || totals.extGallerySkipped > 0 || totals.extGalleryErrors > 0;
-    const totalDownloaded = totals.downloaded + totals.galleryDownloaded + totals.extGalleryDownloaded;
-    const totalSkipped = totals.skipped + totals.gallerySkipped + totals.extGallerySkipped;
-    const totalErrors = totals.errors + totals.galleryErrors + totals.extGalleryErrors;
-    
-    bulkSummaryOverview.innerHTML = `
-        <!-- Summary header row -->
-        <div class="bulk-summary-header-row">
-            <div class="bulk-summary-stat main" title="Characters processed in this scan">
-                <span class="stat-value">${totals.characters}</span>
-                <span class="stat-label"><i class="fa-solid fa-user"></i> ${wasAborted ? 'Processed' : 'Scanned'}</span>
-            </div>
-            ${skippedCompleted > 0 ? `
-            <div class="bulk-summary-stat previously-done" title="Characters skipped because media was already localized in a previous run">
-                <span class="stat-value">${skippedCompleted}</span>
-                <span class="stat-label"><i class="fa-solid fa-check-double"></i> Previously Done</span>
-            </div>
-            ` : ''}
-            ${totals.incomplete > 0 ? `
-            <div class="bulk-summary-stat incomplete" title="Characters that had download errors or were interrupted mid-process">
-                <span class="stat-value">${totals.incomplete}</span>
-                <span class="stat-label"><i class="fa-solid fa-exclamation-triangle"></i> Incomplete</span>
-            </div>
-            ` : ''}
-        </div>
-        
-        <!-- Two-column media sources -->
-        <div class="bulk-summary-media-sources">
-            <!-- Embedded Media Column -->
-            <div class="bulk-summary-source embedded ${!hasEmbedded ? 'empty' : ''}">
-                <div class="source-header">
-                    <i class="fa-solid fa-file-code"></i>
-                    <span>Embedded Media</span>
-                    <span class="source-hint" title="Images and media URLs found within character description, personality, first message, and other text fields">?</span>
-                </div>
-                <div class="source-stats">
-                    <div class="source-stat downloaded" title="New files downloaded from remote URLs embedded in character data and saved to gallery">
-                        <i class="fa-solid fa-download"></i>
-                        <span class="value">${totals.downloaded}</span>
-                        <span class="label">Downloaded</span>
-                    </div>
-                    <div class="source-stat skipped" title="${totals.filenameSkipped > 0 ? `${totals.skipped} files already local: ${totals.filenameSkipped} matched by filename, ${totals.skipped - totals.filenameSkipped} by content hash` : 'Files that were already present in the local gallery (matched by content hash)'}">
-                        <i class="fa-solid fa-check"></i>
-                        <span class="value">${totals.skipped}</span>
-                        <span class="label">Already Local</span>
-                    </div>
-                    <div class="source-stat errors" title="Files that failed to download due to network errors, missing files, or access restrictions">
-                        <i class="fa-solid fa-xmark"></i>
-                        <span class="value">${totals.errors}</span>
-                        <span class="label">Failed</span>
-                    </div>
-                </div>
-                ${!hasEmbedded ? '<div class="source-empty">No embedded media found</div>' : ''}
-            </div>
-            
-            <!-- Provider Gallery Column -->
-            <div class="bulk-summary-source gallery ${!hasGallery ? 'empty' : ''}">
-                <div class="source-header">
-                    <i class="fa-solid fa-images"></i>
-                    <span>Provider Gallery</span>
-                    <span class="source-hint" title="Gallery images from linked providers. Downloaded from the character's public gallery page.">?</span>
-                </div>
-                <div class="source-stats">
-                    <div class="source-stat downloaded" title="New gallery images downloaded and saved to the character's local gallery">
-                        <i class="fa-solid fa-download"></i>
-                        <span class="value">${totals.galleryDownloaded}</span>
-                        <span class="label">Downloaded</span>
-                    </div>
-                    <div class="source-stat skipped" title="${totals.galleryFilenameSkipped > 0 ? `${totals.gallerySkipped} gallery images already local: ${totals.galleryFilenameSkipped} matched by filename, ${totals.gallerySkipped - totals.galleryFilenameSkipped} by content hash` : 'Gallery images that were already present locally (matched by content hash)'}">
-                        <i class="fa-solid fa-check"></i>
-                        <span class="value">${totals.gallerySkipped}</span>
-                        <span class="label">Already Local</span>
-                    </div>
-                    <div class="source-stat errors" title="Gallery images that failed to download">
-                        <i class="fa-solid fa-xmark"></i>
-                        <span class="value">${totals.galleryErrors}</span>
-                        <span class="label">Failed</span>
-                    </div>
-                </div>
-                ${!hasGallery ? '<div class="source-empty">No provider galleries processed</div>' : ''}
-                ${hasGallery ? `<div class="source-footer">${totals.withGallery} character${totals.withGallery !== 1 ? 's' : ''} with gallery</div>` : ''}
-            </div>
-            
-            <!-- External Gallery Column -->
-            ${hasExtGallery ? `
-            <div class="bulk-summary-source ext-gallery">
-                <div class="source-header">
-                    <i class="fa-solid fa-globe"></i>
-                    <span>External Galleries</span>
-                    <span class="source-hint" title="Images from external gallery pages (Imgchest, ImgBB) found in character card text fields.">?</span>
-                </div>
-                <div class="source-stats">
-                    <div class="source-stat downloaded" title="New images downloaded from external gallery pages">
-                        <i class="fa-solid fa-download"></i>
-                        <span class="value">${totals.extGalleryDownloaded}</span>
-                        <span class="label">Downloaded</span>
-                    </div>
-                    <div class="source-stat skipped" title="External gallery images already present locally">
-                        <i class="fa-solid fa-check"></i>
-                        <span class="value">${totals.extGallerySkipped}</span>
-                        <span class="label">Already Local</span>
-                    </div>
-                    <div class="source-stat errors" title="External gallery images that failed to download">
-                        <i class="fa-solid fa-xmark"></i>
-                        <span class="value">${totals.extGalleryErrors}</span>
-                        <span class="label">Failed</span>
-                    </div>
-                </div>
-                <div class="source-footer">${totals.withExtGallery} character${totals.withExtGallery !== 1 ? 's' : ''} with ext galleries</div>
-            </div>
-            ` : ''}
-        </div>
-        
-        <!-- Grand totals row -->
-        <div class="bulk-summary-totals">
-            <div class="total-item downloaded" title="Total new files downloaded from all sources">
-                <i class="fa-solid fa-download"></i>
-                <span class="total-value">${totalDownloaded}</span>
-                <span class="total-label">Total Downloaded</span>
-            </div>
-            <div class="total-item skipped" title="${(totals.filenameSkipped + totals.galleryFilenameSkipped) > 0 ? `${totalSkipped} total already local, ${totals.filenameSkipped + totals.galleryFilenameSkipped} matched by filename` : 'Total files already present locally'}">
-                <i class="fa-solid fa-check"></i>
-                <span class="total-value">${totalSkipped}</span>
-                <span class="total-label">Already Local</span>
-            </div>
-            <div class="total-item errors" title="Total files that failed to download">
-                <i class="fa-solid fa-xmark"></i>
-                <span class="total-value">${totalErrors}</span>
-                <span class="total-label">Failed</span>
-            </div>
-        </div>
-    `;
-    
-    bulkSummaryFilterSelect.value = 'all';
-    bulkSummarySearch.value = '';
-    bulkSummaryCurrentPage = 1;
-    
-    // Refresh the custom select menu to pick up any option changes
-    bulkSummaryFilterSelect._customSelect?.refresh();
-    
-    renderBulkSummaryList();
-    
-    bulkSummaryModal.classList.add('visible');
-}
+// Download Media for All Characters, in Settings: the library on the queue, the characters processed before left out
+document.getElementById('downloadAllMediaBtn')?.addEventListener('click', async () => {
+    if (!(await window.closeSettingsDialog?.() ?? true)) return;
+    const doneCount = await countCharactersWhere({ mediaLocalized: 'true' });
+    const message = `Every character with remote media or a provider link is queued for a media download${doneCount ? `, leaving out the ${doneCount.toLocaleString()} processed before` : ''}. The downloads run in the background, one character at a time, in the notifications.`;
+    if (await showConfirm({ title: 'Download Media for All Characters', message, confirmLabel: 'Queue downloads' })) await queueMediaDownloads({ all: true });
+});
 
 // Completion is the media_localized column, on every list row: a sweep's skip is a read, a mark one
 // PATCH sent only while unmarked.
@@ -19831,197 +19521,8 @@ async function markMediaLocalizationComplete(charId) {
     if (!result?.ok) debugLog('[MediaLoc] Completion mark failed for', charId);
 }
 
-// Candidates: cards carrying any http substring, plus linked ones (gallery and taglines need no
-// card text), less what a run finished.
-async function fetchMediaLocCandidates() {
-    const [urlCarriers, linkedChars] = await Promise.all([
-        fetchCharacterSetWhere({ hasUrl: 'true', mediaLocalized: 'false' }, ['name', 'links']),
-        fetchCharacterSetWhere({ linked: 'true', mediaLocalized: 'false' }, ['name', 'links']),
-    ]);
-    const byId = new Map();
-    for (const c of [...urlCarriers, ...linkedChars]) byId.set(c.id, c);
-    return [...byId.values()];
-}
-
 /**
- * Run bulk media localization across all characters
- */
-async function runBulkLocalization(candidates = null, { previouslyDone = 0 } = {}) {
-    bulkLocalizeAborted = false;
-    bulkLocalizeAbortController = new AbortController();
-    bulkLocalizeResults = [];
-
-    if (!candidates) candidates = await fetchMediaLocCandidates();
-
-    bulkLocalizeModal.classList.add('visible');
-    bulkLocalizeCharAvatar.src = '';
-    bulkLocalizeCharName.textContent = 'Preparing...';
-    bulkLocalizeStatus.textContent = 'Scanning library...';
-    bulkLocalizeProgressFill.style.width = '0%';
-    bulkLocalizeFileFill.style.width = '0%';
-    bulkLocalizeProgressCount.textContent = '0/0 characters';
-    bulkLocalizeFileCount.textContent = '0/0 files';
-    bulkStatDownloaded.textContent = '0';
-    bulkStatSkipped.textContent = '0';
-    bulkStatErrors.textContent = '0';
-    setRunVerb(cancelBulkLocalizeBtn, 'running');
-    
-    let totalDownloaded = 0;
-    let totalSkipped = 0;
-    let totalErrors = 0;
-
-    const characters = candidates;
-    const totalChars = characters.length;
-    
-    bulkLocalizeStatus.textContent = `Processing ${totalChars} characters...`;
-    
-    for (let i = 0; i < characters.length; i++) {
-        if (bulkLocalizeAborted) {
-            bulkLocalizeStatus.textContent = 'Stopping...';
-            break;
-        }
-        
-        const char = characters[i];
-        const charName = getCharacterName(char, 'Unknown');
-
-        bulkLocalizeCharAvatar.src = getCharacterAvatarSmallThumbUrl(char.id);
-        bulkLocalizeCharName.textContent = charName;
-        bulkLocalizeProgressCount.textContent = `${i + 1}/${totalChars} characters`;
-        bulkLocalizeProgressFill.style.width = `${((i + 1) / totalChars) * 100}%`;
-        
-        // Hydrate slim character: findCharacterMediaUrls reads description/first_mes/etc.
-        await hydrateCharacter(char);
-        
-        const result = {
-            name: charName,
-            id: char.id, // the summary renders a thumbnail and a click target from this
-            totalUrls: 0,
-            downloaded: 0,
-            skipped: 0,
-            errors: 0,
-            filenameSkipped: 0,
-            incomplete: false
-        };
-        
-        let currentPhaseLabel = '';
-        let fileTotalCount = 0;
-        const filePhaseDone = { embedded: 0, lorebook: 0, providerGallery: 0, extGallery: 0 };
-        const filePhaseTotal = { embedded: 0, lorebook: 0, providerGallery: 0, extGallery: 0 };
-
-        const updateFileProgress = () => {
-            const allDone = filePhaseDone.embedded + filePhaseDone.lorebook + filePhaseDone.providerGallery + filePhaseDone.extGallery;
-            bulkLocalizeFileFill.style.width = `${fileTotalCount > 0 ? (allDone / fileTotalCount) * 100 : 0}%`;
-            bulkLocalizeFileCount.textContent = `${allDone}/${fileTotalCount} files`;
-        };
-        
-        const pipelineResult = await downloadCharacterMedia(char, {
-            shouldAbort: () => bulkLocalizeAborted,
-            signal: bulkLocalizeAbortController.signal,
-            onPhaseStart: (phase, ctx) => {
-                if (phase === 'embedded' || phase === 'lorebook') {
-                    filePhaseTotal[phase] = ctx.count;
-                    fileTotalCount += ctx.count;
-                    updateFileProgress();
-                } else if (phase === 'providerGallery') {
-                    currentPhaseLabel = ctx.provider || 'Provider';
-                    bulkLocalizeFileCount.textContent = `Fetching ${currentPhaseLabel} gallery...`;
-                } else if (phase === 'extGallery') {
-                    bulkLocalizeFileCount.textContent = 'Extracting external galleries...';
-                }
-            },
-            onProgress: (phase, current, total) => {
-                if (bulkLocalizeAborted) return;
-                filePhaseDone[phase] = current;
-                if ((phase === 'providerGallery' || phase === 'extGallery') && filePhaseTotal[phase] === 0 && total > 0) {
-                    filePhaseTotal[phase] = total;
-                    fileTotalCount += total;
-                }
-                updateFileProgress();
-            }
-        });
-        
-        result.totalUrls = fileTotalCount;
-        result.downloaded = pipelineResult.embedded.success + pipelineResult.lorebook.success;
-        result.skipped = pipelineResult.embedded.skipped + pipelineResult.lorebook.skipped;
-        result.errors = pipelineResult.embedded.errors + pipelineResult.lorebook.errors;
-        result.filenameSkipped = (pipelineResult.embedded.filenameSkipped || 0) + (pipelineResult.lorebook.filenameSkipped || 0);
-        result.galleryDownloaded = pipelineResult.providerGallery.success;
-        result.gallerySkipped = pipelineResult.providerGallery.skipped;
-        result.galleryErrors = pipelineResult.providerGallery.errors;
-        result.galleryFilenameSkipped = pipelineResult.providerGallery.filenameSkipped || 0;
-        result.extGalleryDownloaded = pipelineResult.extGallery.success;
-        result.extGallerySkipped = pipelineResult.extGallery.skipped;
-        result.extGalleryErrors = pipelineResult.extGallery.errors;
-        result.incomplete = pipelineResult.incomplete || pipelineResult.aborted;
-        
-        totalDownloaded += pipelineResult.totals.success;
-        totalSkipped += pipelineResult.totals.skipped;
-        totalErrors += pipelineResult.totals.errors;
-        
-        bulkStatDownloaded.textContent = totalDownloaded;
-        bulkStatSkipped.textContent = totalSkipped;
-        bulkStatErrors.textContent = totalErrors;
-        
-        if (pipelineResult.totals.success > 0 && char.id) {
-            clearMediaLocalizationCache(char.id);
-        }
-        
-        if (pipelineResult.aborted) {
-            bulkLocalizeResults.push(result);
-            break;
-        }
-        
-        if (fileTotalCount === 0 && !pipelineResult.providerGallery.providerName) {
-            bulkLocalizeFileCount.textContent = 'No remote media';
-            bulkLocalizeFileFill.style.width = '100%';
-        }
-        
-        if (!result.incomplete && char.id) {
-            markMediaLocalizationComplete(char.id);
-        }
-        
-        bulkLocalizeResults.push(result);
-        
-        // Small delay to prevent UI lockup and allow abort to be processed
-        await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    
-    bulkLocalizeModal.classList.remove('visible');
-    showBulkSummary(bulkLocalizeAborted, previouslyDone);
-    
-    if (bulkLocalizeAborted) {
-        showToast(`Bulk localization stopped. Downloaded ${totalDownloaded} files.`, 'info');
-    } else {
-        showToast(`Bulk localization complete. Downloaded ${totalDownloaded} files.`, 'success');
-    }
-}
-
-// Bulk Localize button in settings
-document.getElementById('bulkLocalizeBtn')?.addEventListener('click', async () => {
-    if (!(await window.closeSettingsDialog?.() ?? true)) return;
-
-    const [candidates, doneCount] = await Promise.all([fetchMediaLocCandidates(), countCharactersWhere({ mediaLocalized: 'true' })]);
-    // the finished ones are counted by the server, never listed
-    const alreadyDone = doneCount || 0;
-    if (candidates.length === 0) {
-        showToast(alreadyDone ? 'Every character with remote media or provider links is already processed' : 'No characters with remote media or provider links found', 'info');
-        return;
-    }
-
-    let confirmMsg;
-    if (alreadyDone > 0) {
-        confirmMsg = `${alreadyDone} characters were processed before and are left out.\n\n${candidates.length} characters will be scanned for remote media.\n\nContinue?`;
-    } else {
-        confirmMsg = `This will scan ${candidates.length} characters with remote media or provider links and download any new files.\n\nThis may take a while for large libraries. Continue?`;
-    }
-
-    if (await showConfirm({ title: 'Bulk localize', message: confirmMsg, confirmLabel: 'Continue' })) {
-        runBulkLocalization(candidates, { previouslyDone: alreadyDone });
-    }
-});
-
-/**
- * Clear every character's media-processed mark, a job on the server followed to its end; the next bulk localize scans them all.
+ * Clear every character's media-processed mark (a server job followed to its end), so Download Media for All Characters scans them all again.
  * @returns {Promise<{changed: number, stopped?: true}>} changed: the characters whose mark the server cleared
  * @throws the server's words when it refuses the write, or the job's when it failed
  */
@@ -20034,15 +19535,15 @@ async function clearMediaLocalizedHistory() {
     return { changed: job.result?.changed || 0, ...(job.status === 'stopped' ? { stopped: true } : {}) };
 }
 
-// Clear bulk localize history button
-document.getElementById('clearBulkLocalizeHistoryBtn')?.addEventListener('click', async () => {
+// Clear Processed History, in Settings
+document.getElementById('clearMediaHistoryBtn')?.addEventListener('click', async () => {
     const count = await countCharactersWhere({ mediaLocalized: 'true' });
     if (count === null) { showToast('Could not read the processed count from the server', 'error'); return; }
     if (count === 0) {
         showToast('No processed history to clear', 'info');
         return;
     }
-    if (await showConfirm({ title: 'Clear processed history', message: `This will clear the history of ${count} processed characters. The next bulk localize will scan all characters again.`, confirmLabel: 'Clear', danger: true })) {
+    if (await showConfirm({ title: 'Clear processed history', message: `This will clear the history of ${count} processed characters. The next Download Media for All Characters will scan them all again.`, confirmLabel: 'Clear', danger: true })) {
         try {
             const { changed } = await clearMediaLocalizedHistory();
             showToast(`Cleared history of ${changed} processed characters`, 'success');
@@ -20482,15 +19983,6 @@ let duplicateModalState = {
     scrollPosition: 0
 };
 
-// State for returning to bulk summary modal after viewing a character
-let bulkSummaryModalState = {
-    wasOpen: false,
-    scrollPosition: 0,
-    currentPage: 1,
-    filterValue: 'all',
-    searchValue: ''
-};
-
 /**
  * Calculate similarity between two strings (0-1)
  * Uses Levenshtein distance for fuzzy matching
@@ -20642,7 +20134,7 @@ function dupePassesMinScore(d, minScore, exactMode) {
 }
 
 function applyDuplicateMinScoreFilter(groups) {
-    const minScore = getSetting('duplicateMinScore') || 35;
+    const minScore = numberSetting('duplicateMinScore');
     const exactMode = minScore >= 120;
     const filtered = [];
     for (const group of groups) {
@@ -20722,7 +20214,10 @@ async function checkCharacterForDuplicatesAsync(newChar) {
         },
     };
     // a check that could not run throws with the server's words: no caller may read it as no duplicates
-    const matches = (await readAnswer(await apiRequest('/characters/duplicates/match', 'POST', probe)))?.matches || [];
+    const answered = (await readAnswer(await apiRequest('/characters/duplicates/match', 'POST', probe)))?.matches || [];
+    // the reader's Find Duplicates cutoff where the texts were compared; the same listing, and a match it could not judge by text, always shown
+    const minScore = numberSetting('duplicateMinScore');
+    const matches = answered.filter(m => m.breakdown?.providerPath || m.textCompared === false || dupePassesMinScore(m, minScore, minScore >= 120));
     if (!matches.length) return [];
     const byId = new Map((await fetchCharactersByIds(matches.map(m => m.id))).map(c => [c.id, c]));
     return matches.map(m => ({ ...m, char: byId.get(m.id) })).filter(m => m.char);
@@ -20778,33 +20273,9 @@ function renderFieldDiff(fieldName, valueA, valueB, labelA = 'Keep', labelB = 'D
         return { html, isSame: true, isEmpty: false, normalizedAway };
     }
     
-    // Different content - show with diff highlighting
-    let keepHtml, dupHtml;
-    
-    if (!normA) {
-        keepHtml = '<span class="diff-empty">(empty)</span>';
-        dupHtml = `<span class="diff-added">${escapeHtml(normB)}</span>`;
-    } else if (!normB) {
-        keepHtml = `<span class="diff-removed">${escapeHtml(normA)}</span>`;
-        dupHtml = '<span class="diff-empty">(empty)</span>';
-    } else {
-        // Both have content - find and highlight differences
-        const diffStart = findFirstDifference(normA, normB);
-        const diffEnd = findLastDifference(normA, normB);
-        
-        if (diffStart === -1) {
-            // No difference found (shouldn't happen since we checked isSame)
-            keepHtml = escapeHtml(normA);
-            dupHtml = escapeHtml(normB);
-        } else {
-            const oldChangeEnd = diffEnd.pos1 + 1;
-            const newChangeEnd = diffEnd.pos2 + 1;
-            keepHtml = buildHighlightedString(normA, diffStart, oldChangeEnd, 'diff-removed');
-            dupHtml = buildHighlightedString(normB, diffStart, newChangeEnd, 'diff-added');
-        }
-    }
-    
-    const html = `<div class="char-dup-diff-section"><div class="char-dup-diff-label"><i class="${icon}"></i> ${escapeHtml(fieldName)}</div><div class="char-dup-diff-stack"><div class="char-dup-diff-content keep"><div class="char-dup-diff-content-label"><i class="fa-solid fa-check"></i> ${escapeHtml(labelA)}</div><div class="diff-text-content">${keepHtml}</div></div><div class="char-dup-diff-content duplicate"><div class="char-dup-diff-content-label"><i class="fa-solid fa-trash"></i> ${escapeHtml(labelB)}</div><div class="diff-text-content">${dupHtml}</div></div></div></div>`;
+    // different: the shared side-by-side diff, each changed word marked and unchanged lines folded (an empty side faces holes)
+    const diff = diffSplitView(normA, normB, { heads: [labelA, labelB] });
+    const html = `<div class="char-dup-diff-section"><div class="char-dup-diff-label"><i class="${icon}"></i> ${escapeHtml(fieldName)}</div>${diff.html}</div>`;
     return { html, isSame: false, isEmpty: false, normalizedAway: false };
 }
 
@@ -21046,30 +20517,10 @@ function getCharDateMs(char) {
     return 0;
 }
 
-function showDupPlaylistSelectionMenu(anchorBtn, groups) {
-    const existing = document.querySelector('.dup-playlist-dropdown');
-    if (existing) { existing.remove(); return; }
-
-    const menu = document.createElement('div');
-    menu.className = 'dropdown-menu dup-playlist-dropdown';
-    menu.style.position = 'absolute';
-    menu.style.zIndex = '1001';
-    menu.innerHTML = `
-        <div class="dropdown-section-title">Add to Playlist</div>
-        <button class="dropdown-item" data-selection="newest">
-            <i class="fa-solid fa-arrow-up"></i> Select All Newest
-        </button>
-        <button class="dropdown-item" data-selection="oldest">
-            <i class="fa-solid fa-arrow-down"></i> Select All Oldest
-        </button>
-    `;
-
-    anchorBtn.style.position = 'relative';
-    anchorBtn.appendChild(menu);
-    menu.style.top = '100%';
-    menu.style.right = '0';
-    menu.style.marginTop = '4px';
-
+// the newest or oldest of each group on the context menu's list, handed to the playlist picker
+function showDupPlaylistSelectionMenu(e, anchorBtn, groups) {
+    const menu = window.ModuleLoader?.get('context-menu');
+    if (!menu?.showItems) return;
     const collect = (pickNewest) => {
         const charIds = new Set();
         for (const group of groups) {
@@ -21080,26 +20531,13 @@ function showDupPlaylistSelectionMenu(anchorBtn, groups) {
         }
         return [...charIds];
     };
-
-    menu.addEventListener('click', (e) => {
-        const item = e.target.closest('[data-selection]');
-        if (!item) return;
-        e.stopPropagation();
-        const selection = item.dataset.selection;
-        const charIds = collect(selection === 'newest');
-        menu.remove();
-        if (charIds.length > 0 && window.openPlaylistPicker) {
-            window.openPlaylistPicker(charIds);
-        }
-    });
-
-    const closeMenu = (e) => {
-        if (!menu.contains(e.target) && e.target !== anchorBtn) {
-            menu.remove();
-            document.removeEventListener('click', closeMenu, true);
-        }
-    };
-    setTimeout(() => document.addEventListener('click', closeMenu, true), 0);
+    const pick = (newest) => { const ids = collect(newest); if (ids.length) window.openPlaylistPicker?.(ids); };
+    const r = anchorBtn.getBoundingClientRect();
+    menu.showItems(e, [
+        { type: 'header', label: 'Add to Playlist' },
+        { icon: 'fa-solid fa-arrow-up', label: 'Select All Newest', action: () => pick(true) },
+        { icon: 'fa-solid fa-arrow-down', label: 'Select All Oldest', action: () => pick(false) },
+    ], { x: r.left, y: r.bottom });
 }
 
 /**
@@ -21128,7 +20566,7 @@ async function renderDuplicateGroups(groups) {
     await hydrateMany([...charsToHydrate], { chunk: 6 });
     
     let totalDuplicates = groups.reduce((sum, g) => sum + g.duplicates.length, 0);
-    const isExactMode = (getSetting('duplicateMinScore') || 35) >= 120;
+    const isExactMode = numberSetting('duplicateMinScore') >= 120;
     statusEl.innerHTML = `<i class="fa-solid fa-exclamation-triangle"></i> Found ${totalDuplicates} potential duplicate(s) in ${groups.length} group(s)`
         + (isExactMode ? `<button class="cl-btn cl-btn-secondary cl-btn-sm dup-playlist-all-btn u-ml-auto" title="Add newest or oldest from each group to a playlist"><i class="fa-solid fa-list-ul"></i> Add to Playlist</button>` : '');
     statusEl.className = 'char-duplicates-status complete';
@@ -21177,7 +20615,8 @@ async function renderDuplicateGroups(groups) {
             const allDiffs = [descDiff, persDiff, scenarioDiff, firstMesDiff, mesExampleDiff, systemPromptDiff, creatorNotesDiff, tagsDiff];
             const identicalCount = allDiffs.filter(d => d.isSame && !d.isEmpty).length;
             const differentCount = allDiffs.filter(d => !d.isSame && !d.isEmpty).length;
-            const isContentIdentical = differentCount === 0 && identicalCount > 0;
+            // the rule's verdict (related own names, one author or none, the same texts), and no row shown differing; never worked out here
+            const isContentIdentical = !!dup.contentIdentical && differentCount === 0;
 
             dupResults.push({ dup, dupIdx, dupChar, diffs, allDiffs, identicalCount, differentCount, isContentIdentical });
         });
@@ -21209,6 +20648,7 @@ async function renderDuplicateGroups(groups) {
             if (dup.breakdown) {
                 const parts = [];
                 if (dup.breakdown.name) parts.push(`Name: ${dup.breakdown.name}`);
+                if (dup.breakdown.renamed) parts.push(`Renamed: ${dup.breakdown.renamed}`);
                 if (dup.breakdown.creator) parts.push(`Creator: ${dup.breakdown.creator}`);
                 if (dup.breakdown.creator_notes) parts.push(`Notes: ${dup.breakdown.creator_notes}`);
                 if (dup.breakdown.description) parts.push(`Desc: ${dup.breakdown.description}`);
@@ -21226,7 +20666,7 @@ async function renderDuplicateGroups(groups) {
             const wsNormalizedCount = allDiffs.filter(d => d.normalizedAway).length;
             
             let diffSummary = '';
-            if (differentCount === 0 && identicalCount > 0) {
+            if (isContentIdentical) {
                 // All content is identical - explain what differs (metadata only)
                 const refDate = ref.date_added ? new Date(Number(ref.date_added)) : (ref.create_date ? new Date(ref.create_date) : null);
                 const dupDate = dupChar.date_added ? new Date(Number(dupChar.date_added)) : (dupChar.create_date ? new Date(dupChar.create_date) : null);
@@ -21288,7 +20728,7 @@ async function renderDuplicateGroups(groups) {
                         </div>
                     </div>
                 ` : ''}
-                ${identicalFields && differentCount > 0 ? `
+                ${identicalFields && (differentCount > 0 || !isContentIdentical) ? `
                     <div class="char-dup-diff-container">
                         <div class="char-dup-diff identical">
                             <details>
@@ -21318,7 +20758,7 @@ async function renderDuplicateGroups(groups) {
     if (playlistAllBtn) {
         playlistAllBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            showDupPlaylistSelectionMenu(playlistAllBtn, groups);
+            showDupPlaylistSelectionMenu(e, playlistAllBtn, groups);
         });
     }
 }
@@ -21705,7 +21145,7 @@ function renderPreImportMatches() {
                     </div>
                 </div>
                 <div class="char-dup-card-meta">
-                    <div class="char-dup-group-confidence ${escapeHtml(match.confidence)}">${escapeHtml(match.matchReason)}</div>
+                    <div class="char-dup-group-confidence ${escapeHtml(match.confidence)}" title="${Number(match.score) || 0} pts">${escapeHtml(getDuplicateScoreLabel(Number(match.score) || 0, match.strictIdentical === true))}: ${escapeHtml(match.matchReason)}</div>
                     <div class="char-dup-card-meta-item u-ml-auto"><i class="fa-solid fa-code"></i> ~${tokens} tokens</div>
                     <button type="button" class="char-dup-card-meta-item pre-import-view-btn" data-dup-view><i class="fa-solid fa-eye"></i> View</button>
                 </div>
@@ -22858,7 +22298,7 @@ function makeFloatingWindow(el, opts = {}) {
     const space = () => {
         const host = bounds || el.offsetParent || el.parentElement;
         const r = host?.getBoundingClientRect();
-        const zoom = parseFloat(document.body.style.zoom) || 1;
+        const zoom = uiZoom();
         return { w: (r?.width || 1) / zoom, h: (r?.height || 1) / zoom, zoom };
     };
     const floor = (s) => ({
@@ -22898,7 +22338,8 @@ function makeFloatingWindow(el, opts = {}) {
         let live = null;
         let raf = 0;
         target.addEventListener('pointerdown', (e) => {
-            if (e.target.closest('button, select, input, textarea, a')) return;
+            // a press with another button (the right-click's) or on a control with a gesture of its own moves nothing
+            if (e.button > 0 || e.target.closest('button, select, input, textarea, a, [data-own-gesture]')) return;
             // a pinned window (mobile full-screen) ignores the gesture, or a phone would save geometry the
             // desktop opens with
             if (pinned()) return;
@@ -22907,6 +22348,8 @@ function makeFloatingWindow(el, opts = {}) {
             try { target.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
             target.classList.add('active');
             el.classList.add(cls);
+            // a page-wide state for what a gesture pauses (a :has() on html restyles the page on every insert)
+            document.documentElement.classList.add('fw-gesture');
             e.preventDefault();
             e.stopPropagation();
         });
@@ -22926,6 +22369,7 @@ function makeFloatingWindow(el, opts = {}) {
             try { target.releasePointerCapture(e.pointerId); } catch { /* already released */ }
             target.classList.remove('active');
             el.classList.remove(cls);
+            document.documentElement.classList.remove('fw-gesture');
             cancelAnimationFrame(raf);
             // one write per gesture, none for a press that moved nothing (which also leaves an unplaced window unplaced)
             const moved = live && ['w', 'h', 'x', 'y'].some(k => live[k] !== from[k]);
@@ -22934,7 +22378,7 @@ function makeFloatingWindow(el, opts = {}) {
         target.addEventListener('pointerup', end);
         target.addEventListener('pointercancel', end);
         target.addEventListener('dblclick', (e) => {
-            if (e.target.closest('button, select, input, textarea, a')) return;
+            if (e.target.closest('button, select, input, textarea, a, [data-own-gesture]')) return;
             e.stopPropagation();
             if (!pinned()) reset();
         });
@@ -23862,8 +23306,6 @@ window.registerOverlay?.({ id: 'importSummaryModal', tier: 4, close: () => handl
 const _hideClModalVisible = id => () => document.getElementById(id)?.classList.remove('visible');
 window.registerOverlay?.({ id: 'importModal',               tier: 7, close: () => closeImportDialog() });
 window.registerOverlay?.({ id: 'localizeModal',             tier: 7, close: _hideClModalVisible('localizeModal') });
-window.registerOverlay?.({ id: 'bulkLocalizeModal',         tier: 7, close: _hideClModalVisible('bulkLocalizeModal') });
-window.registerOverlay?.({ id: 'bulkLocalizeSummaryModal',  tier: 7, close: _hideClModalVisible('bulkLocalizeSummaryModal') });
 window.registerOverlay?.({ id: 'bulkAutoLinkModal',         tier: 7, close: _hideClModalVisible('bulkAutoLinkModal') });
 window.registerOverlay?.({ id: 'charDuplicatesModal',       tier: 7, close: () => closeCharDuplicatesModal() });
 // closed any way but its buttons (Escape, back, a drag) it answers Skip, so the import waiting on it lets go
@@ -23989,6 +23431,8 @@ window.TOPBAR_DROPDOWN_IDS = TOPBAR_DROPDOWN_IDS;
 window.renderExtensionAppActions = renderExtensionAppActions;
 window.debounce = debounce;
 window.renderEditableTagChips = renderEditableTagChips;
+window.showTagAutocomplete = showTagAutocomplete;
+window.tagAutocompleteKeydown = tagAutocompleteKeydown;
 window.clampTagRows = clampTagRows;
 window.tagStateLook = tagStateLook;
 window.randomId = randomId;
@@ -23999,6 +23443,7 @@ window.formatNumber = formatNumber;
 window.formatBytes = formatBytes;
 window.isMobileMode = isMobileMode;
 window.scrollBehavior = scrollBehavior;
+window.uiZoom = uiZoom;
 window.downloadBlobAsFile = downloadBlobAsFile;
 window.filterListWithInlineCreate = filterListWithInlineCreate;
 window.sanitizeTaglineHtml = sanitizeTaglineHtml;
@@ -24131,6 +23576,7 @@ window.streamAssistantGeneration = streamAssistantGeneration;
 window.streamCreatorGeneration = streamCreatorGeneration;
 window.computeLineDiff = computeLineDiff;
 window.computeWordDiff = computeWordDiff;
+window.diffSplitView = diffSplitView;
 window.getLlmSettings = getLlmSettings;
 window.mountAiConnectionBlock = mountAiConnectionBlock;
 window.aiConnectionStreams = aiConnectionStreams;
@@ -24143,6 +23589,7 @@ window.removeRuntimeToken = removeRuntimeToken;
 // Settings
 window.getSetting = getSetting;
 window.getDefaultSetting = getDefaultSetting;
+window.numberSetting = numberSetting;
 window.setSetting = setSetting;
 window.flushSettings = flushSettings;
 window.settingsReady = settingsReady;
@@ -24171,6 +23618,8 @@ window.sanitizeMediaFilename = sanitizeMediaFilename;
 window.buildDedupState = buildDedupState;
 window.downloadCharacterMedia = downloadCharacterMedia;
 window.markMediaLocalizationComplete = markMediaLocalizationComplete;
+window.queueMediaDownloads = queueMediaDownloads;
+window.downloadMediaForCharacter = downloadMediaForCharacter;
 window.registerNotificationSection = registerNotificationSection;
 window.removeNotificationSection = removeNotificationSection;
 window.refreshNotificationsUI = refreshNotificationsUI;

@@ -64,6 +64,15 @@ export function computeWordDiff(...args) {
     return window.computeWordDiff?.(...args) || { old: [], new: [] };
 }
 
+/**
+ * The side-by-side diff every review and comparison surface shows: line hunks, word marks, unchanged lines folded.
+ * @param {{ heads?: [string, string] }} [opts] the two columns' heads
+ * @returns {{ html: string, changed: number, added: number, removed: number }}
+ */
+export function diffSplitView(...args) {
+    return window.diffSplitView?.(...args) || { html: '', changed: 0, added: 0, removed: 0 };
+}
+
 // ========================================
 // STATE ACCESS
 // ========================================
@@ -168,6 +177,10 @@ export function settingsReady(...args) {
 /** The shipped default for a key, ignoring any saved value. For reset affordances. */
 export function getDefaultSetting(...args) {
     return window.getDefaultSetting?.(...args);
+}
+
+export function numberSetting(...args) {
+    return window.numberSetting?.(...args);
 }
 
 /** Write a CSS custom property into the runtime-token layer, which user Custom CSS
@@ -571,6 +584,16 @@ export function renderEditableTagChips(...args) {
     return window.renderEditableTagChips?.(...args);
 }
 
+/** Fill a .tag-autocomplete list with the library's tags for the text; opts { dropdown, onPick } required, { exclude, allowCreate, limit } optional. */
+export function showTagAutocomplete(...args) {
+    return window.showTagAutocomplete?.(...args);
+}
+
+/** A tag suggestion list's arrows and Enter, from a field's keydown; true when the key was taken. */
+export function tagAutocompleteKeydown(...args) {
+    return window.tagAutocompleteKeydown?.(...args) ?? false;
+}
+
 /** Clamp a container of tag pills to the rows that fit and keep it clamped through resizes; the look names its classes. */
 export function clampTagRows(...args) {
     return window.clampTagRows?.(...args);
@@ -648,6 +671,14 @@ export function isMobileMode() {
  */
 export function scrollBehavior(...args) {
     return window.scrollBehavior?.(...args);
+}
+
+/**
+ * The factor UI Scale zooms the page by (1 at 100% and on a phone); divide a screen rect by it
+ * @returns {number}
+ */
+export function uiZoom() {
+    return window.uiZoom?.();
 }
 
 /**
@@ -802,7 +833,7 @@ export function lockMinWidth(...args) {
 /**
  * Keep a bar's entries to what fits, the rest behind its More (listed, labelled, on press).
  * @param {HTMLElement} row - The box the entries share, sized by its container
- * @param {{ entries: () => HTMLElement[], more: HTMLElement, always?: Function, current?: string, marked?: string, working?: string, separators?: string, watch?: boolean, label?: Function }} spec
+ * @param {{ entries: () => HTMLElement[], more: HTMLElement, always?: Function, current?: string, marked?: string, working?: string, waiting?: string, separators?: string, watch?: boolean, label?: Function, context?: Function }} spec
  */
 export function fitRow(row, spec) {
     window.fitRow?.(row, spec);
@@ -1260,8 +1291,8 @@ export async function autoSnapshotBeforeChange(char, reason, opts) {
 // ========================================
 
 /**
- * Async duplicate check with hydration for cross-provider matching
- * @param {Object} newChar - Character card to check
+ * The pre-import duplicate check: the server's matches past the reader's Find Duplicates cutoff, the same listing always
+ * @param {Object} newChar - Character card to check (name, creator, providerId with fullPath or externalId, its texts)
  * @returns {Promise<Array>} Duplicate matches sorted by score
  */
 export function checkCharacterForDuplicatesAsync(...args) {
@@ -1415,6 +1446,19 @@ export function downloadCharacterMedia(...args) {
 /** Mark a character's media localization as complete (Files-API set). */
 export function markMediaLocalizationComplete(...args) {
     return window.markMediaLocalizationComplete?.(...args);
+}
+
+/**
+ * Download Media for a set on the background queue: { ids } | { filter } (a selection, scanned again) | { all: true }.
+ * @returns {Promise<{total: number, queued: number, noMedia: number, active: number}|null>}
+ */
+export function queueMediaDownloads(target) {
+    return window.queueMediaDownloads?.(target) ?? Promise.resolve(null);
+}
+
+/** Download Media for one character: on the queue or in its dialog, as the media setting says. */
+export function downloadMediaForCharacter(char) {
+    return window.downloadMediaForCharacter?.(char);
 }
 
 /** Contribute a section to the topbar notifications dropdown. */
@@ -1783,6 +1827,7 @@ export default {
     onCharactersDeleted,
     getSetting,
     getDefaultSetting,
+    numberSetting,
     setRuntimeToken,
     removeRuntimeToken,
     flushSettings,
@@ -1852,6 +1897,8 @@ export default {
     sanitizeTaglineHtml,
     debounce,
     renderEditableTagChips,
+    showTagAutocomplete,
+    tagAutocompleteKeydown,
     clampTagRows,
     tagStateLook,
     randomId,
@@ -1862,6 +1909,7 @@ export default {
     formatBytes,
     isMobileMode,
     scrollBehavior,
+    uiZoom,
     createMobileSheet,
     getCharacterTags,
     suggestTags,
@@ -2045,4 +2093,7 @@ export default {
     streamCreatorGeneration,
     computeLineDiff,
     computeWordDiff,
+    diffSplitView,
+    queueMediaDownloads,
+    downloadMediaForCharacter,
 };

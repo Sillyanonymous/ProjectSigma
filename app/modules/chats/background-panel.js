@@ -560,24 +560,20 @@ async function deleteFromLibrary(id) {
     CoreAPI.showToast('Background deleted', 'success');
 }
 
-function openTileSheet(wrap) {
+// the rail's verbs on the shared menu (its sheet on a phone), each row pressing its rail button
+function openTileSheet(wrap, e) {
+    const menu = CoreAPI.getModule('context-menu');
     const acts = [...wrap.querySelectorAll('.cbg-tile-act')];
-    const sheet = CoreAPI.createMobileSheet();
-    if (!sheet || !acts.length) return;
-    const name = wrap.querySelector('.cl-cwin-tile')?.title || 'Background';
-    sheet.sheet.insertAdjacentHTML('beforeend', `
-        <div class="mobile-sheet-group-title">${esc(name)}</div>
-        ${acts.map((a, i) => `
-        <button type="button" class="mobile-sheet-item" data-acts-i="${i}">
-            ${a.querySelector('i')?.outerHTML || ''}<span>${esc(a.getAttribute('aria-label') || a.title || 'Action')}</span>
-        </button>`).join('')}`);
-    sheet.sheet.addEventListener('click', (e) => {
-        const it = e.target.closest('[data-acts-i]');
-        if (!it) return;
-        sheet.close();
-        acts[Number(it.dataset.actsI)]?.click();
-    });
-    sheet.open();
+    if (!menu?.showItems || !acts.length) return;
+    menu.showItems(e, [
+        { type: 'header', label: wrap.querySelector('.cl-cwin-tile')?.title || 'Background' },
+        ...acts.map(a => ({
+            icon: a.querySelector('i')?.className || '',
+            label: a.getAttribute('aria-label') || a.title || 'Action',
+            className: a.classList.contains('is-danger') ? 'danger' : '',
+            action: () => a.click(),
+        })),
+    ]);
 }
 
 // the avatar rides the byte upload; content-hash dedup makes a second promote find the existing row
@@ -661,7 +657,7 @@ function injectPanel() {
         const wrap = e.target.closest('.cbg-tile-wrap');
         if (!wrap) return;
         e.preventDefault();
-        openTileSheet(wrap);
+        openTileSheet(wrap, e);
     });
 
     sheet?.addEventListener('click', async (e) => {

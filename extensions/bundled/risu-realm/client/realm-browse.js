@@ -63,7 +63,7 @@ export function setRealmSettings(settings) {
 
 function isCharPossibleMatchObj(row) {
     if (view.isHitInLibrary(row)) return false;
-    return view.isCharPossibleMatch(row.name || '', row.author || '');
+    return view.isHitPossibleMatch(row);
 }
 
 // ========================================
@@ -76,7 +76,7 @@ export function realmCardHtml(row) {
     const author = row.author || '';
     const tags = row.tags;
     const inLibrary = view.isHitInLibrary(row);
-    const tier = inLibrary ? null : view.getPossibleMatchTier(name, author);
+    const tier = inLibrary ? null : view.possibleMatchTierFor(row);
     const possible = !!tier?.show;
     const badges = view.importingBadge(row) + (inLibrary
         ? '<span class="browse-feature-badge in-library" title="In Your Library"><i class="fa-solid fa-check"></i></span>'
@@ -85,7 +85,7 @@ export function realmCardHtml(row) {
     const date = row.date ? new Date(row.date).toLocaleDateString() : '';
     const cardClass = inLibrary ? 'browse-card in-library' : possible ? 'browse-card possible-library' : 'browse-card';
     return `
-        <div class="${cardClass}" data-realm-id="${escapeHtml(row.id)}"${view.linkKeyAttr(row)}>
+        <div class="${cardClass}" data-realm-id="${escapeHtml(row.id)}"${view.linkKeyAttr(row)}${view.matchAttr(row)}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(picture)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${badges ? `<div class="browse-feature-badges">${badges}</div>` : ''}
@@ -285,10 +285,7 @@ export function openRealmPreview(row) {
     showDescSection(row);
 
     // the import button, kept in step with the library while the preview is open
-    const restampImport = () => {
-        const inLibraryNow = view.isHitInLibrary(row);
-        view.stampImportButton(document.getElementById('realmImportBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && view.isCharPossibleMatch(name, row.author || '') });
-    };
+    const restampImport = () => view.stampPreviewImport(document.getElementById('realmImportBtn'), row);
     restampImport();
     view.trackPreview(restampImport, row);
 
@@ -460,7 +457,7 @@ class RealmBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: hit.name || '', creator: hit.author || '' };
+        return { name: hit.name || '', creator: hit.author || '', text: hit.desc || '' };
     }
 
     hitLinkKey(hit) {
@@ -657,11 +654,6 @@ class RealmBrowseView extends BrowseView {
     }
 
     // ── Library Lookup (BrowseView contract) ────────────────
-
-    // the creator line is plain text here (the Realm lists no creator's cards)
-    _cardPossibleTier(card, name) {
-        return this.getPossibleMatchTier(name, card.querySelector('.browse-card-creator')?.dataset.author || '');
-    }
 
     deactivate() {
         delegatesInitialized = false;

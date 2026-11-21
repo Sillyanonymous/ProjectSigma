@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
     listBackgrounds, getBackground, findByUrlHash, findByContent, addBackground,
-    renameBackground, deleteBackground, bindingsUsing, contentHashFor, isImageFile,
+    renameBackground, deleteBackground, bindingsUsing, contentHashFor,
     getBinding, putBinding, deleteBinding, resolveBackground, bindingTargetExists,
     FIT_VALUES, RENDER_WIDTHS, SCOPES,
 } from '../db/backgrounds-store.js';
@@ -15,7 +15,6 @@ import { invalidateBackgroundThumbs } from './thumbs.js';
 import { boolOf } from '../lib/query-params.js';
 // dimensions ride the row so the picker can quote a choice's memory cost
 import { imageSizeOf } from '../lib/image-size.js';
-import { nameForBytes } from '../lib/stored-file.js';
 
 export const backgroundsRouter = Router();
 
@@ -122,13 +121,8 @@ backgroundsRouter.post('/', express.raw({ type: () => true, limit: '200mb' }), a
     const db = req.db;
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'file body required' });
 
-    // named by its bytes before the gate, so a video named .png is refused and a picture with a cut name is not
-    const name = nameForBytes(String(req.query.name || 'background.png'), req.body);
-    if (!isImageFile(name)) {
-        return res.status(415).json({ error: 'backgrounds are images only' });
-    }
-    // the store's refusals carry statusCode 400 and measure never throws; anything
-    // else is a real, logged 500
+    // the store names the file by its bytes and refuses what is not an image; measure never throws
+    const name = String(req.query.name || 'background.png');
     const sourceUrl = req.query.sourceUrl ? String(req.query.sourceUrl) : null;
     const urlHash = sourceUrl ? urlHashFor(sourceUrl) : null;
     if (urlHash) {
@@ -165,7 +159,6 @@ backgroundsRouter.post('/from-url', express.json(), async (req, res) => {
 
     const dims = await imageSizeOf(bytes);
     const name = displayNameForUrl(url, contentType, bytes);
-    if (!isImageFile(name)) return res.status(415).json({ error: 'backgrounds are images only' });
     res.json(addBackground(db, req.paths, name, bytes, { sourceUrl: url, urlHash, ...dims }));
 });
 

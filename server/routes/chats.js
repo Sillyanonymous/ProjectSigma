@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { regexWrite, regexWriteAll } from '../lib/regex/chat-passes.js';
+import { PLACE, screenPlace } from '../lib/regex/engine.js';
 import { skipIfGone } from '../lib/request-guard.js';
 import {
     listChats, getChatDetail, replaceChatMessages,
@@ -28,21 +30,6 @@ import { entryUid } from '../lib/world-entry.js';
 import { runHook } from '../db/hook-seat.js';
 
 export const chatsRouter = Router();
-
-// The defaults for the three turns that tell the model what shape is wanted; settings, since presets refuse impersonate
-export const DEFAULT_IMPERSONATE_PROMPT =
-    "It is {{user}}'s turn. Give ONLY their next message, in their own voice, as their reply to {{char}}: "
-    + 'no narration about {{char}}, no quotation marks around the whole of it, and nothing addressed to the assistant.';
-
-// continue extends, it is not a new turn; the output is concatenated raw onto the message
-export const DEFAULT_CONTINUE_PROMPT =
-    "Continue {{char}}'s final message from exactly where it stops. "
-    + 'Do not repeat any of it, do not restart it, and do not begin a new message or a new paragraph '
-    + 'unless the text clearly ended one. Your first character continues directly from its last character, '
-    + 'so begin with a space if the sentence needs one.';
-
-// a guided reply: the composer text is direction for the character's turn, sharing impersonate's suffix
-const DEFAULT_GUIDED_PROMPT = "Continue the scene with {{char}}'s next reply, naturally and in the style already set. Stay in character.";
 
 chatsRouter.get('/', skipIfGone, (req, res) => {
     const { limit, after } = pageOf(req.query);
@@ -342,7 +329,8 @@ chatsRouter.post('/:id/messages', (req, res) => {
     const db = req.db;
     const row = getChatRow(db, req.params.id);
     if (!row) return res.status(404).json({ error: 'chat not found' });
-    return res.json(messageAnswer(db, storeSentTurn(db, row, mes, { firstDisplayed: firstShown, attachments })));
+    const typed = regexWrite(db, row.id, mes, { where: PLACE.userInput });
+    return res.json(messageAnswer(db, storeSentTurn(db, row, typed, { firstDisplayed: firstShown, attachments })));
 });
 
 // One message, addressed by its row seq. The whole-list PUT above rewrites every row, and
@@ -370,10 +358,22 @@ chatsRouter.patch('/:id/messages/:seq', (req, res) => {
     if (!chatRow) return res.status(404).json({ error: 'chat not found' });
     // the first message is kept expanded (ST's display); another message at that seq, or another active alternate, is a 409
     const opts = { messageId, shown, ...(seq === 0 ? { finish: finishFirstMessage(req.db, chatRow) } : {}) };
+    if (typeof patch.mes === 'string') markEdited(req.db, req.params.id, seq, patch);
     const result = patchChatMessage(req.db, req.params.id, seq, patch, opts);
     if (!result) return res.status(404).json({ error: 'no such message' });
     return res.json(messageAnswer(req.db, result));
 });
+
+// an edit through the message editor: the reader's words, marked so read-time text scripts leave them to the run-on-edit ones
+function markEdited(db, chatId, seq, patch) {
+    const held = messageRowAt(db, chatId, seq);
+    const msg = held ? JSON.parse(held.data) : null;
+    if (!msg || msg.mes === patch.mes) return;
+    // a narrator's line edits at Narrator with no sender standing for {{char}}, as ST edits it
+    const narrator = screenPlace(msg) === PLACE.narrator;
+    patch.mes = regexWrite(db, chatId, patch.mes, { pass: 'edit', where: screenPlace(msg), charName: narrator ? undefined : msg.name });
+    patch.extra = { ...(patch.extra && typeof patch.extra === 'object' ? patch.extra : {}), edited: Date.now() };
+}
 
 chatsRouter.delete('/:id/messages/:seq', (req, res) => {
     const seq = intOf(req.params.seq);
@@ -438,6 +438,8 @@ chatsRouter.post('/:id/generate', async (req, res) => {
     let targetSeq = null;
     // the target row's bytes as chosen; the commit refuses on any difference, since a delete renumbers seqs
     let targetData = null;
+    // the direction the target's shown alternate was written to, which a swipe or a reroll of it follows
+    let targetGuidance = '';
     if (mode === 'swipe' || mode === 'continue' || mode === 'regenerate') {
         const asked = req.body?.targetSeq == null ? undefined : intOf(req.body.targetSeq);
         if (Number.isNaN(asked)) return res.status(400).json({ error: 'targetSeq must be a number' });
@@ -460,15 +462,23 @@ chatsRouter.post('/:id/generate', async (req, res) => {
         } else {
             targetSeq = row.seq;
             targetData = row.data;
+            if (mode !== 'continue' && typeof target.extra?.guidance === 'string') targetGuidance = target.extra.guidance.trim();
         }
     }
+    // the composer's direction for impersonate or a directed reply; the build turns it into the trailing instruction
+    const guidance = (typeof req.body?.guidance === 'string' ? req.body.guidance.trim() : '') || targetGuidance;
 
     // store what arrived in the mode's shape (openReply runs it once); null when nothing streamed
     let targetConflict = false;
+    let draft = null;
+    // the chat's preset's settings, once the build has read them (a continue joins on its joiner)
+    let presetSettings = null;
     const reply = openReply(db, res, (text, interrupted, { reasoning, usage }) => {
-        // impersonate is a draft for the composer, never a stored turn
-        if (mode === 'impersonate') return null;
+        // impersonate is a draft for the composer, never a stored turn; it takes the reader's text scripts first
+        if (mode === 'impersonate') { draft = regexWrite(db, chatId, text, { pass: 'draft', where: PLACE.userInput }); return null; }
         // an extension may rewrite the reply before its stored (the client adopts the stored row)
+        text = regexWrite(db, chatId, text, { where: PLACE.aiOutput });
+        reasoning = regexWrite(db, chatId, reasoning, { where: PLACE.reasoning });
         text = runHook('reply.final', text, { db, chatId, surface: 'chat', mode, interrupted: interrupted || null });
         // Verify-then-write is atomic here: the store calls are synchronous on the same
         // connection, so nothing can interleave between this read and the write below.
@@ -477,10 +487,18 @@ chatsRouter.post('/:id/generate', async (req, res) => {
             if (!live || live.data !== targetData) { targetConflict = true; return null; }
         }
         try {
-            if (mode === 'swipe') return appendSwipe(db, chatId, targetSeq, text, { interrupted, reasoning, usage });
-            if (mode === 'continue') return appendToMessage(db, chatId, targetSeq, text, { interrupted, reasoning, usage });
+            if (mode === 'swipe') return appendSwipe(db, chatId, targetSeq, text, { interrupted, reasoning, usage, guidance });
+            if (mode === 'continue') {
+                // stored as SillyTavern stores a continued reply: the text so far as its text scripts wrote it, the new part cleaned the same way
+                const held = JSON.parse(targetData);
+                const [base] = regexWriteAll(db, chatId, [held.mes], { pass: 'written', where: PLACE.aiOutput, edited: !!held.extra?.edited });
+                let [more] = regexWriteAll(db, chatId, [text], { pass: 'written', where: PLACE.aiOutput });
+                // the preset's joiner goes between the text so far and the new part, unless the text ends on a space
+                if (presetSettings?.continueJoiner && !String(held.mes ?? '').endsWith(' ')) more = presetSettings.continueJoiner + more;
+                return appendToMessage(db, chatId, targetSeq, more, { interrupted, reasoning, usage, base });
+            }
             if (mode === 'regenerate' && Number.isInteger(targetSeq)) {
-                return replaceMessageText(db, chatId, targetSeq, text, { interrupted, reasoning, usage });
+                return replaceMessageText(db, chatId, targetSeq, text, { interrupted, reasoning, usage, guidance });
             }
             return appendChatMessage(db, chatId, {
                 name: charName,
@@ -492,31 +510,11 @@ chatsRouter.post('/:id/generate', async (req, res) => {
                     ...(interrupted ? { interrupted } : {}),
                     ...(reasoning.trim() ? { reasoning } : {}),
                     ...(usage ? { usage } : {}),
+                    ...(guidance ? { guidance } : {}),
                 },
             });
         } catch (e) { logStoreFailure('chats', e); return null; } // storing the partial must never mask the original error
     });
-
-    // the trailing instruction for the turns that need telling; `guidance` (the composer) is quoted as a brief
-    const guidance = typeof req.body?.guidance === 'string' ? req.body.guidance.trim() : '';
-    // A guided reply is a normal append turn whose composer text is direction, not content.
-    const guided = mode === 'append' && !!guidance;
-    const trailingInstruction = (mode === 'impersonate' || mode === 'continue' || guided)
-        ? ({ expand }) => {
-            const key = mode === 'continue' ? 'chatContinuePrompt'
-                : mode === 'impersonate' ? 'chatImpersonatePrompt' : 'chatGuidedPrompt';
-            const dflt = mode === 'continue' ? DEFAULT_CONTINUE_PROMPT
-                : mode === 'impersonate' ? DEFAULT_IMPERSONATE_PROMPT : DEFAULT_GUIDED_PROMPT;
-            const custom = settingValue(db, key, '');
-            const base = String(custom || '').trim() || dflt;
-            // the whole vocabulary, as a preset block gets it (ST substitutes its impersonation prompt)
-            const filled = expand(base);
-            // guidance steers this turn, after the standing instruction, marked as direction
-            return mode !== 'continue' && guidance
-                ? `${filled}\n\nFollow this direction for what to write, without quoting it back: ${guidance}`
-                : filled;
-        }
-        : null;
 
     try {
         // a reroll's target is left out of the prompt, not deleted, so a stop keeps the reply on screen
@@ -527,17 +525,17 @@ chatsRouter.post('/:id/generate', async (req, res) => {
             // The budget belongs to the model, so the profile that will ANSWER decides it.
             profileId,
             ...((mode === 'swipe' || rewriting) ? { excludeSeq: targetSeq } : {}),
-            // through the builder so the budget measures it
-            ...(trailingInstruction ? { appendSystem: trailingInstruction } : {}),
+            ...(mode === 'continue' ? { continueSeq: targetSeq } : {}),
             // The ONE non-dry lore scan: probability really rolls, and sticky/cooldown
             // state advances.
             trigger: triggerOfMode(mode),
             loreDryRun: false,
-            // {{input}}: the composer's direction for impersonate or a guided reply, nothing for a sent turn
+            // {{input}}: the direction for impersonate or a directed reply (its swipes and rerolls too), nothing for a sent turn
             input: guidance,
             firstDisplayed: firstShown,
         });
         charName = built.charName;
+        presetSettings = built.settings;
         // commit the build's side effects before the stream; an expiry that never lands resurrects a sticky
         commitBuild(db, chatId, built.commit);
         // a Continue on the greeting re-reads its target, which the build just rewrote, or it conflicts
@@ -567,6 +565,7 @@ chatsRouter.post('/:id/generate', async (req, res) => {
             budget: built.budget,
             // the greeting this build rewrote, for the asking tab, since the feed skips a tab's own writes
             ...(first ? { firstMessage: messageAnswer(db, { id: first.id, seq: first.seq, message: JSON.parse(first.data) }).message } : {}),
+            ...(mode === 'impersonate' ? { draft } : {}),
         }, { expectsRow: mode !== 'impersonate' });
     } catch (err) {
         reply.fail(err);
@@ -722,5 +721,17 @@ characterChatsRouter.post('/', (req, res) => {
     // the chat and its greeting's macro writes land in one write or neither; a supplied list too
     const chat = { charId: req.params.id, name, header, messages };
     const { id } = Array.isArray(supplied) ? storeSuppliedChat(db, chat) : createChatWithMacros(db, chat, { globals });
+    if (!Array.isArray(supplied)) regexGreetings(db, id);
     return res.json(getChatDetail(db, id));
 });
+
+// a made chat's greeting and its alternates through the scripts that change what is saved; a supplied list is kept as given
+function regexGreetings(db, chatId) {
+    const held = messageRowAt(db, chatId, 0);
+    const msg = held ? JSON.parse(held.data) : null;
+    if (!msg || msg.is_user || msg.is_system) return;
+    const [mes, ...rest] = regexWriteAll(db, chatId, [msg.mes, ...(Array.isArray(msg.swipes) ? msg.swipes : [])], { where: PLACE.aiOutput });
+    const swipes = Array.isArray(msg.swipes) ? rest : null;
+    const changed = mes !== msg.mes || (swipes && swipes.some((t, i) => t !== msg.swipes[i]));
+    if (changed) patchChatMessage(db, chatId, 0, { mes, ...(swipes ? { swipes } : {}) });
+}

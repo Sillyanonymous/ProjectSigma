@@ -66,12 +66,9 @@ const AUTHORED_SETTINGS = {
     datacatFollowedCreators: 'Followed DataCat creators',
     assistantSystemPrompt: 'The assistant\'s system prompt',
     creatorStudioSystemPrompt: 'The creator studio\'s system prompt',
-    chatImpersonatePrompt: 'The impersonate prompt',
-    chatContinuePrompt: 'The continue prompt',
-    chatGuidedPrompt: 'The guided generation prompt',
     chatEscapeStrings: 'Chat escape strings',
     chatAuthorsNoteDefault: 'The default author\'s note',
-    chatExtHiddenHeader: 'Extension windows hidden from the chat header',
+    chatHeaderLayout: 'The chat header\'s order, groups, dividers and hidden buttons',
     chatExtHiddenPhone: 'Extension windows hidden from the phone\'s chat options',
     windowGeometry: 'Window sizes and places',
 };
@@ -374,6 +371,7 @@ function setupSettingsModal() {
     const backupWindowStartSelect = document.getElementById('settingsBackupWindowStart');
     const backupWindowEndSelect = document.getElementById('settingsBackupWindowEnd');
     const autoTidySearchIndexCheckbox = document.getElementById('settingsSearchIndexAutoTidy');
+    const preloadLibraryCheckbox = document.getElementById('settingsPreloadLibrary');
     const extNotifyUpdatesCheckbox = document.getElementById('settingsExtNotifyUpdates');
 
     if (!settingsBtn || !settingsModal) return;
@@ -1630,13 +1628,12 @@ function setupSettingsModal() {
             };
         }
 
-        const minScore = getSetting('duplicateMinScore') || 35;
+        const minScore = numberSetting('duplicateMinScore');
         minScoreSlider.value = minScore;
         minScoreValue.textContent = parseInt(minScore) >= 120 ? 'Exact' : minScore;
 
         if (possibleMatchScoreSlider) {
-            const pmScore = Number(getSetting('possibleMatchMinScore'));
-            const pmVal = Number.isFinite(pmScore) ? pmScore : 65;
+            const pmVal = numberSetting('possibleMatchMinScore');
             possibleMatchScoreSlider.value = pmVal;
             if (possibleMatchScoreValue) possibleMatchScoreValue.textContent = String(pmVal);
         }
@@ -1785,6 +1782,7 @@ function setupSettingsModal() {
         if (backupWindowEndSelect) backupWindowEndSelect.value = String(getSetting('backupWindowEnd') ?? 6);
         refreshBackupPanel();
         if (autoTidySearchIndexCheckbox) autoTidySearchIndexCheckbox.checked = getSetting('autoTidySearchIndex') !== false;
+        if (preloadLibraryCheckbox) preloadLibraryCheckbox.checked = getSetting('preloadLibrary') !== false;
         refreshSearchIndexPanel();
         if (extNotifyUpdatesCheckbox) extNotifyUpdatesCheckbox.checked = getSetting('notifyExtensionUpdates') === true;
         refreshMigratePanel();
@@ -2019,32 +2017,50 @@ function setupSettingsModal() {
         const adminGroup = document.getElementById('extAdminGroup');
         if (adminGroup) adminGroup.hidden = !currentUser?.admin;
         // hearing about updates and asking for them are an admin's, as updating is
-        for (const id of ['extNotifyUpdatesRow', 'extCheckUpdatesBtn']) {
-            const el = document.getElementById(id);
-            if (el) el.hidden = !currentUser?.admin;
-        }
-        syncExtCheckButton();
+        const updatesGroup = document.getElementById('extUpdatesGroup');
+        if (updatesGroup) updatesGroup.hidden = !currentUser?.admin;
+        paintExtUpdatesBand();
         await renderExtensionList();
     }
 
-    // the last update check as the notifications module read it, so the rows and the bell say the same
+    // the last update check as the notifications module read it, so the rows, the band and the bell say the same
     let extUpdates = null;
     const extUpdateOf = (id) => extUpdates?.extensions?.find(x => x.id === id) || null;
-    function syncExtCheckButton() {
+    const extNames = (list) => list.map(x => x.name || x.id).join(', ');
+    // The Updates band: a check running, else what the last one found, and Check Now while none runs.
+    function paintExtUpdatesBand() {
+        const band = document.getElementById('extUpdatesBand');
+        const icon = document.getElementById('extUpdatesIcon');
         const btn = document.getElementById('extCheckUpdatesBtn');
-        if (!btn) return;
+        if (!band || !icon || !btn) return;
         const busy = !!extUpdates?.checking;
         btn.disabled = busy;
-        // the words show on a phone, where an icon has no title to say what it does
-        btn.innerHTML = busy ? '<i class="fa-solid fa-circle-notch fa-spin"></i><span class="ext-check-label">Checking</span>'
-            : '<i class="fa-solid fa-cloud-arrow-down"></i><span class="ext-check-label">Check for Updates</span>';
+        btn.innerHTML = busy ? '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking' : '<i class="fa-solid fa-arrows-rotate"></i> Check Now';
+        band.classList.remove('is-ok', 'is-warn');
+        const paint = (glyph, when, sub, state = null) => {
+            icon.className = `fa-solid ${glyph} settings-band-icon`;
+            bkSet('extUpdatesWhen', when);
+            bkSet('extUpdatesSub', sub);
+            if (state) band.classList.add(state);
+        };
+        if (busy) return paint('fa-circle-notch fa-spin', 'Checking for updates', 'Asking each installed extension\'s repository');
+        if (!extUpdates?.checkedAt) return paint('fa-cloud-arrow-down', 'Not checked yet', 'Check Now asks each installed extension\'s repository whether it has a newer version');
+        const list = extUpdates.extensions || [];
+        const waiting = list.filter(x => x.available);
+        const failed = list.filter(x => x.error);
+        const when = `Checked ${bkAgo(extUpdates.checkedAt)}`;
+        const failedWords = failed.length ? `${failed.length} could not be checked: ${extNames(failed)}` : '';
+        if (waiting.length) return paint('fa-circle-arrow-up', when, [`${waiting.length} update${waiting.length === 1 ? '' : 's'} waiting: ${extNames(waiting)}`, failedWords].filter(Boolean).join(' · '));
+        if (failed.length) return paint('fa-triangle-exclamation', when, failedWords, 'is-warn');
+        if (!list.length) return paint('fa-circle-check', when, 'Nothing to check: no installed extension came from a repository', 'is-ok');
+        paint('fa-circle-check', when, 'Every installed extension is up to date', 'is-ok');
     }
     // the notifications' Open Extensions: the first row with an update is brought into view once the list is drawn
     let extFocusUpdate = false;
     document.addEventListener('cl-extension-updates-focus', () => { extFocusUpdate = true; });
     document.addEventListener('cl-extension-updates-changed', (e) => {
         extUpdates = e.detail || null;
-        syncExtCheckButton();
+        paintExtUpdatesBand();
         // a list on screen repaints once the answer is in; a hidden one reads it when it shows
         if (!extUpdates?.checking && document.getElementById('extListBody')?.offsetParent) void renderExtensionList();
     });
@@ -2853,7 +2869,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             wyvernEmail: wyvernEmailInput ? (wyvernEmailInput.value || null) : null,
             wyvernPassword: wyvernPasswordInput ? (wyvernPasswordInput.value || null) : null,
             duplicateMinScore: parseInt(minScoreSlider.value),
-            possibleMatchMinScore: possibleMatchScoreSlider ? parseInt(possibleMatchScoreSlider.value) : 65,
+            possibleMatchMinScore: possibleMatchScoreSlider ? parseInt(possibleMatchScoreSlider.value) : getDefaultSetting('possibleMatchMinScore'),
             importDirectDownloads: importDirectDownloadsCheckbox ? importDirectDownloadsCheckbox.checked : false,
             searchInName: searchNameCheckbox.checked,
             searchInListingName: searchListingNameCheckbox ? searchListingNameCheckbox.checked : true,
@@ -2904,6 +2920,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             backupWindowStart: backupWindowStartSelect ? Number(backupWindowStartSelect.value) : getDefaultSetting('backupWindowStart'),
             backupWindowEnd: backupWindowEndSelect ? Number(backupWindowEndSelect.value) : getDefaultSetting('backupWindowEnd'),
             autoTidySearchIndex: autoTidySearchIndexCheckbox ? autoTidySearchIndexCheckbox.checked : true,
+            preloadLibrary: preloadLibraryCheckbox ? preloadLibraryCheckbox.checked : true,
             notifyExtensionUpdates: extNotifyUpdatesCheckbox ? extNotifyUpdatesCheckbox.checked : false,
             ...readHistoryCountsFromUI(),
             ...readProviderOrderFromUI(),
@@ -3542,7 +3559,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     if (saveDatacatJanitoraiTokenBtn && datacatJanitoraiTokenInputEl) {
         saveDatacatJanitoraiTokenBtn.onclick = async () => {
             const raw = (datacatJanitoraiTokenInputEl.value || '').trim();
-            if (!raw) { showToast('Paste your sb-auth-auth-token cookie value first', 'warning'); return; }
+            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return; }
             const original = saveDatacatJanitoraiTokenBtn.innerHTML;
             saveDatacatJanitoraiTokenBtn.disabled = true;
             saveDatacatJanitoraiTokenBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
@@ -3552,7 +3569,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                     datacatJanitoraiTokenInputEl.value = '';
                     updateDatacatJanitoraiStatus();
                     if (res.hasRefresh) showToast(`DataCat is now signed in to JanitorAI${res.email ? ' as ' + res.email : ''}`, 'success');
-                    else showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-auth-auth-token cookie for a lasting login.', 'warning', 9000);
+                    else showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-...-auth-token cookie for a lasting login.', 'warning', 9000);
                 } else {
                     showToast(res?.error || 'Could not save the session', 'error');
                 }
@@ -3599,7 +3616,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     if (saveJanitoraiTokenBtn && janitoraiTokenInputEl) {
         saveJanitoraiTokenBtn.onclick = async () => {
             const raw = (janitoraiTokenInputEl.value || '').trim();
-            if (!raw) { showToast('Paste your sb-auth-auth-token cookie value first', 'warning'); return; }
+            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return; }
             const original = saveJanitoraiTokenBtn.innerHTML;
             saveJanitoraiTokenBtn.disabled = true;
             saveJanitoraiTokenBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
@@ -3616,7 +3633,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                         inBrowser = !!push?.ok;
                     } catch { /* reported through the toast below */ }
                     const who = res.email ? ' as ' + res.email : '';
-                    if (!res.hasRefresh) showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-auth-auth-token cookie for a lasting login.', 'warning', 9000);
+                    if (!res.hasRefresh) showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-...-auth-token cookie for a lasting login.', 'warning', 9000);
                     else if (inBrowser) showToast(`Signed in to JanitorAI${who}; the browser is signed in too`, 'success');
                     else showToast(`Signed in to JanitorAI${who}. Browsing works, but the browser could not be signed in, so character extraction may not. Check that the browser is running and the service is up to date.`, 'warning', 12000);
                 } else {
@@ -3740,10 +3757,10 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     async function refreshManagedBrowserStatus() {
         if (!browserManagedStatusEl) return;
         if (browserMode() !== 'managed') return;
-        // the managed browser is owner-only on a shared server (the route 403s everyone else)
+        // the managed browser is admin-only on a shared server (the route 403s everyone else)
         if (currentUser?.multiUser && !currentUser?.admin) {
             browserManagedStatusEl.className = 'settings-status-badge inactive';
-            browserManagedStatusEl.textContent = 'Owner only on a shared server';
+            browserManagedStatusEl.textContent = 'Admins only on a shared server';
             if (browserManagedStartBtn) browserManagedStartBtn.disabled = true;
             if (browserManagedStopBtn) browserManagedStopBtn.disabled = true;
             return;

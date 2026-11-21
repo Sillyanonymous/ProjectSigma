@@ -91,13 +91,13 @@ function rowHtml(p) {
             <span class="cpp-row-desc">${esc((p.description || '').slice(0, 90))}</span>
         </div>
         <div class="cpp-row-acts">
-            <button type="button" class="cpp-mini" data-cpp-act="use-chat" data-id="${esc(p.id)}" title="Be this person in this chat only">
+            <button type="button" class="cpp-act is-pick cl-cwin-act" data-cpp-act="use-chat" data-id="${esc(p.id)}" title="Be this person in this chat only">
                 <i class="fa-solid fa-comment"></i>
             </button>
-            <button type="button" class="cpp-mini" data-cpp-act="use-global" data-id="${esc(p.id)}" title="Be this person everywhere">
+            <button type="button" class="cpp-act is-pick cl-cwin-act" data-cpp-act="use-global" data-id="${esc(p.id)}" title="Be this person everywhere">
                 <i class="fa-solid fa-globe"></i>
             </button>
-            <button type="button" class="cpp-mini is-danger" data-cpp-act="delete" data-id="${esc(p.id)}" title="Delete this persona">
+            <button type="button" class="cpp-act cl-cwin-act is-danger" data-cpp-act="delete" data-id="${esc(p.id)}" title="Delete this persona">
                 <i class="fa-solid fa-trash"></i>
             </button>
         </div>

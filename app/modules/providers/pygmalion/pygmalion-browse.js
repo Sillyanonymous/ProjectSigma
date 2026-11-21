@@ -101,7 +101,7 @@ let view; // module-scoped BrowseView instance reference (set once in constructo
 function isCharPossibleMatchObj(h) {
     if (view.isHitInLibrary(h)) return false;
     const owner = h.owner || {};
-    return view.isCharPossibleMatch(h.displayName || h.name || '', owner.username || owner.displayName || '');
+    return view.isHitPossibleMatch(h);
 }
 
 // ========================================
@@ -120,7 +120,7 @@ function createPygCard(hit) {
     const owner = hit.owner || {};
     const creator = owner.username || owner.displayName || '';
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(hit.displayName || hit.name || '', creator);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(hit);
 
     const badges = [];
     const importing = view.importingBadge(hit);
@@ -141,7 +141,7 @@ function createPygCard(hit) {
     const cardClass = libraryCardClass(inLibrary, possibleTier);
 
     return `
-        <div class="${cardClass}" data-pyg-id="${escapeHtml(hit.id || '')}"${view.linkKeyAttr(hit)} ${desc ? `title="${escapeHtml(desc)}"` : ''}>
+        <div class="${cardClass}" data-pyg-id="${escapeHtml(hit.id || '')}"${view.linkKeyAttr(hit)}${view.matchAttr(hit)} ${desc ? `title="${escapeHtml(desc)}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${hit.isSensitive ? '<span class="browse-nsfw-badge">NSFW</span>' : ''}
@@ -577,10 +577,7 @@ function openPreviewModal(hit) {
         populateDefinitionSections(name, p, altGreetings);
 
         // Import button state, kept in step with the library while the preview is open
-        const restampImport = () => {
-            const inLibraryNow = view.isHitInLibrary(hit);
-            view.stampImportButton(document.getElementById('pygImportBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && view.isCharPossibleMatch(hit.name || '', creator) });
-        };
+        const restampImport = () => view.stampPreviewImport(document.getElementById('pygImportBtn'), hit);
         restampImport();
         view.trackPreview(restampImport, hit);
     } catch (err) {
@@ -775,12 +772,21 @@ async function importCharacter(charData) {
         closePreview: closePreviewModal,
         // the detail the preview fetched when it has it, read after the dialog: it may land meanwhile
         ready: () => ({ data: charData._fullDetail || charData }),
-        probe: {
-            name: charName, creator: charCreator, fullPath: charData.id,
-            description: charData.personality?.persona || '',
-            first_mes: charData.personality?.greeting || '',
+        prepare: async () => {
+            // a search hit carries no definition: the character, read now when the preview has not loaded it
+            if (!charData._fullDetail) {
+                try {
+                    await ensureFreshPygToken();
+                    const char = (await fetchCharacterDetail(charData.id, undefined, pygToken || undefined))?.character;
+                    if (char) charData._fullDetail = char;
+                } catch { /* the check runs on what the hit has */ }
+            }
+            const p = (charData._fullDetail || charData).personality || {};
+            return {
+                probe: { name: charName, creator: charCreator, fullPath: charData.id, description: p.persona || '', first_mes: p.greeting || '', creator_notes: p.characterNotes || '' },
+                dialog: { name: charName, creator: charCreator, fullPath: charData.id, avatarUrl: charData.avatarUrl ? getAvatarUrl(charData.avatarUrl) : '' },
+            };
         },
-        dialog: { name: charName, creator: charCreator, fullPath: charData.id, avatarUrl: charData.avatarUrl ? getAvatarUrl(charData.avatarUrl) : '' },
     });
 }
 
@@ -1886,7 +1892,7 @@ class PygmalionBrowseView extends BrowseView {
 
     hitMatchName(hit) {
         const owner = hit.owner || {};
-        return { name: hit.displayName || hit.name || '', creator: owner.username || owner.displayName || '' };
+        return { name: hit.displayName || hit.name || '', creator: owner.username || owner.displayName || '', text: '' };
     }
 
     hitLinkKey(hit) {

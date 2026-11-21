@@ -4,12 +4,11 @@ import { openDb } from '../db/database.js';
 import { readDocument, readDocumentFromFile, writeDocument } from '../db/documents-store.js';
 import { greetingCandidatePage } from '../db/chats-store.js';
 import { expandStoredGreeting } from '../llm/prompt.js';
+import { nextTurn } from './steps.js';
 
 export const GREETINGS_SWEPT_KEY = 'greetings-expanded';
 // the chats one turn of the event loop reads row 0 of, and expands where it holds a macro
 export const GREETING_PAGE = 25;
-
-const nextTurn = () => new Promise(r => setImmediate(r));
 
 /** One library, a page of chats a turn; the done document lands after the last page so a cut sweep reruns. */
 export async function sweepGreetings(db, { now = Date.now(), pause = nextTurn } = {}) {

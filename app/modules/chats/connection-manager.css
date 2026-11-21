@@ -96,21 +96,7 @@
 .ccm-state.is-ready { color: var(--cl-success-pale); }
 .ccm-state.is-partial { color: var(--cl-warning-pale); }
 
-.ccm-act {
-    background: none;
-    border: 0;
-    padding: var(--space-2xs) var(--space-2xs);
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: var(--font-2xs);
-    opacity: 0.4;
-    flex-shrink: 0;
-    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease;
-}
-
-.ccm-act:hover { opacity: 0.8; color: var(--accent); }
-
-/* the speech bubble and the globe, then Edit; a pick in force wears the accent, as the old radio did */
+/* the speech bubble and the globe, then Edit, on the family's .cl-cwin-act; a pick in force wears the accent */
 .ccm-acts {
     display: flex;
     align-items: center;
@@ -153,14 +139,8 @@ html.cl-mobile .ccm-editor {
     padding-bottom: max(var(--space-lg), var(--safe-bottom));
 }
 
-/* Dense chrome takes the slim tier; the two picks keep the full floor, since
+/* The row verbs take the canon's slim tier; the two picks keep the full floor, since
    choosing who answers is the panel's primary verb. */
-html.cl-mobile .ccm-act {
-    min-width: var(--touch-target-slim);
-    min-height: var(--touch-target-slim);
-    opacity: 0.8;
-}
-
 html.cl-mobile .ccm-act.is-pick {
     min-width: var(--touch-target-min);
     min-height: var(--touch-target-min);

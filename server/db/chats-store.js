@@ -502,8 +502,8 @@ export function syncActiveSwipe(msg, mesIsAuthoritative) {
     if (msg.swipe_info.length > msg.swipes.length) msg.swipe_info.length = msg.swipes.length;
 }
 
-// a generation's record (thinking, usage, cut short) belongs to its alternate: kept in swipe_info[i].extra, the bag holds the active one's
-const GENERATION_KEYS = ['reasoning', 'usage', 'interrupted'];
+// a generation's record (thinking, usage, cut short, hand edited, its direction) is its alternate's: swipe_info[i].extra keeps it, the bag holds the active one's
+const GENERATION_KEYS = ['reasoning', 'usage', 'interrupted', 'edited', 'guidance'];
 const bagOf = (o) => (o?.extra && typeof o.extra === 'object' && !Array.isArray(o.extra) ? o.extra : null);
 const activeAt = (msg) => (Array.isArray(msg.swipes) && msg.swipes.length
     ? Math.min(Math.max(Number.isInteger(msg.swipe_id) ? msg.swipe_id : 0, 0), msg.swipes.length - 1) : null);
@@ -709,7 +709,7 @@ function patchChatMessageNow(db, chatId, seq, patch, { finish = null, messageId 
  * @param {number} [opts.messageId] the id of the message shown at that seq; another one there refuses (409)
  * @param {Function} [opts.finish] as patchChatMessage's
  */
-export function appendSwipe(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null, count = null, messageId = null, finish = null } = {}) {
+export function appendSwipe(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null, guidance = '', count = null, messageId = null, finish = null } = {}) {
     return db.transaction(() => {
         const row = storedAt(db, chatId, seq);
         if (!row) return null;
@@ -732,6 +732,7 @@ export function appendSwipe(db, chatId, seq, text, { interrupted = null, reasoni
         markInterrupted(msg, interrupted);
         setReasoning(msg, reasoning);
         setUsage(msg, usage);
+        setGuidance(msg, guidance);
         stashGeneration(msg, msg.swipe_id);
         return commitMessage(db, chatId, seq, row.id, msg, finish);
     })();
@@ -769,7 +770,7 @@ export function removeSwipe(db, chatId, seq, { index, text, count, messageId = n
 }
 
 /** Overwrite the active alternate's text in place (the reroll write); nothing is written until there is text to write. */
-export function replaceMessageText(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null } = {}) {
+export function replaceMessageText(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null, guidance = '' } = {}) {
     const row = storedAt(db, chatId, seq);
     if (!row) return null;
     const msg = row.msg;
@@ -781,17 +782,19 @@ export function replaceMessageText(db, chatId, seq, text, { interrupted = null, 
     markInterrupted(msg, interrupted);
     setReasoning(msg, reasoning);
     setUsage(msg, usage);
+    setGuidance(msg, guidance);
     stashGeneration(msg, activeAt(msg));
     writeMessageRow(db, chatId, seq, msg, row.id);
     return { id: row.id, seq, message: msg, swipeId: Number.isInteger(msg.swipe_id) ? msg.swipe_id : null };
 }
 
 /** Append text to a message in place (the continue write); a null interrupted clears the marker, retiring the promoted Continue. */
-export function appendToMessage(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null } = {}) {
+export function appendToMessage(db, chatId, seq, text, { interrupted = null, reasoning = '', usage = null, base = null } = {}) {
     const row = storedAt(db, chatId, seq);
     if (!row) return null;
     const msg = row.msg;
-    msg.mes = (typeof msg.mes === 'string' ? msg.mes : '') + text;
+    // base: the text so far as the caller stores it (a continue under text scripts), else as it stands
+    msg.mes = (typeof base === 'string' ? base : typeof msg.mes === 'string' ? msg.mes : '') + text;
     syncActiveSwipe(msg, true);
     markInterrupted(msg, interrupted);
     setReasoning(msg, reasoning);
@@ -815,6 +818,13 @@ function setReasoning(msg, reasoning) {
     if (typeof reasoning !== 'string' || !reasoning.trim()) return;
     if (!msg.extra || typeof msg.extra !== 'object' || Array.isArray(msg.extra)) msg.extra = {};
     msg.extra.reasoning = reasoning;
+}
+
+// the reader's direction a reply was written to, so a swipe or a reroll of it can follow the same one
+function setGuidance(msg, guidance) {
+    if (typeof guidance !== 'string' || !guidance.trim()) return;
+    if (!msg.extra || typeof msg.extra !== 'object' || Array.isArray(msg.extra)) msg.extra = {};
+    msg.extra.guidance = guidance.trim();
 }
 
 // the usage upstream reported for THIS reply, so the meta chip shows a real figure, not chars over four

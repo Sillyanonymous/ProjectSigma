@@ -1,16 +1,26 @@
-// The duplicate matcher, one implementation for the library scan and the pre-import check. no name match, no score
+// The duplicate rule, one implementation for every consumer: the library scan, the pre-import check, the browse hint, Related's copies
+
+// ============================================================================
+// NAMES
+// ============================================================================
 
 const VERSION_SUFFIX = /\s*[\(\[\{]?\s*v(?:er(?:sion)?)?\.?\s*\d+[\)\]\}]?\s*$/i;
 const VERSION_DASH = /\s*-?\s*v\d+(\.\d+)*$/i;
 const COMMON_SUFFIX = /\s*[\(\[\{]?(?:updated?|fixed?|new|old|alt(?:ernate)?|edit(?:ed)?|copy|backup|nsfw)[\)\]\}]?\s*$/i;
+const NAME_SEPARATOR = /[\s\-|:,.]/;
+/** The shortest name that is a word of a longer one: under it, names relate only when equal. */
+export const NAME_PREFIX_MIN = 4;
+// a name's decoration at either end ("- Calamitas -", "Brannoch!", stars and brackets) is no part of it
+const EDGE_DECORATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 
-/** A name without its version and edit suffixes, lowercased, single-spaced. */
-export function normalizeCharName(name) {
+/** A name without its version and edit suffixes or edge decoration, compatibility-folded, lowercased, single-spaced. */
+function normalizeCharName(name) {
     if (!name) return '';
-    return String(name).toLowerCase().trim()
+    return String(name).normalize('NFKC').toLowerCase().trim()
         .replace(VERSION_SUFFIX, '')
         .replace(VERSION_DASH, '')
         .replace(COMMON_SUFFIX, '')
+        .replace(EDGE_DECORATION, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -29,20 +39,34 @@ export function nameVariantsForDupe(rawName) {
 }
 
 /** The shorter name is a word of the longer (at least four characters, then a separator). */
-export function isNamePrefixMatch(a, b) {
+function isNamePrefixMatch(a, b) {
     if (!a || !b || a.length === b.length) return false;
     const shorter = a.length < b.length ? a : b;
     const longer = a.length < b.length ? b : a;
-    if (shorter.length < 4) return false;
-    return longer.startsWith(shorter) && /[\s\-|:,.]/.test(longer[shorter.length]);
+    if (shorter.length < NAME_PREFIX_MIN) return false;
+    return longer.startsWith(shorter) && NAME_SEPARATOR.test(longer[shorter.length]);
 }
 
-/** How two normalized names relate: 'exact', 'prefix' (one a word of the other), or '' (a name under three characters relates to nothing). */
+/** How two normalized names relate: 'exact' (at any length: 雪菜, Ai), 'prefix' (one a word of the other), or ''. */
 export function nameRelation(a, b) {
-    if (a.length < 3 || b.length < 3) return '';
+    if (!a || !b) return '';
     if (a === b) return 'exact';
     return isNamePrefixMatch(a, b) ? 'prefix' : '';
 }
+
+/** The shorter names a normalized name is a prefix match of: each run up to a separator, four characters and more. */
+export function namePrefixesOf(key) {
+    const out = [];
+    for (let i = NAME_PREFIX_MIN; i < key.length; i++) {
+        if (!NAME_SEPARATOR.test(key[i])) continue;
+        const stem = key.slice(0, i).trim();
+        if (stem.length >= NAME_PREFIX_MIN) out.push(stem);
+    }
+    return [...new Set(out)];
+}
+
+/** The separators a longer name can carry right after a shorter one, for the index ranges that find it. */
+export const NAME_SEPARATORS = [' ', '-', '|', ':', ',', '.'];
 
 /**
  * A name probe's rows graded by the duplicate rule, so the browse hint and the import warning agree.
@@ -51,13 +75,15 @@ export function nameRelation(a, b) {
  * @returns {{variants: string[], matches: Array<{id: string, name: string, creator: string|null, relation: string, on: string, as: string}>}}
  */
 export function gradeNameMatches(rawName, rows) {
-    const variants = nameVariantsForDupe(rawName).filter(v => v.length >= 3);
+    const variants = nameVariantsForDupe(rawName);
     const matches = [];
     for (const row of rows) {
         let best = null;
         for (const as of nameVariantsForDupe(row.name)) {
             for (const on of variants) {
                 const relation = nameRelation(on, as);
+                // a row found by its listing title relates exactly only, as the score reads a title
+                if (row.viaListing && relation !== 'exact') continue;
                 if (relation && (!best || (relation === 'exact' && best.relation !== 'exact'))) best = { relation, on, as };
             }
         }
@@ -66,8 +92,12 @@ export function gradeNameMatches(rawName, rows) {
     return { variants, matches };
 }
 
+// ============================================================================
+// TEXT SIMILARITY
+// ============================================================================
+
 /** Levenshtein similarity in [0, 1]; 0 when the lengths differ by more than half. */
-export function stringSimilarity(str1, str2) {
+function stringSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
     const s1 = String(str1).toLowerCase().trim();
     const s2 = String(str2).toLowerCase().trim();
@@ -98,16 +128,36 @@ function wordSetSimilarity(wordsA, wordsB) {
     return union > 0 ? intersection / union : 0;
 }
 
-/** Word-set Jaccard for texts of 50 characters and more, Levenshtein below that. */
-export function contentSimilarity(text1, text2) {
-    if (!text1 || !text2) return 0;
-    const t1 = String(text1).toLowerCase().trim();
-    const t2 = String(text2).toLowerCase().trim();
-    if (t1 === t2) return 1;
-    if (!t1 || !t2) return 0;
-    if (t1.length < 50 || t2.length < 50) return stringSimilarity(t1, t2);
-    const words = (text) => new Set((text.match(/\b\w{3,}\b/g) || []).map(w => w.toLowerCase()));
-    return wordSetSimilarity(words(t1), words(t2));
+// scripts written without spaces between words: a run of them is read by its character pairs
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
+
+/** A folded text's tokens: each word of three characters and up in any script, an unspaced run by its character pairs. */
+function textTokens(lower) {
+    const out = [];
+    for (const run of lower.match(/[\p{L}\p{N}_]+/gu) || []) {
+        if (UNSPACED.test(run)) {
+            const chars = Array.from(run);
+            for (let i = 0; i + 1 < chars.length; i++) out.push(chars[i] + chars[i + 1]);
+        } else if (run.length >= 3) out.push(run);
+    }
+    return out;
+}
+
+const wordSet = (lower) => new Set(textTokens(lower));
+
+// a field read once per card: its raw length (the arms' floors), its folded text, its words when first asked
+function prepareText(raw) {
+    const text = raw ? String(raw) : '';
+    const lower = text.toLowerCase().trim();
+    let words = null;
+    return { raw: text, length: text.length, lower, get words() { return words ??= wordSet(lower); } };
+}
+
+function textSimilarity(a, b) {
+    if (!a.lower || !b.lower) return 0;
+    if (a.lower === b.lower) return 1;
+    if (a.lower.length < 50 || b.lower.length < 50) return stringSimilarity(a.lower, b.lower);
+    return wordSetSimilarity(a.words, b.words);
 }
 
 /** Two provider paths name the same card: equal, or one beginning the other (never bare numbers). */
@@ -118,81 +168,307 @@ export function providerPathsMatch(a, b) {
     return a.startsWith(b) || b.startsWith(a);
 }
 
-// the words of a text long enough to compare by words (three letters and more), else null
-const wordsOf = (text) => {
-    if (!text || text.length < 50) return null;
-    return new Set(String(text).toLowerCase().match(/\b\w{3,}\b/g) || []);
-};
+// two listing keys name one listing: equal, or two paths one beginning the other
+const listingKeysRelate = (a, b) => a === b || (a.includes('/') && b.includes('/') && providerPathsMatch(a, b));
 
-// placeholder creators are no identity: two cards by 'Anonymous' share no creator. browse-view keeps the same list
-export const PLACEHOLDER_CREATOR_RE = /^(anonymous|anon|unknown|deleted|n\/?a|none|user)$/;
-const creatorSignal = (raw) => (PLACEHOLDER_CREATOR_RE.test(String(raw || '').toLowerCase().trim()) ? '' : String(raw || ''));
+/** A provider link as the listing rule reads it: its provider and its keys, trimmed and lowercased. */
+export const listingOf = (providerId, ...keys) => ({ providerId: String(providerId || ''), keys: keys.map(k => String(k ?? '').trim().toLowerCase()).filter(Boolean) });
 
-/** The fast pass's record, normalized once so the pair loop never lowercases or splits. */
-export function normalizeRow(fields) {
-    const name = fields.name || '';
-    const creator = creatorSignal(fields.creator).toLowerCase().trim();
-    const description = fields.description || '';
-    const firstMes = fields.first_mes || '';
-    const personality = fields.personality || '';
-    const scenario = fields.scenario || '';
-    const creatorNotes = fields.creator_notes || '';
-    const mesExample = fields.mes_example || '';
-    const systemPrompt = fields.system_prompt || '';
-    return {
-        name,
-        nameLower: name.toLowerCase().trim(),
-        nameVariants: nameVariantsForDupe(name),
-        creator,
-        creatorCompact: creator.replace(/[\s_-]/g, ''),
-        description, firstMes, personality, scenario, creatorNotes, mesExample, systemPrompt,
-        descWords: wordsOf(description),
-        firstMesWords: wordsOf(firstMes),
-        persWords: wordsOf(personality),
-        scenWords: wordsOf(scenario),
-        creatorNotesWords: wordsOf(creatorNotes),
-        mesExWords: wordsOf(mesExample),
-        sysPromptWords: wordsOf(systemPrompt),
-    };
-}
-
-// the name arm both passes share: the best of exact (15), prefix (13) and similarity (7 to 10)
-function nameArm(variantsA, variantsB) {
-    let best = 0, reason = '';
-    for (const va of variantsA) {
-        if (va.length < 3) continue;
-        for (const vb of variantsB) {
-            if (vb.length < 3) continue;
-            const relation = nameRelation(va, vb);
-            if (relation === 'exact') {
-                if (15 > best) { best = 15; reason = 'Exact name match'; }
-            } else if (relation === 'prefix') {
-                if (13 > best) { best = 13; reason = 'Name prefix match'; }
-            } else {
-                const sim = stringSimilarity(va, vb);
-                if (sim >= 0.7) {
-                    const s = Math.round(sim * 10);
-                    if (s > best) { best = s; reason = sim >= 0.85 ? `${Math.round(sim * 100)}% name similarity` : ''; }
-                }
-            }
+/**
+ * The site two cards are different listings on: linked on one provider, no key of one naming the other's.
+ * @param {Array<{ providerId: string, keys: string[] }>} a listingOf rows
+ * @param {Array<{ providerId: string, keys: string[] }>} b
+ * @returns {string} the provider, '' when they are one listing or share no site
+ */
+export function differentListings(a, b) {
+    let shared = '';
+    for (const la of a || []) {
+        for (const lb of b || []) {
+            if (!la.providerId || la.providerId !== lb.providerId || !la.keys.length || !lb.keys.length) continue;
+            if (la.keys.some(x => lb.keys.some(y => listingKeysRelate(x, y)))) return '';
+            shared = la.providerId;
         }
     }
-    return { best, reason };
+    return shared;
 }
 
-function creatorArm(creatorA, creatorB, compactA, compactB, breakdown, matchReasons) {
-    if (!creatorA || !creatorB) return 0;
-    if (compactA && compactA === compactB) {
-        breakdown.creator = 15;
-        matchReasons.push('Same creator');
-        return 15;
+// ============================================================================
+// ONE SITE, TWO LISTINGS: an author's other card, or one card uploaded twice
+// ============================================================================
+
+// word overlap bands measured on one author's same-site pairs: their own text is two-humped, a public description looser
+export const LISTING_TEXT = Object.freeze({ same: 0.6, apart: 0.3 });
+export const LISTING_PUBLIC = Object.freeze({ same: 0.4, apart: 0.3 });
+const band = (x, t) => (x >= t.same ? 'same' : x < t.apart ? 'different' : 'maybe');
+
+/** Two cards listed apart on one site: 'same', 'different' or 'maybe', by their own text, else their creator notes. */
+export function listingVerdict(a, b) {
+    const own = [['description', 50], ['first_mes', 30]].filter(([k, min]) => a[k].length > min && b[k].length > min).map(([k]) => wordSetSimilarity(a[k].words, b[k].words));
+    if (own.length) return band(Math.max(...own), LISTING_TEXT);
+    if (a.creator_notes.length > 50 && b.creator_notes.length > 50) return band(wordSetSimilarity(a.creator_notes.words, b.creator_notes.words), LISTING_PUBLIC);
+    return 'maybe';
+}
+
+/** A listing's public description against a card's creator notes: the same verdict, the notes cut to the text's length. */
+export function publicTextVerdict(text, notes) {
+    const t = String(text || ''), n = String(notes || '');
+    if (t.length <= 50 || n.length <= 50) return 'maybe';
+    const a = prepareText(t), b = prepareText(n.length > t.length ? n.slice(0, t.length) : n);
+    return band(wordSetSimilarity(a.words, b.words), LISTING_PUBLIC);
+}
+
+// ============================================================================
+// CREATORS
+// ============================================================================
+
+// platform placeholders and blanks are no identity: two cards by 'Anonymous' share no creator
+const PLACEHOLDER_CREATORS = new Set(['anonymous', 'anon', 'unknown', 'deleted', 'n/a', 'na', 'none', 'user', 'admin', 'test', 'guest', 'character', 'null', 'undefined', '-', '?']);
+
+/** The creator as the rule compares it: folded, lowercased, a leading @ and spacing and separators dropped; '' for a placeholder or none. */
+export function creatorKey(raw) {
+    const folded = String(raw ?? '').normalize('NFKC').toLowerCase().trim().replace(/^@+/, '').trim();
+    if (!folded || PLACEHOLDER_CREATORS.has(folded)) return '';
+    return folded.replace(/[\s_-]/g, '');
+}
+
+// how alike two creator keys are, 0 to 1: the same, one holding the other (four characters and more), or an edit distance from 0.75
+function creatorSimilarity(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const shorter = a.length < b.length ? a : b;
+    if (shorter.length >= 4 && (a.includes(b) || b.includes(a))) return 0.95;
+    return similarityAtLeast(a, b, 0.75);
+}
+
+const creatorsRelate = (a, b) => creatorSimilarity(a, b) > 0;
+
+// Levenshtein similarity when it reaches min, else 0, stopping as soon as no path can reach it (a creator pair in a large bucket)
+function similarityAtLeast(a, b, min) {
+    const max = Math.max(a.length, b.length);
+    const budget = Math.floor((1 - min) * max);
+    if (Math.abs(a.length - b.length) > budget) return 0;
+    let prev = new Array(b.length + 1), cur = new Array(b.length + 1);
+    for (let j = 0; j <= b.length; j++) prev[j] = j;
+    for (let i = 1; i <= a.length; i++) {
+        cur[0] = i;
+        let rowMin = i;
+        for (let j = 1; j <= b.length; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            if (cur[j] < rowMin) rowMin = cur[j];
+        }
+        if (rowMin > budget) return 0;
+        [prev, cur] = [cur, prev];
     }
-    const sim = stringSimilarity(creatorA, creatorB);
-    if (sim < 0.75) return 0;
-    const s = Math.round(sim * 15);
-    breakdown.creator = s;
-    matchReasons.push(sim >= 0.95 ? 'Same creator' : 'Similar creator');
-    return s;
+    const sim = 1 - prev[b.length] / max;
+    return sim >= min ? sim : 0;
+}
+
+// ============================================================================
+// CONTENT SIGNATURES (candidates and pruning only; the verdict is always the score below)
+// ============================================================================
+
+// the words every text shares carry no identity
+const STOP_WORDS = new Set(('the and you your with for that this are was her his she him they their them have has had not but from what when who '
+    + 'will would can could into out about there been were just like its one all any our more some than then very also only over such even '
+    + 'most other each which while where how why yes').split(' '));
+
+/** The card fields a signature is kept for, in their stored order. */
+const SIGNATURE_FIELDS = Object.freeze(['description', 'first_mes', 'personality', 'creator_notes']);
+const FIELD = Object.freeze({ description: 0, first_mes: 1, personality: 2, creator_notes: 3 });
+// fewer distinct words than this and a field has no signature; a description needs more before it is banded
+const SIGNATURE_MIN_WORDS = 8;
+const BAND_MIN_WORDS = 30;
+/** Past this many differing bits on every field two authors' cards are not worth scoring. */
+const PRUNE_BITS = 20;
+/** Within this many bits two descriptions are the same text; the bands find every such pair (four 16-bit blocks). */
+export const TWIN_BITS = 3;
+/** Within this many bits one author's two descriptions may be one reworded. */
+export const RENAMED_BITS = 12;
+
+// a word's 32 bits: a multiply-xorshift over its characters, then the murmur3 finalizer to spread them
+function hash32(s, seed) {
+    let h = seed >>> 0;
+    for (let i = 0; i < s.length; i++) { h = Math.imul(h ^ s.charCodeAt(i), 0x5bd1e995); h ^= h >>> 15; }
+    h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+    return h >>> 0;
+}
+
+// a 64-bit simhash of a text's distinct words (two 32-bit halves), or null under the floor; also its word count
+function textSimhash(text) {
+    const words = new Set();
+    for (const w of textTokens(String(text || '').toLowerCase())) if (!STOP_WORDS.has(w)) words.add(w);
+    if (words.size < SIGNATURE_MIN_WORDS) return null;
+    const v = new Int32Array(64);
+    for (const word of words) {
+        const lo = hash32(word, 0x2f6b9a1d), hi = hash32(word, 0x9747b28c);
+        for (let i = 0; i < 32; i++) {
+            v[i] += (lo >>> i) & 1 ? 1 : -1;
+            v[32 + i] += (hi >>> i) & 1 ? 1 : -1;
+        }
+    }
+    let lo = 0, hi = 0;
+    for (let i = 0; i < 32; i++) {
+        if (v[i] > 0) lo |= 1 << i;
+        if (v[32 + i] > 0) hi |= 1 << i;
+    }
+    return { lo: lo >>> 0, hi: hi >>> 0, words: words.size };
+}
+
+// a text too short for a simhash (under SIGNATURE_MIN_WORDS tokens): 64 bits of its folded text
+function textExactHash(text) {
+    const folded = String(text || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+    return folded ? { lo: hash32(folded, 0x2f6b9a1d), hi: hash32(folded, 0x9747b28c) } : null;
+}
+
+// a field's mask bit: its simhash at k, or at EXACT_BIT + k its exact hash
+const EXACT_BIT = SIGNATURE_FIELDS.length;
+
+/**
+ * A card's content signature: 64 bits per SIGNATURE_FIELDS field, and the description's four bands when long enough.
+ * @returns {{ sig: Buffer, mask: number, bands: number[]|null }} mask: the fields with a simhash (bit k) or an exact hash (bit EXACT_BIT + k)
+ */
+export function cardSignature(fields) {
+    const sig = Buffer.alloc(8 * SIGNATURE_FIELDS.length);
+    let mask = 0;
+    let bands = null;
+    SIGNATURE_FIELDS.forEach((field, k) => {
+        const h = textSimhash(fields?.[field]);
+        const e = h ? null : textExactHash(fields?.[field]);
+        if (!h && !e) return;
+        mask |= 1 << (h ? k : EXACT_BIT + k);
+        sig.writeUInt32LE((h || e).lo, 8 * k);
+        sig.writeUInt32LE((h || e).hi, 8 * k + 4);
+        if (h && k === 0 && h.words >= BAND_MIN_WORDS) bands = [h.lo & 0xffff, h.lo >>> 16, h.hi & 0xffff, h.hi >>> 16];
+    });
+    return { sig, mask, bands };
+}
+
+const popcount = (x) => {
+    x -= (x >>> 1) & 0x55555555;
+    x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+    return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+};
+
+// a field's kind in a signature: 1 a simhash, 2 an exact hash, 0 none
+const kindOf = (p, k) => (!p?.sig ? 0 : p.mask & (1 << k) ? 1 : p.mask & (1 << (EXACT_BIT + k)) ? 2 : 0);
+
+// bits apart between field ka of one and kb of another; null without both or across kinds; two exact hashes are 0 or 64 apart
+function fieldDistance(a, ka, b, kb, { simhashOnly = false } = {}) {
+    const kind = kindOf(a, ka);
+    if (!kind || kind !== kindOf(b, kb) || (simhashOnly && kind !== 1)) return null;
+    const bits = popcount(a.sig.readUInt32LE(8 * ka) ^ b.sig.readUInt32LE(8 * kb)) + popcount(a.sig.readUInt32LE(8 * ka + 4) ^ b.sig.readUInt32LE(8 * kb + 4));
+    return kind === 1 || bits === 0 ? bits : 64;
+}
+
+/** The fewest differing bits over the fields both signatures have; null when they share none (or one is unknown). */
+function signatureDistance(a, b) {
+    let best = null;
+    for (let k = 0; k < SIGNATURE_FIELDS.length; k++) {
+        const d = fieldDistance(a, k, b, k);
+        if (d !== null && (best === null || d < best)) best = d;
+    }
+    return best;
+}
+
+/** The description bits apart, simhashes only (null when either lacks one): the twin test the bands answer. */
+export const descriptionDistance = (a, b) => fieldDistance(a, FIELD.description, b, FIELD.description, { simhashOnly: true });
+
+// whether a fingerprint has a description simhash (a short template text, "WIP", is no text of the card's own)
+const hasDescriptionText = (p) => kindOf(p, FIELD.description) === 1;
+
+/**
+ * Whether two cards are worth the full score: names that relate or one description, then related creators or near content.
+ * @param {{ nameKey?: string, nameKey2?: string|null, listingKeys?: string[], creatorKey: string, sig: Buffer|null, mask: number, unknown?: boolean }} a a fingerprint
+ */
+export function worthScoring(a, b) {
+    // the score's own gate, on the keys it would read: a fingerprint missing its keys cannot tell, so it passes
+    if (a.nameKey !== undefined && b.nameKey !== undefined && !nameScore(namesOf(a), namesOf(b)) && !mayBeRenamed(a, b)) return false;
+    if (creatorsRelate(a.creatorKey, b.creatorKey)) return true;
+    // a signature still waiting on the queue cannot tell; two known ones sharing no field share no content to score
+    if (a.unknown || b.unknown) return true;
+    const d = signatureDistance(a, b);
+    return d !== null && d <= PRUNE_BITS;
+}
+
+/** Whether two cards whose names do not relate could be one card renamed: one description, or the same author's near one. */
+export function mayBeRenamed(a, b) {
+    const d = descriptionDistance(a, b);
+    if (d === null) return false;
+    return d <= TWIN_BITS || (d <= RENAMED_BITS && creatorsRelate(a.creatorKey, b.creatorKey));
+}
+
+/** A fingerprint's own name keys: its name, and the part before a || (the keys the near-spelling arm reads). */
+export const ownKeysOf = (p) => [...new Set([p.nameKey, p.nameKey2].filter(Boolean))];
+
+// a fingerprint's names as the name arm reads them: its own in full, its listing titles exactly or as a word only
+const namesOf = (p) => ({ nameVariants: ownKeysOf(p), listingVariants: p.listingKeys || [] });
+
+/** The name keys of a card's listing titles (the names its provider pages carry), as the rule reads a name. */
+export const listingKeysOf = (titles) => [...new Set((titles || []).flatMap(t => nameVariantsForDupe(t)))];
+
+/** A card's name and creator keys: what the index finds it by (the name before a || is a key of its own). */
+function fingerprintKeys(data) {
+    const [nameKey = '', ...rest] = nameVariantsForDupe(data?.name);
+    return { nameKey, nameKey2: rest[0] ?? null, creatorKey: creatorKey(data?.creator) };
+}
+
+/** A card's whole fingerprint: its keys and its content signature. */
+export const cardFingerprint = (data) => ({ ...fingerprintKeys(data), ...cardSignature(data) });
+
+// ============================================================================
+// THE SCORE
+// ============================================================================
+
+const SCORED_TEXTS = ['description', 'first_mes', 'personality', 'scenario', 'creator_notes', 'mes_example', 'system_prompt'];
+
+/**
+ * A card's fields read once for scoring against many others: name variants, creator key, each text folded with its words on demand.
+ * @param {{ listingTitles?: string[] }} [opts] the titles its provider pages carry, names of the card too
+ */
+export function prepareCard(fields, { listingTitles = [] } = {}) {
+    const f = fields || {};
+    const prepared = { nameVariants: nameVariantsForDupe(f.name || ''), listingVariants: listingKeysOf(listingTitles), creator: creatorKey(f.creator) };
+    for (const k of SCORED_TEXTS) prepared[k] = prepareText(f[k]);
+    return prepared;
+}
+
+// the name arm: exact (15), prefix (13), similarity (7 to 10) between own names; a listing title relates to an own name exactly only
+function nameArm(a, b) {
+    let best = 0, reason = '';
+    let ownBest = 0;
+    const weigh = (va, vb, own) => {
+        const relation = nameRelation(va, vb);
+        let points = 0, why = '';
+        if (relation === 'exact') { points = 15; why = own ? 'Exact name match' : 'Exact listing name match'; }
+        else if (!own) return;
+        else if (relation === 'prefix') { points = 13; why = 'Name prefix match'; }
+        else if (va.length >= 3 && vb.length >= 3) {
+            const sim = similarityAtLeast(va, vb, 0.7);
+            points = Math.round(sim * 10);
+            why = sim >= 0.85 ? `${Math.round(sim * 100)}% name similarity` : '';
+        }
+        if (own && points > ownBest) ownBest = points;
+        if (points > best) { best = points; reason = why; }
+    };
+    const listA = a.listingVariants || [], listB = b.listingVariants || [];
+    for (const va of a.nameVariants) {
+        for (const vb of b.nameVariants) weigh(va, vb, true);
+        for (const vb of listB) weigh(va, vb, false);
+    }
+    for (const va of listA) for (const vb of b.nameVariants) weigh(va, vb, false);
+    // own: the cards' own names relate, which identity asks for (a card known by another's title is that card renamed)
+    return { best, reason, own: ownBest > 0 };
+}
+
+// a description and a first message the same under another name: one card renamed, never two characters sharing a template
+const TWIN_DESCRIPTION = 0.9;
+const TWIN_FIRST_MESSAGE = 0.6;
+const TWIN_MIN_WORDS = 30;
+function isRenamedTwin(a, b) {
+    const da = a.description.words, db = b.description.words;
+    if (da.size < TWIN_MIN_WORDS || db.size < TWIN_MIN_WORDS || wordSetSimilarity(da, db) < TWIN_DESCRIPTION) return false;
+    const fa = a.first_mes.words, fb = b.first_mes.words;
+    return fa.size >= SIGNATURE_MIN_WORDS && fb.size >= SIGNATURE_MIN_WORDS && wordSetSimilarity(fa, fb) >= TWIN_FIRST_MESSAGE;
 }
 
 function confidenceOf(score) {
@@ -202,166 +478,162 @@ function confidenceOf(score) {
     return null;
 }
 
-function reasonOf(matchReasons, confidence, score) {
-    if (matchReasons.length > 0) return matchReasons.slice(0, 3).join(', ');
-    return confidence ? `${score} point similarity score` : '';
-}
+const NO_MATCH = Object.freeze({ score: 0, breakdown: Object.freeze({}), confidence: null, contentIdentical: false, strictIdentical: false, matchReason: '', matchReasons: Object.freeze([]) });
 
 /**
- * The fast pass over two normalized records (name, creator, notes and whatever content the
- * records carry): the scan's candidate filter. No name match, no score.
+ * Two prepared cards scored: a related name (or the same card renamed) gates everything, then the creator and content arms.
+ * @returns {{ score: number, breakdown: object, confidence: 'high'|'medium'|'low'|null, contentIdentical: boolean, strictIdentical: boolean, matchReason: string, matchReasons: string[], textCompared: boolean }}
  */
-export function fastSimilarity(normA, normB) {
+export function scorePrepared(a, b) {
     let score = 0;
     const breakdown = {};
     const matchReasons = [];
-    const name = nameArm(normA.nameVariants, normB.nameVariants);
+    const name = nameArm(a, b);
     if (name.best > 0) {
         score += name.best;
         breakdown.name = name.best;
         if (name.reason) matchReasons.push(name.reason);
-    }
-    if (!breakdown.name) return { score: 0, breakdown: {}, confidence: null, contentIdentical: false, strictIdentical: false, matchReason: '', matchReasons: [] };
-    score += creatorArm(normA.creator, normB.creator, normA.creatorCompact, normB.creatorCompact, breakdown, matchReasons);
-
-    if (normA.creatorNotesWords && normB.creatorNotesWords) {
-        const sim = wordSetSimilarity(normA.creatorNotesWords, normB.creatorNotesWords);
-        if (sim >= 0.25) {
-            const s = Math.round(sim * 25);
-            score += s; breakdown.creator_notes = s;
-            if (sim >= 0.6) matchReasons.push(`${Math.round(sim * 100)}% creator notes match`);
-        }
-    } else if (normA.creatorNotes && normB.creatorNotes && normA.creatorNotes.length > 10 && normB.creatorNotes.length > 10) {
-        const sim = stringSimilarity(normA.creatorNotes, normB.creatorNotes);
-        if (sim >= 0.25) { const s = Math.round(sim * 25); score += s; breakdown.creator_notes = s; }
-    }
-    if (normA.descWords && normB.descWords) {
-        const sim = wordSetSimilarity(normA.descWords, normB.descWords);
-        if (sim >= 0.3) {
-            const s = Math.round(sim * 20);
-            score += s; breakdown.description = s;
-            if (sim >= 0.7) matchReasons.push(`${Math.round(sim * 100)}% description match`);
-        }
-    } else if (normA.description && normB.description) {
-        const sim = stringSimilarity(normA.description, normB.description);
-        if (sim >= 0.3) { const s = Math.round(sim * 20); score += s; breakdown.description = s; }
-    }
-    if (normA.firstMesWords && normB.firstMesWords) {
-        const sim = wordSetSimilarity(normA.firstMesWords, normB.firstMesWords);
-        if (sim >= 0.3) {
-            const s = Math.round(sim * 15);
-            score += s; breakdown.first_mes = s;
-            if (sim >= 0.7) matchReasons.push(`${Math.round(sim * 100)}% first message match`);
-        }
-    } else if (normA.firstMes && normB.firstMes) {
-        const sim = stringSimilarity(normA.firstMes, normB.firstMes);
-        if (sim >= 0.3) { const s = Math.round(sim * 15); score += s; breakdown.first_mes = s; }
-    }
-    if (normA.persWords && normB.persWords) {
-        const sim = wordSetSimilarity(normA.persWords, normB.persWords);
-        if (sim >= 0.3) { const s = Math.round(sim * 10); score += s; breakdown.personality = s; }
-    }
-    if (normA.scenWords && normB.scenWords) {
-        const sim = wordSetSimilarity(normA.scenWords, normB.scenWords);
-        if (sim >= 0.3) { const s = Math.round(sim * 5); score += s; breakdown.scenario = s; }
+    } else if (isRenamedTwin(a, b)) {
+        score += 15;
+        breakdown.renamed = 15;
+        matchReasons.push('Same description and first message under another name');
+    } else {
+        return { ...NO_MATCH, breakdown: {}, matchReasons: [] };
     }
 
-    const contentScore = (breakdown.description || 0) + (breakdown.first_mes || 0) + (breakdown.personality || 0) + (breakdown.scenario || 0) + (breakdown.creator_notes || 0);
-    let substantialPairs = 0;
-    if (normA.descWords && normB.descWords) substantialPairs++;
-    if (normA.firstMesWords && normB.firstMesWords) substantialPairs++;
-    if (normA.persWords && normB.persWords) substantialPairs++;
-    if (normA.creatorNotesWords && normB.creatorNotesWords) substantialPairs++;
-    if (score >= 25 && substantialPairs >= 1 && contentScore < 10) {
-        const penalty = Math.min(score - 20, 15);
-        if (penalty > 0) { score -= penalty; breakdown.divergence = -penalty; }
+    const creatorSim = creatorSimilarity(a.creator, b.creator);
+    if (creatorSim) {
+        const s = Math.round(creatorSim * 15);
+        score += s;
+        breakdown.creator = s;
+        matchReasons.push(creatorSim >= 0.95 ? 'Same creator' : 'Similar creator');
     }
 
-    let contentIdentical = false, strictIdentical = false;
-    if (breakdown.name && breakdown.creator && substantialPairs >= 1) {
-        const has = (t) => !!(t && t.length > 0);
-        const asymmetric = (a, b) => has(a) !== has(b);
-        const wordsMismatch = (wA, wB, tA, tB) => has(tA) && has(tB) && wA && wB && wordSetSimilarity(wA, wB) < 1.0;
-        contentIdentical = true;
-        const pairs = [
-            [normA.description, normB.description, normA.descWords, normB.descWords],
-            [normA.firstMes, normB.firstMes, normA.firstMesWords, normB.firstMesWords],
-            [normA.personality, normB.personality, normA.persWords, normB.persWords],
-            [normA.scenario, normB.scenario, normA.scenWords, normB.scenWords],
-            [normA.creatorNotes, normB.creatorNotes, normA.creatorNotesWords, normB.creatorNotesWords],
-            [normA.mesExample, normB.mesExample, normA.mesExWords, normB.mesExWords],
-            [normA.systemPrompt, normB.systemPrompt, normA.sysPromptWords, normB.sysPromptWords],
-        ];
-        for (const [tA, tB, wA, wB] of pairs) if (asymmetric(tA, tB) || wordsMismatch(wA, wB, tA, tB)) contentIdentical = false;
-        if (contentIdentical) {
-            strictIdentical = pairs.every(([tA, tB]) => (tA || '') === (tB || ''));
-        }
-    }
-    const confidence = confidenceOf(score);
-    return { score, breakdown, confidence, contentIdentical, strictIdentical, matchReason: reasonOf(matchReasons, confidence, score), matchReasons };
-}
-
-/** The full pass over two cards' fields: the scan's group re-score and the pre-import check's score. */
-export function fullSimilarity(fieldsA, fieldsB) {
-    const f = (o, k) => (o && o[k]) || '';
-    let score = 0;
-    const breakdown = {};
-    const matchReasons = [];
-    const name = nameArm(nameVariantsForDupe(f(fieldsA, 'name')), nameVariantsForDupe(f(fieldsB, 'name')));
-    if (name.best > 0) {
-        score += name.best;
-        breakdown.name = name.best;
-        if (name.reason) matchReasons.push(name.reason);
-    }
-    const creatorA = creatorSignal(f(fieldsA, 'creator')), creatorB = creatorSignal(f(fieldsB, 'creator'));
-    const compact = (c) => String(c).toLowerCase().trim().replace(/[\s_-]/g, '');
-    score += creatorArm(creatorA, creatorB, compact(creatorA), compact(creatorB), breakdown, matchReasons);
-
-    const notesA = f(fieldsA, 'creator_notes'), notesB = f(fieldsB, 'creator_notes');
-    const descA = f(fieldsA, 'description'), descB = f(fieldsB, 'description');
-    const firstMesA = f(fieldsA, 'first_mes'), firstMesB = f(fieldsB, 'first_mes');
-    const persA = f(fieldsA, 'personality'), persB = f(fieldsB, 'personality');
-    const scenA = f(fieldsA, 'scenario'), scenB = f(fieldsB, 'scenario');
-    const arm = (a, b, floor, threshold, weight, key, reasonAt, label) => {
-        if (!(a && b && a.length > floor && b.length > floor)) return;
-        const sim = contentSimilarity(a, b);
+    const arm = (key, floor, threshold, weight, reasonAt, label) => {
+        const x = a[key], y = b[key];
+        if (!(x.length > floor && y.length > floor)) return;
+        const sim = textSimilarity(x, y);
         if (sim < threshold) return;
         const s = Math.round(sim * weight);
         score += s; breakdown[key] = s;
         if (label && sim >= reasonAt) matchReasons.push(`${Math.round(sim * 100)}% ${label} match`);
     };
-    arm(notesA, notesB, 50, 0.25, 25, 'creator_notes', 0.6, 'creator notes');
-    arm(descA, descB, 50, 0.25, 25, 'description', 0.6, 'description');
-    arm(firstMesA, firstMesB, 30, 0.25, 15, 'first_mes', 0.6, 'first message');
-    arm(persA, persB, 20, 0.3, 10, 'personality', 0.7, 'personality');
-    arm(scenA, scenB, 20, 0.3, 5, 'scenario', 2, null);
+    arm('creator_notes', 50, 0.25, 25, 0.6, 'creator notes');
+    arm('description', 50, 0.25, 25, 0.6, 'description');
+    arm('first_mes', 30, 0.25, 15, 0.6, 'first message');
+    arm('personality', 20, 0.3, 10, 0.7, 'personality');
+    arm('scenario', 20, 0.3, 5, 2, null);
 
     const contentScore = (breakdown.description || 0) + (breakdown.first_mes || 0) + (breakdown.personality || 0) + (breakdown.scenario || 0) + (breakdown.creator_notes || 0);
     let substantialPairs = 0;
-    if (descA && descB && descA.length > 50 && descB.length > 50) substantialPairs++;
-    if (firstMesA && firstMesB && firstMesA.length > 30 && firstMesB.length > 30) substantialPairs++;
-    if (persA && persB && persA.length > 20 && persB.length > 20) substantialPairs++;
-    if (notesA && notesB && notesA.length > 50 && notesB.length > 50) substantialPairs++;
-    if (score >= 25 && substantialPairs >= 1 && contentScore < 10) {
+    if (a.description.length > 50 && b.description.length > 50) substantialPairs++;
+    if (a.first_mes.length > 30 && b.first_mes.length > 30) substantialPairs++;
+    if (a.personality.length > 20 && b.personality.length > 20) substantialPairs++;
+    if (a.creator_notes.length > 50 && b.creator_notes.length > 50) substantialPairs++;
+    // the card's own text was there on both sides to compare (creator notes, a site's public blurb, say too little)
+    const textCompared = (a.description.length > 50 && b.description.length > 50) || (a.first_mes.length > 30 && b.first_mes.length > 30) || (a.personality.length > 20 && b.personality.length > 20);
+    // only the card's own text disagreeing costs points: two sites' public blurbs differ for the same card
+    if (score >= 25 && textCompared && contentScore < 10) {
         const penalty = Math.min(score - 20, 15);
         if (penalty > 0) { score -= penalty; breakdown.divergence = -penalty; }
     }
 
     let contentIdentical = false, strictIdentical = false;
-    if (breakdown.name && breakdown.creator && substantialPairs >= 1) {
-        const has = (t) => !!(t && t.length > 0);
-        const asymmetric = (a, b) => has(a) !== has(b);
-        const textMismatch = (a, b) => has(a) && has(b) && contentSimilarity(a, b) < 1.0;
-        const pairs = [
-            [descA, descB], [firstMesA, firstMesB], [persA, persB], [scenA, scenB], [notesA, notesB],
-            [f(fieldsA, 'mes_example'), f(fieldsB, 'mes_example')], [f(fieldsA, 'system_prompt'), f(fieldsB, 'system_prompt')],
-        ];
-        contentIdentical = pairs.every(([a, b]) => !asymmetric(a, b) && !textMismatch(a, b));
-        if (contentIdentical) strictIdentical = pairs.every(([a, b]) => (a || '') === (b || ''));
+    // identical means the same card: its own name related (a renamed card never is) and one author, or no author on either
+    if (breakdown.name && name.own && (breakdown.creator || (!a.creator && !b.creator)) && substantialPairs >= 1) {
+        const has = (t) => t.length > 0;
+        contentIdentical = SCORED_TEXTS.every(k => has(a[k]) === has(b[k]) && (!has(a[k]) || textSimilarity(a[k], b[k]) >= 1.0));
+        if (contentIdentical) strictIdentical = SCORED_TEXTS.every(k => a[k].raw === b[k].raw);
     }
     const confidence = confidenceOf(score);
-    return { score, breakdown, confidence, contentIdentical, strictIdentical, matchReason: reasonOf(matchReasons, confidence, score), matchReasons };
+    const matchReason = matchReasons.length ? matchReasons.slice(0, 3).join(', ') : (confidence ? `${score} point similarity score` : '');
+    return { score, breakdown, confidence, contentIdentical, strictIdentical, matchReason, matchReasons, ownName: name.own, textCompared };
 }
+
+// the name arm alone over two sets of name variants: 0 when the names do not relate, 7 to 15 when they do
+const nameScore = (a, b) => nameArm(a, b).best;
+
+/** Whether a score makes two cards duplicates (Find Duplicates and the import warning list them; the reader's cutoff filters). */
+export const isDuplicate = (result) => !!result?.confidence;
+
+/** Whether a score says the same character, surely enough to fold one row under another (Related's copies): medium and up, or one text. */
+export const isSameCharacter = (result) => !!result && (result.contentIdentical || result.confidence === 'high' || result.confidence === 'medium');
+
+export const CONFIDENCE_ORDER = { high: 3, medium: 2, low: 1 };
+
+// ============================================================================
+// THE BROWSE HINT: a remote card's name, creator and (when the site gives one) text, against the library's namesakes
+// ============================================================================
+
+// a remote card has no definition yet: an author, a text, the name's rarity; otherListing caps an unplaced same-site namesake
+const HINT = Object.freeze({ sameAuthor: 95, sameText: 90, prefixAuthor: 70, prefixText: 70, renamedText: 70, base: 40, prefixBase: 25, otherAuthor: 10, textBits: 10, otherListing: 65 });
+
+// up to 30 for a long, many-worded name: a long name is evidence on its own
+function distinctiveness(key) {
+    const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+    let words = 0;
+    for (const w of key.split(' ')) if (w.length >= 2) words++;
+    return clamp01((key.length - 12) / 20) * 20 + clamp01((words - 1) / 4) * 10;
+}
+
+// up to 25 for a name one author holds here, nothing once five do: the library says which names are common
+const rarity = (authors) => 25 * Math.max(0, 1 - Math.max(0, authors - 1) / 4);
+
+/**
+ * How likely a remote card is already here, 0 to 100 (the slider's scale; the tiers sit at 65 and 85), and on what basis.
+ * @param {{ name: string, creator?: string, text?: string }} hit
+ * @param {Array<{ id: string, relation: 'exact'|'prefix', creatorKey: string, sig: Buffer|null, mask: number }>} holders the namesakes, graded
+ * @param {{ renamedText?: boolean, textPrint?: object, heads?: Map<string, object>, listings?: Map<string, 'same'|'maybe'|'different'> }} [also] renamedText: the text is a card's description under another name; textPrint: its signature; heads: per holder, its long fields cut as the text was; listings: per holder on another listing of the hit's site, the verdict (publicTextVerdict)
+ * @returns {{ score: number, basis: ''|'otherListing' }} otherListing: the score is an unplaced namesake on the hit's own site
+ */
+export function hintScore(hit, holders, { renamedText = false, textPrint = null, heads = null, listings = null } = {}) {
+    // the site's text alone, without the first message the import warning also reads, makes a renamed card likely, never very likely
+    const floor = renamedText ? HINT.renamedText : 0;
+    if (!holders.length) return { score: floor, basis: '' };
+    const exactHolders = holders.filter(h => h.relation === 'exact');
+    // a card with no real author is an author of its own, its copies (one description) one author: twenty authorless namesakes are a common name
+    const authorOf = (h) => h.creatorKey || (hasDescriptionText(h) ? `text:${h.sig.toString('hex', 0, 8)}` : `card:${h.id}`);
+    const authors = new Set(exactHolders.map(authorOf)).size;
+    const variants = nameVariantsForDupe(hit.name);
+    if (!variants.length) return { score: 0, basis: '' };
+    const author = creatorKey(hit.creator);
+    // a site's text is a blurb or a description: near the holder's description, its first message or its creator notes
+    const text = textPrint || (hit.text ? cardSignature({ description: hit.text }) : null);
+    // simhashes only: a short text two cards share ("OC", "Enjoy!") is boilerplate, never the same text
+    const nearIn = (p) => !!p && [FIELD.description, FIELD.first_mes, FIELD.creator_notes].some(k => { const d = fieldDistance(text, FIELD.description, p, k, { simhashOnly: true }); return d !== null && d <= HINT.textBits; });
+    const textNear = (h) => nearIn(h) || nearIn(heads?.get(h.id));
+    const scoreOf = (list) => {
+        let best = 0;
+        for (const relation of ['exact', 'prefix']) {
+            const these = list.filter(h => h.relation === relation);
+            if (!these.length) continue;
+            const isExact = relation === 'exact';
+            if (author && these.some(h => creatorsRelate(author, h.creatorKey))) best = Math.max(best, isExact ? HINT.sameAuthor : HINT.prefixAuthor);
+            else if (these.some(textNear)) best = Math.max(best, isExact ? HINT.sameText : HINT.prefixText);
+            else {
+                const key = variants.reduce((x, y) => (y.length > x.length ? y : x));
+                const known = these.filter(h => h.creatorKey);
+                const otherAuthor = author && known.length && known.every(h => !creatorsRelate(author, h.creatorKey)) ? HINT.otherAuthor : 0;
+                const evidence = distinctiveness(key) + rarity(authors) - otherAuthor;
+                best = Math.max(best, Math.round(isExact ? HINT.base + evidence : HINT.prefixBase + evidence * 0.5));
+            }
+        }
+        return best;
+    };
+    // the hit's own site: the author's other card counts for nothing, an unplaced one for a possible match at most
+    const said = (h) => listings?.get(h.id);
+    const placed = holders.filter(h => !said(h) || said(h) === 'same');
+    const unplaced = holders.filter(h => said(h) === 'maybe');
+    const sure = scoreOf(placed);
+    const unsure = unplaced.length ? Math.min(HINT.otherListing, scoreOf([...placed, ...unplaced])) : 0;
+    const score = Math.min(100, Math.max(floor, sure, unsure));
+    return { score, basis: unsure > sure && unsure > floor ? 'otherListing' : '' };
+}
+
+
+// ============================================================================
+// THE SCAN'S NAME BLOCKING (lossless for the name arm's 0.7)
+// ============================================================================
 
 /** The [lo, hi] name lengths that can reach the name arm's 0.7 against this length. */
 export function similarNameLengths(len) {
@@ -396,5 +668,3 @@ export function lowestBigramFloor(len) {
     for (let m = len; m < len + 10; m++) min = Math.min(min, bigramFloor(m, m));
     return min;
 }
-
-export const CONFIDENCE_ORDER = { high: 3, medium: 2, low: 1 };

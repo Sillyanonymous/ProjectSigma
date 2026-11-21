@@ -69,23 +69,9 @@
     flex-shrink: 0;
 }
 
-.cpp-mini {
-    width: 30px;
-    height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--text-faint);
-    font-size: var(--font-xs);
-    cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
-}
-
-.cpp-mini:hover { background: var(--cl-veil-3); color: var(--text-primary); }
-.cpp-mini.is-danger:hover { color: var(--cl-error-bright, #e74c3c); }
+/* the speech bubble and the globe, then Delete, on the family's .cl-cwin-act; Delete goes red on hover */
+.cpp-act.is-pick { font-size: var(--font-xs); }
+.cpp-act.is-danger:hover { color: var(--cl-error); }
 
 /* ========================================
    EDITOR
@@ -139,11 +125,10 @@
    ======================================== */
 
 /* phone rules, scoped by the mode class, never a bare width query */
-html.cl-mobile .cpp-mini {
-    width: var(--touch-target-slim);
-    height: var(--touch-target-slim);
-    touch-action: manipulation;
-    font-size: var(--font-sm);
+/* the two picks keep the full floor, as Connections' do: choosing who you are is the panel's primary verb */
+html.cl-mobile .cpp-act.is-pick {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
 }
 
 html.cl-mobile .cpp-row-main { min-height: var(--touch-target-min); }

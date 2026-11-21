@@ -380,7 +380,7 @@ class ChartavernProvider extends ProviderBase {
 
     /**
      * Import a character from CharacterTavern.
-     * CT serves PNG cards with embedded V2 data, so the CDN PNG is the primary source.
+     * The character page is the base; the card file adds its picture, lorebook and extensions.
      *
      * @param {string} path - "author/slug" format
      * @param {Object} [hitData] - Optional pre-fetched search hit data
@@ -439,7 +439,7 @@ class ChartavernProvider extends ProviderBase {
                 missing.push('its card file (its picture, and any alternate greetings, tags or lorebook only the file carries)');
             }
 
-            // the card file fills what the page left empty (greetings, tags) and carries the lorebook
+            // the card file fills what the page left empty (greetings, tags) and carries the lorebook and the card's extensions
             if (imageBuffer) {
                 let pngCard = null;
                 try {
@@ -447,20 +447,24 @@ class ChartavernProvider extends ProviderBase {
                 } catch (e) {
                     console.warn('[ChartavernProvider] Card file unreadable:', e.message);
                 }
-                if (pngCard?.data && !cardData && !hitHasDefinition) {
-                    // the page did not load and the hit is a listing: the file's card is the whole card
+                if (pngCard?.data) {
                     const stamp = characterCard.data.extensions.chartavern;
-                    characterCard = { spec: 'chara_card_v2', spec_version: '2.0', data: { ...pngCard.data, extensions: { ...(pngCard.data.extensions || {}), chartavern: stamp } } };
-                } else if (pngCard?.data) {
-                    if (!characterCard.data.alternate_greetings?.length && pngCard.data.alternate_greetings?.length) {
-                        characterCard.data.alternate_greetings = pngCard.data.alternate_greetings;
+                    if (!cardData && !hitHasDefinition) {
+                        // the page did not load and the hit is a listing: the file's card is the whole card
+                        characterCard = { spec: 'chara_card_v2', spec_version: '2.0', data: { ...pngCard.data } };
+                    } else {
+                        if (!characterCard.data.alternate_greetings?.length && pngCard.data.alternate_greetings?.length) {
+                            characterCard.data.alternate_greetings = pngCard.data.alternate_greetings;
+                        }
+                        if (!characterCard.data.tags?.length && pngCard.data.tags?.length) {
+                            characterCard.data.tags = pngCard.data.tags;
+                        }
+                        if (pngCard.data.character_book && !characterCard.data.character_book) {
+                            characterCard.data.character_book = pngCard.data.character_book;
+                        }
                     }
-                    if (!characterCard.data.tags?.length && pngCard.data.tags?.length) {
-                        characterCard.data.tags = pngCard.data.tags;
-                    }
-                    if (pngCard.data.character_book && !characterCard.data.character_book) {
-                        characterCard.data.character_book = pngCard.data.character_book;
-                    }
+                    // only the file carries extensions (a Character's Note, regex scripts); this site's link goes over them
+                    characterCard.data.extensions = { ...(pngCard.data.extensions || {}), chartavern: stamp };
                 } else {
                     missing.push('the card inside its card file (any alternate greetings, tags or lorebook only the file carries)');
                 }

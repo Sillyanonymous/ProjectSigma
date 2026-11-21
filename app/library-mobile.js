@@ -448,7 +448,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         // push orphan guards on desktop
         const g = {
             switchView: window.switchView, addTag: window.addTag,
-            removeTag: window.removeTag, showSheetAutocomplete: window.showSheetAutocomplete,
+            removeTag: window.removeTag,
             pushOverlayGuard: window.pushOverlayGuard,
             clCreateMobileSheet: window.clCreateMobileSheet,
         };
@@ -1256,6 +1256,25 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             return true;
         }
 
+        function closeTopSheet() {
+            const overlays = document.querySelectorAll('.mobile-sheet-overlay:not(.hidden)');
+            const el = overlays[overlays.length - 1];
+            el.querySelector('.mobile-sheet')?.classList.remove('open');
+            setTimeout(() => el.classList.add('hidden'), 300);
+        }
+
+        // a sheet opened over a dialog (a preview's kebab, a row's verbs) is painted above it, so it closes before it
+        function closeSheetOverDialog() {
+            const sheet = [...document.querySelectorAll('.mobile-sheet-overlay:not(.hidden)')].pop();
+            if (!sheet) return false;
+            const dialogs = (window._overlayRegistry || []).filter(r => !r.viewLevel)
+                .map(r => [r, document.getElementById(r.id)]).filter(([r, el]) => el && window.isOverlayVisible(r, el)).map(([, el]) => el);
+            const under = [...document.querySelectorAll(OPEN_OVERLAY_SEL), ...dialogs].filter(el => el !== sheet && !sheet.contains(el));
+            if (!under.length || under.some(el => window.overlayIsAbove(el, sheet))) return false;
+            closeTopSheet();
+            return true;
+        }
+
         const stack = [
             // Tier 0 - avatar/gallery quick-view (highest z-index)
             ['#browseAvatarViewer', el => el.remove()],
@@ -1265,6 +1284,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             ['#galleryViewerModal.visible',    () => window.closeGalleryViewer?.()],
             ['#clContextMenu.visible',         el => el.classList.remove('visible')],
             ['.custom-select-menu:not(.hidden)', el => el.classList.add('hidden')],
+            closeSheetOverDialog,
 
             // When char details is stacked above another modal, unwind its layers first
             () => {
@@ -1344,12 +1364,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             () => closeTopRegistered((window._overlayRegistry || []).filter(r => !r.viewLevel)),
 
             // Tier 2.5 - mobile sheets & overlays (.mobile-search-overlay lives in Tier 1.56).
-            ['.mobile-sheet-overlay:not(.hidden)', () => {
-                const overlays = document.querySelectorAll('.mobile-sheet-overlay:not(.hidden)');
-                const el = overlays[overlays.length - 1];
-                el.querySelector('.mobile-sheet')?.classList.remove('open');
-                setTimeout(() => el.classList.add('hidden'), 300);
-            }],
+            ['.mobile-sheet-overlay:not(.hidden)', closeTopSheet],
             ['#tagFilterPopup:not(.hidden)', el => el.classList.add('hidden')],
             ['#playlistFilterPopup:not(.hidden)', el => el.classList.add('hidden')],
 
@@ -3901,80 +3916,26 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
        BROWSE PREVIEW MODAL: KEBAB / QUICK-IMPORT
        ======================================== */
     function setupBrowseModalActionsMenu() {
-        let openMenu = null;
-        let openTriggerBtn = null;
-
-        function closeMenu() {
-            if (!openMenu) return;
-            openMenu.remove();
-            openMenu = null;
-            openTriggerBtn = null;
-        }
-
-        function openMenuFor(triggerBtn, controls) {
-            closeMenu();
-
-            const menu = document.createElement('div');
-            menu.className = 'mobile-more-actions-menu';
-
-            const originals = controls.querySelectorAll(
-                '.cl-btn:not(.mobile-more-actions-btn)'
-            );
-            originals.forEach(orig => {
-                if (orig.classList.contains('close-btn')) return;
-
-                const item = document.createElement('button');
-                item.type = 'button';
-                item.className = 'mobile-more-actions-item';
-                item.innerHTML = orig.innerHTML;
-                item.title = orig.title || orig.getAttribute('aria-label') || '';
-                if (orig.disabled || orig.classList.contains('disabled')) {
-                    item.disabled = true;
-                    item.classList.add('disabled');
-                    item.style.opacity = '0.5';
-                    item.style.pointerEvents = 'none';
-                }
-                item.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    closeMenu();
-                    orig.click();
-                });
-                menu.appendChild(item);
-            });
-
+        // the preview's own controls on the context menu's list (the phone's sheet); a row presses its control
+        function openActionsFor(e, controls) {
+            const menu = window.ModuleLoader?.get('context-menu');
+            if (!menu?.showItems) return;
+            const items = [...controls.querySelectorAll('.cl-btn:not(.mobile-more-actions-btn):not(.close-btn)')].map(orig => ({
+                icon: [...(orig.querySelector('i')?.classList || [])].filter(k => k.startsWith('fa')).join(' ') || 'fa-solid fa-circle',
+                label: (orig.textContent.trim() || orig.title || orig.getAttribute('aria-label') || '').replace(/\s+/g, ' '),
+                disabled: orig.disabled || orig.classList.contains('disabled'),
+                action: () => orig.click(),
+            }));
             // The favorite heart lives in the header meta line, which is hidden on
             // mobile; providers that support favoriting mark it with .browse-fav-toggle
             const favBtn = controls.closest('.browse-char-modal')?.querySelector('.browse-fav-toggle');
             if (favBtn) {
                 const faved = favBtn.classList.contains('favorited');
-                const item = document.createElement('button');
-                item.type = 'button';
-                item.className = 'mobile-more-actions-item';
-                item.innerHTML = `<i class="fa-${faved ? 'solid' : 'regular'} fa-heart"></i> ${faved ? 'Unfavorite' : 'Favorite'}`;
-                item.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    closeMenu();
-                    favBtn.click();
-                });
-                menu.appendChild(item);
+                items.push({ icon: `fa-${faved ? 'solid' : 'regular'} fa-heart`, label: faved ? 'Unfavorite' : 'Favorite', action: () => favBtn.click() });
             }
-
-            if (!menu.children.length) return;
-
-            document.body.appendChild(menu);
-            const rect = triggerBtn.getBoundingClientRect();
-            const menuRect = menu.getBoundingClientRect();
-            let top = rect.bottom + 6;
-            if (top + menuRect.height > window.innerHeight - 12) {
-                top = Math.max(12, rect.top - menuRect.height - 6);
-            }
-            let left = rect.right - menuRect.width;
-            if (left < 12) left = 12;
-            menu.style.top = `${top}px`;
-            menu.style.left = `${left}px`;
-
-            openMenu = menu;
-            openTriggerBtn = triggerBtn;
+            if (!items.length) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            menu.showItems(e, items, { x: r.left, y: r.bottom });
         }
 
         function findPrimarySourceBtn(controls) {
@@ -4028,11 +3989,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
                 if (closeBtn) controls.insertBefore(btn, closeBtn);
                 else controls.appendChild(btn);
 
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (openTriggerBtn === btn) closeMenu();
-                    else openMenuFor(btn, controls);
-                });
+                btn.addEventListener('click', (e) => openActionsFor(e, controls));
             }
 
             if (!controls.querySelector('.mobile-quick-import-btn')) {
@@ -4139,32 +4096,6 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
                 }
             }
         }).observe(document.body, { childList: true, subtree: true });
-
-        document.addEventListener('click', (e) => {
-            if (!openMenu) return;
-            if (openMenu.contains(e.target)) return;
-            if (e.target === openTriggerBtn || openTriggerBtn?.contains(e.target)) return;
-            closeMenu();
-        }, true);
-
-        const modalClassObs = new MutationObserver(() => {
-            if (!openMenu) return;
-            const overlay = openTriggerBtn?.closest('.modal-overlay');
-            if (overlay && overlay.classList.contains('hidden')) closeMenu();
-        });
-        document.querySelectorAll('.modal-overlay').forEach(o => {
-            modalClassObs.observe(o, { attributes: true, attributeFilter: ['class'] });
-        });
-        new MutationObserver((mutations) => {
-            for (const m of mutations) {
-                for (const node of m.addedNodes) {
-                    if (node.nodeType !== 1) continue;
-                    if (node.matches?.('.modal-overlay')) {
-                        modalClassObs.observe(node, { attributes: true, attributeFilter: ['class'] });
-                    }
-                }
-            }
-        }).observe(document.body, { childList: true });
     }
 
     /* ========================================
@@ -4688,44 +4619,11 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             renderEditableTagChips(container, tags || [], (tag) => removeTag(tag));
         }
 
-        // the server's suggestions for the text; a late answer for text typed over is dropped
-        let sheetSuggestSeq = 0;
-        async function showSheetAutocomplete(filterText) {
-            filterText = filterText || '';
-            const autocomplete = document.getElementById('tagEditorSheetAutocomplete');
-            if (!autocomplete) return;
-
-            const currentTags = getCurrentTagsArray().map(t => t.toLowerCase());
-            const mine = ++sheetSuggestSeq;
-            const named = await window.suggestTags(filterText, { limit: 10 + currentTags.length });
-            if (mine !== sheetSuggestSeq) return;
-
-            const suggestions = named.filter(tag => !currentTags.includes(tag.toLowerCase())).slice(0, 10);
-
-            if (suggestions.length === 0 && filterText.trim()) {
-                autocomplete.innerHTML = `
-                    <div class="tag-autocomplete-item create-new" data-tag="${escapeHtml(filterText.trim())}">
-                        <i class="fa-solid fa-plus"></i> Create "${escapeHtml(filterText.trim())}"
-                    </div>`;
-                autocomplete.classList.add('visible');
-            } else if (suggestions.length > 0) {
-                autocomplete.innerHTML = suggestions.map(tag =>
-                    `<div class="tag-autocomplete-item" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</div>`
-                ).join('');
-                autocomplete.classList.add('visible');
-            } else {
-                hideSheetAutocomplete();
-                return;
-            }
-
-            autocomplete.querySelectorAll('.tag-autocomplete-item').forEach(item => {
-                item.onclick = () => {
-                    addTag(item.dataset.tag);
-                    // Re-show suggestions immediately (chip-selector pattern)
-                    requestAnimationFrame(() => showSheetAutocomplete(''));
-                };
-            });
-        }
+        // the shared suggestion list as pills; a pick offers the rest at once
+        const sheetSuggest = (text) => showTagAutocomplete(text || '', {
+            dropdown: document.getElementById('tagEditorSheetAutocomplete'), exclude: getCurrentTagsArray(),
+            onPick: (tag) => { addTag(tag); requestAnimationFrame(() => sheetSuggest('')); },
+        });
 
         function hideSheetAutocomplete() {
             const ac = document.getElementById('tagEditorSheetAutocomplete');
@@ -4736,16 +4634,13 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             sheet.classList.remove('hidden');
             const tags = getCurrentTagsArray();
             renderSheetTags(tags);
-            showSheetAutocomplete('');
+            sheetSuggest('');
         }
 
         function closeTagEditorSheet() {
             sheet.classList.add('hidden');
             hideSheetAutocomplete();
         }
-
-        // Make showSheetAutocomplete available globally for the suggestion flow
-        window.showSheetAutocomplete = showSheetAutocomplete;
 
         // Wire event listeners
         const editTagsBtn = document.getElementById('editTagsBtn');
@@ -4766,20 +4661,16 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
         const sheetInput = document.getElementById('tagEditorSheetInput');
         if (sheetInput) {
             // each keystroke asks the server, so a typing burst asks once
-            let sheetTypeTimer = null;
-            sheetInput.addEventListener('input', (e) => {
-                clearTimeout(sheetTypeTimer);
-                const text = e.target.value;
-                sheetTypeTimer = setTimeout(() => showSheetAutocomplete(text), 150);
-            });
-            sheetInput.addEventListener('focus', () => showSheetAutocomplete(sheetInput.value));
+            const askSheet = debounce((text) => sheetSuggest(text), 150);
+            sheetInput.addEventListener('input', (e) => askSheet(e.target.value));
+            sheetInput.addEventListener('focus', () => sheetSuggest(sheetInput.value));
             sheetInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     const v = sheetInput.value.trim();
                     if (v) addTag(v);
                     sheetInput.value = '';
-                    requestAnimationFrame(() => showSheetAutocomplete(''));
+                    requestAnimationFrame(() => sheetSuggest(''));
                 } else if (e.key === 'Escape') {
                     hideSheetAutocomplete();
                     sheetInput.blur();

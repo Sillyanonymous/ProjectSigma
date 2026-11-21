@@ -1,0 +1,144 @@
+/* ========================================
+   REGEX SCRIPTS WINDOW
+   ======================================== */
+
+/* the canon body scrolls and has no inset; the window pads it as this chat's card does */
+.crx-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+}
+
+.crx-note { margin: 0; }
+
+.crx-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+
+.crx-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.crx-grip {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    cursor: grab;
+    touch-action: none;
+}
+
+/* the row's name and chips are one target that opens the editor */
+.crx-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.crx-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-xs);
+    color: var(--text-primary);
+}
+
+.crx-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2xs);
+    min-width: 0;
+}
+
+.crx-places {
+    font-size: var(--font-3xs);
+    color: var(--text-muted);
+}
+
+.crx-switch { flex-shrink: 0; display: inline-flex; cursor: pointer; }
+
+/* a list not allowed yet: its switches are the scripts' own, not whether they run */
+.crx-list.is-held .crx-switch { opacity: var(--op-disabled); }
+
+/* a drag, as the other drag lists draw it: the lifted row faint, the place it lands ruled */
+.crx-row.dragging { opacity: 0.4; }
+.crx-row.drag-over { box-shadow: 0 2px 0 var(--accent) inset; }
+.crx-row.drag-over.drag-after { box-shadow: 0 -2px 0 var(--accent) inset; }
+
+/* a switched-off script dims its grip and text; the switch stays bright to turn it back on, the kebab keeps the verbs' quiet rest */
+.crx-row.crx-off .crx-grip,
+.crx-row.crx-off .crx-main { opacity: var(--op-disabled); }
+
+.crx-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.crx-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.crx-back { align-self: flex-start; }
+
+.crx-saved { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+/* focus mode: the editor over the list, the tabs away so a tap never drops a draft for another list */
+.crx-sheet.crx-mode-edit .crx-tabs { display: none; }
+
+.crx-fold-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.crx-result { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+/* the chat's own reading of the result, on a veil; sent to the AI is the plain text */
+.crx-out {
+    min-height: var(--cl-cwin-btn);
+    max-height: 12em;
+    overflow: auto;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--cl-veil-1);
+    font-size: var(--font-xs);
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.crx-out.is-plain {
+    white-space: pre-wrap;
+    font-family: var(--font-stack-mono);
+}
+
+.crx-status { margin: 0; }
+.crx-status.is-warn { color: var(--cl-warning); }
+
+/* the phone's list rows stand on the list tier, as the prompt manager's do */
+html.cl-mobile .crx-row,
+html.cl-mobile .crx-main { min-height: var(--touch-target-min); }
+
+html.cl-mobile .crx-grip,
+html.cl-mobile .crx-switch {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .crx-grip { touch-action: none; display: inline-flex; align-items: center; min-width: var(--touch-target-slim); justify-content: center; }

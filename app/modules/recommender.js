@@ -191,19 +191,19 @@ function createModal() {
 
                             <div class="recommender-filter-row">
                                 <label class="recommender-filter-label">Has Chats</label>
-                                <div class="recommender-tristate" id="recommenderFilterHasChats">
-                                    <button class="recommender-tristate-btn" data-value="yes">Yes</button>
-                                    <button class="recommender-tristate-btn active" data-value="any">Any</button>
-                                    <button class="recommender-tristate-btn" data-value="no">No</button>
+                                <div class="recommender-tristate cl-seg" id="recommenderFilterHasChats" role="group" aria-label="Has Chats">
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn" data-value="yes">Yes</button>
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn active" data-value="any">Any</button>
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn" data-value="no">No</button>
                                 </div>
                             </div>
 
                             <div class="recommender-filter-row">
                                 <label class="recommender-filter-label">Favorite</label>
-                                <div class="recommender-tristate" id="recommenderFilterFavorite">
-                                    <button class="recommender-tristate-btn" data-value="yes">Yes</button>
-                                    <button class="recommender-tristate-btn active" data-value="any">Any</button>
-                                    <button class="recommender-tristate-btn" data-value="no">No</button>
+                                <div class="recommender-tristate cl-seg" id="recommenderFilterFavorite" role="group" aria-label="Favorite">
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn" data-value="yes">Yes</button>
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn active" data-value="any">Any</button>
+                                    <button type="button" class="recommender-tristate-btn cl-seg-btn" data-value="no">No</button>
                                 </div>
                             </div>
 
@@ -227,7 +227,7 @@ function createModal() {
                                 <div class="recommender-tag-input-wrap">
                                     <input type="search" id="recommenderTagIncludeInput" class="recommender-field recommender-field-sm"
                                         placeholder="Type tag + Enter" autocomplete="one-time-code">
-                                    <div id="recommenderTagIncludeAC" class="recommender-tag-autocomplete"></div>
+                                    <div id="recommenderTagIncludeAC" class="tag-autocomplete is-below"></div>
                                     <div id="recommenderTagIncludePills" class="recommender-tag-pills"></div>
                                 </div>
                             </div>
@@ -237,7 +237,7 @@ function createModal() {
                                 <div class="recommender-tag-input-wrap">
                                     <input type="search" id="recommenderTagExcludeInput" class="recommender-field recommender-field-sm"
                                         placeholder="Type tag + Enter" autocomplete="one-time-code">
-                                    <div id="recommenderTagExcludeAC" class="recommender-tag-autocomplete"></div>
+                                    <div id="recommenderTagExcludeAC" class="tag-autocomplete is-below"></div>
                                     <div id="recommenderTagExcludePills" class="recommender-tag-pills"></div>
                                 </div>
                             </div>
@@ -742,7 +742,7 @@ function setupTagInput(inputId, pillsId, acId) {
     const acEl = document.getElementById(acId);
     if (!input) return;
 
-    let highlightIdx = -1;
+    const hideAC = () => acEl?.classList.remove('visible');
 
     function addTagFromInput(tag) {
         const t = (tag || input.value).trim().toLowerCase();
@@ -757,74 +757,26 @@ function setupTagInput(inputId, pillsId, acId) {
         hideAC();
     }
 
-    // the server's suggestions for the text; a late answer for text typed over is dropped
-    let acSeq = 0;
-    async function showAC() {
-        if (!acEl) return;
-        const filter = input.value.trim().toLowerCase();
-        const existing = getTagPills(pillsId).map(t => t.toLowerCase());
-        const mine = ++acSeq;
-        const named = await CoreAPI.suggestTags(filter, { limit: 8 + existing.length });
-        if (mine !== acSeq) return;
-        const matches = named.filter(t => !existing.includes(t.toLowerCase())).slice(0, 8);
-
-        if (!matches.length) { hideAC(); return; }
-        highlightIdx = -1;
-        acEl.innerHTML = matches.map(t =>
-            `<div class="recommender-tag-ac-item" data-tag="${CoreAPI.escapeHtml(t)}">${CoreAPI.escapeHtml(t)}</div>`
-        ).join('');
-        acEl.classList.add('visible');
-    }
-
-    function hideAC() {
-        if (!acEl) return;
-        acEl.classList.remove('visible');
-        highlightIdx = -1;
-    }
-
-    function setHighlight(idx) {
-        const items = acEl?.querySelectorAll('.recommender-tag-ac-item') || [];
-        items.forEach((el, i) => el.classList.toggle('highlighted', i === idx));
-        highlightIdx = idx;
-    }
+    // the app's tag suggestions under the field; a pick joins the pills
+    const showAC = () => acEl && CoreAPI.showTagAutocomplete(input.value, {
+        dropdown: acEl, exclude: getTagPills(pillsId), allowCreate: false, limit: 8, onPick: addTagFromInput,
+    });
 
     // each keystroke asks the server, so a typing burst asks once
-    let acTimer = 0;
-    input.addEventListener('input', () => { clearTimeout(acTimer); acTimer = setTimeout(showAC, 150); });
+    input.addEventListener('input', CoreAPI.debounce(showAC, 150));
     input.addEventListener('focus', showAC);
 
     input.addEventListener('keydown', (e) => {
-        const items = acEl?.querySelectorAll('.recommender-tag-ac-item') || [];
-        if (e.key === 'ArrowDown' && acEl?.classList.contains('visible') && items.length) {
-            e.preventDefault();
-            setHighlight(highlightIdx < items.length - 1 ? highlightIdx + 1 : 0);
-            return;
-        }
-        if (e.key === 'ArrowUp' && acEl?.classList.contains('visible') && items.length) {
-            e.preventDefault();
-            setHighlight(highlightIdx > 0 ? highlightIdx - 1 : items.length - 1);
-            return;
-        }
+        if (CoreAPI.tagAutocompleteKeydown(e, acEl)) return;
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (highlightIdx >= 0 && items[highlightIdx]) {
-                addTagFromInput(items[highlightIdx].dataset.tag);
-            } else {
-                addTagFromInput();
-            }
-            return;
-        }
-        if (e.key === 'Escape') {
+            addTagFromInput();
+        } else if (e.key === 'Escape') {
             hideAC();
         }
     });
 
     input.addEventListener('blur', () => setTimeout(hideAC, 150));
-
-    acEl?.addEventListener('click', (e) => {
-        const item = e.target.closest('.recommender-tag-ac-item');
-        if (item) addTagFromInput(item.dataset.tag);
-    });
 
     document.getElementById(pillsId)?.addEventListener('click', (e) => {
         const pill = e.target.closest('.recommender-pill');
@@ -1530,7 +1482,7 @@ function renderChatMessages() {
     if (chatBusy) {
         html += `<div class="recommender-chat-msg assistant thinking">
             <div class="recommender-chat-msg-role"><i class="fa-solid fa-comment-dots"></i> Assistant</div>
-            <div class="recommender-chat-thinking-dots"><span></span><span></span><span></span></div>
+            <div class="cl-ai-thinking"><span></span><span></span><span></span></div>
         </div>`;
     }
     el.innerHTML = html;

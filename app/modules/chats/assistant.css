@@ -606,70 +606,11 @@
 .cas-prop-pick { accent-color: var(--accent); cursor: pointer; }
 .cas-prop-pick:disabled { cursor: not-allowed; opacity: 0.4; }
 
-/* ---- The diff ---- */
+/* ---- The diff (the shared .cl-diff, library.css) ---- */
 
-/* the update panel's diff dialect: mono on a dark plate, tinted heads, 3px rails, holes for unpaired lines */
-.cas-diff {
-    margin-top: var(--space-2xs);
-    border-radius: var(--radius-sm);
-    background: var(--cl-shade-20);
-    padding: 0;
-    font-family: var(--font-stack-mono);
-    font-size: var(--font-sm);
-    line-height: 1.6;
-    /* Wide content scrolls INSIDE its own box; the panel body must never scroll sideways. */
-    overflow-x: auto;
-    max-height: 40vh;
-    overflow-y: auto;
-}
-
-/* side by side, an unpaired line facing a HOLE, so a pure add or cut shows as shape before reading */
-.cas-diff-split {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-}
-.cas-diff-split > :nth-child(odd) { border-right: 1px solid var(--cl-border); }
-.cas-diff-col-head {
-    padding: var(--space-xs) var(--space-sm);
-    font-size: var(--font-xs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.cas-diff-col-head.is-del { background: rgba(var(--cl-error-rgb), 0.1); color: var(--cl-error-pale); border-bottom: 2px solid var(--cl-error); }
-.cas-diff-col-head.is-add { background: rgba(var(--cl-success-rgb), 0.1); color: var(--cl-success-pale); border-bottom: 2px solid var(--cl-success); }
-.cas-diff-cell {
-    padding: var(--space-2xs) var(--space-sm);
-    border-left: 3px solid transparent;
-    white-space: pre-wrap;
-    word-break: break-word;
-    min-height: 1.6em;
-    min-width: 0;
-}
-.cas-diff-cell.is-add, .cas-prop-field-v.is-add { background: rgba(var(--cl-success-rgb), 0.15); }
-.cas-diff-cell.is-del, .cas-prop-field-v.is-del { background: rgba(var(--cl-error-rgb), 0.15); }
-.cas-diff-cell.is-add { border-left-color: var(--cl-success); }
-.cas-diff-cell.is-del { border-left-color: var(--cl-error); }
-.cas-diff-cell.is-ctx { color: var(--text-faint); }
-/* the update panel's grey hole, kept value for value */
-.cas-diff-cell.is-empty { background: rgba(128, 128, 128, 0.1); border-left-color: rgba(128, 128, 128, 0.3); }
-/* Every word that goes and every word that arrives, the update panel's presentation spoken
-   in this card's palette. */
-.cas-diff-word-del {
-    background: rgba(var(--cl-error-rgb), 0.5);
-    color: var(--cl-error-pale);
-    border-radius: var(--radius-2xs);
-    padding: 0 var(--space-2xs);
-    text-decoration: line-through;
-    text-decoration-color: rgba(var(--cl-error-rgb), 0.8);
-}
-.cas-diff-word-add {
-    background: rgba(var(--cl-success-rgb), 0.5);
-    color: var(--cl-success-pale);
-    border-radius: var(--radius-2xs);
-    padding: 0 var(--space-2xs);
-}
-.cas-diff-gap { color: var(--text-muted); text-align: center; user-select: none; }
+/* a field-only update's before and after, tinted as the diff's cells */
+.cas-prop-field-v.is-add { background: rgba(var(--cl-success-rgb), 0.15); }
+.cas-prop-field-v.is-del { background: rgba(var(--cl-error-rgb), 0.15); }
 
 .cas-props-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm); }
 
@@ -977,7 +918,6 @@
 
 /* phone rules, scoped by the mode class, never a bare width query */
 html.cl-mobile .cas-msg.is-user { margin-left: var(--space-sm); }
-html.cl-mobile .cas-diff { font-size: var(--font-3xs); max-height: 30vh; }
 
 /* the sheet is full screen on a phone: dense chrome takes the slim tier, the composer keeps the 44px floor */
 html.cl-mobile .cas-tab-add,

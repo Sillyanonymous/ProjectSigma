@@ -32,36 +32,6 @@
     font-size: 0.6em;
 }
 
-/* Mode toggle (segmented) */
-.ccss-mode-toggle {
-    display: inline-flex;
-    background: var(--bg-secondary);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-2xs);
-    gap: var(--space-2xs);
-}
-.ccss-mode-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    padding: var(--btn-pad-v-sm) var(--btn-pad-h-sm);
-    border-radius: var(--radius-md);
-    font-size: var(--btn-font-sm);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    transition: background var(--dur-fast), color var(--dur-fast);
-}
-.ccss-mode-btn:hover {
-    color: var(--text-primary);
-}
-.ccss-mode-btn.active {
-    background: var(--accent);
-    color: var(--accent-text);
-}
-
 /* Guidelines block (shared by both modes) */
 .custom-css-guidelines {
     background: var(--bg-secondary);
@@ -203,6 +173,9 @@
 }
 .ccss-snippet-item.drag-over {
     border-color: var(--accent);
+    box-shadow: 0 2px 0 var(--accent) inset;
+}
+.ccss-snippet-item.drag-over.drag-after {
     box-shadow: 0 -2px 0 var(--accent) inset;
 }
 .ccss-snippet-drag-handle {
@@ -397,7 +370,7 @@ html.cl-mobile .ccss-toolbar {
 }
 html.cl-mobile .ccss-toolbar-spacer { display: none; }
 html.cl-mobile .ccss-mode-toggle { flex: 1; }
-html.cl-mobile .ccss-mode-btn { flex: 1; justify-content: center; }
+html.cl-mobile .ccss-mode-btn { flex: 1; }
 
 /* --- Guidelines: hidden on mobile, the editor is the priority here --- */
 html.cl-mobile .custom-css-guidelines { display: none; }

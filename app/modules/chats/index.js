@@ -12,8 +12,10 @@ import BackgroundPanel from './background-panel.js';
 import SettingsPanel from './settings-panel.js';
 import PersonasPanel from './personas-panel.js';
 import CardTextsPanel from './card-texts-panel.js';
+import RegexPanel from './regex-panel.js';
 import Assistant from './assistant.js';
 import ExtensionWindows from './extension-windows.js';
+import HeaderLayout from './header-layout.js';
 import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActions, runAction as extRunAction, chatCardContext, getActions as extGetActions, actionShows as extActionShows } from '../extension-host.js';
 import { hasHook, runFilter, runFilterAsync, runActions, watchHooks, fireEvent } from '../ext-registry.js';
 import { registerFeedPatcher } from '../feed.js';
@@ -180,6 +182,8 @@ async function deleteChatVerb(chat, { after } = {}) {
 let _convStaleWhileBusy = false;
 // a reply's end owed behind an open editor: paid at its close, the reply this tab asked for still comes first
 let _convOwedBehindOwn = false;
+// what every row shows changed behind a stream or an editor (a script, a render hook): the rows are rebuilt with the re-read
+let _convRowsOwed = false;
 
 function convEditorOpen() {
     return !!convEls().list?.querySelector('.chat-conv-edit');
@@ -190,6 +194,7 @@ function convPayOwedRebuild({ behindOwn = false } = {}) {
     if (_convStaleWhileBusy && behindOwn) _convOwedBehindOwn = true;
     if (_convStaleWhileBusy && !_convAbort && !convEditorOpen() && isConversationOpen()) {
         _convStaleWhileBusy = false;
+        if (_convRowsOwed) { _convRowsOwed = false; convRebuildRows(); }
         const own = _convOwedBehindOwn;
         _convOwedBehindOwn = false;
         // turns another tab wrote meanwhile open at the first of them, as the feed opens them; behind this tab's own, below it
@@ -524,7 +529,14 @@ async function fetchCharacterChats(char, { background = false } = {}) {
 
     } catch (e) {
         if (_modalChatsChar?.id !== char.id) return;
-        chatsList.innerHTML = `<div class="no-chats"><i class="fa-solid fa-exclamation-triangle"></i><p>Failed to load chats: ${CoreAPI.escapeHtml(e.message)}</p></div>`;
+        CoreAPI.renderEmptyState(chatsList, {
+            icon: 'fa-solid fa-triangle-exclamation',
+            title: 'Could not load chats',
+            hint: e.message,
+            actionLabel: 'Retry',
+            actionIcon: 'fa-solid fa-rotate-right',
+            onAction: () => void fetchCharacterChats(char),
+        });
     }
 }
 
@@ -736,7 +748,6 @@ function initChatsView() {
     const chatsGrid = document.getElementById('chatsGrid');
     if (chatsGrid) {
         chatsGrid.addEventListener('click', (e) => {
-            if (e.target.closest('.chats-retry')) { void loadAllChats(true); return; }
             const card = e.target.closest('.chat-card, .chat-hero');
             if (!card) return;
             const chat = findChatByElement(card);
@@ -767,7 +778,6 @@ function initChatsView() {
     const groupedView = document.getElementById('chatsGroupedView');
     if (groupedView) {
         groupedView.addEventListener('click', (e) => {
-            if (e.target.closest('.chats-retry')) { void loadAllChats(true); return; }
             const header = e.target.closest('.chat-group-header');
             if (header) {
                 const charNameEl = e.target.closest('.clickable-char-name');
@@ -982,14 +992,14 @@ function renderChatsLoadError(message) {
     document.getElementById('chatsGrid')?.classList.toggle('hidden', currentGrouping === 'grouped');
     document.getElementById('chatsGroupedView')?.classList.toggle('hidden', currentGrouping !== 'grouped');
     if (!target) return;
-    target.innerHTML = `
-        <div class="chats-empty">
-            <i class="fa-solid fa-exclamation-triangle"></i>
-            <h3>Could not load chats</h3>
-            ${message ? `<p>${CoreAPI.escapeHtml(message)}</p>` : ''}
-            <button type="button" class="cl-btn cl-btn-primary chats-retry"><i class="fa-solid fa-rotate-right"></i> Retry</button>
-        </div>
-    `;
+    CoreAPI.renderEmptyState(target, {
+        icon: 'fa-solid fa-triangle-exclamation',
+        title: 'Could not load chats',
+        hint: message || '',
+        actionLabel: 'Retry',
+        actionIcon: 'fa-solid fa-rotate-right',
+        onAction: () => void loadAllChats(true),
+    });
 }
 
 // a chat card's, hero's or grouped row's preview of its last message, under the transcript's rule
@@ -1072,13 +1082,7 @@ function swapChangedChatRows(container, rows, rowSigs, layout, rowHtml) {
 }
 
 function renderNoMatch(container) {
-    container.innerHTML = `
-        <div class="chats-empty">
-            <i class="fa-solid fa-search"></i>
-            <h3>No Matching Chats</h3>
-            <p>Try a different search term.</p>
-        </div>
-    `;
+    CoreAPI.renderEmptyState(container, { icon: 'fa-solid fa-magnifying-glass', title: 'No Matching Chats', hint: 'Try a different search term.' });
 }
 
 function renderFlatChats(rows, appended) {
@@ -1526,6 +1530,8 @@ let _convChar = null;
 // The chat detail's verdict on the card's own character_book, handed to the lore panel and
 // read by the badge. null when the card carries none.
 let _convEmbeddedLore = null;
+// that book waits to be imported: the Lorebooks door's dot, on the header, the phone's tile and its options button
+let _convLoreWaiting = false;
 // the open chat's messages in the native shape: raw is the stored row, seq its place, id what a verb names
 let _convMessages = [];
 let _convUserName = null;
@@ -1766,6 +1772,7 @@ async function openConversation(chat) {
         convAbortGeneration();
         _convStaleWhileBusy = false;
         _convOwedBehindOwn = false;
+        _convRowsOwed = false;
         convSetBusy(false);
         if (input) { input.value = ''; convAutosize(input); }
     }
@@ -1786,6 +1793,8 @@ async function openConversation(chat) {
     CoreAPI.setSetting('activeChatId', chat.id);
     _convChar = chat.character || null;
     _convMessages = [];
+    // the previous chat's scripts never paint this one's rows
+    _convRegex = null;
     _convPickPending.clear();
     _convEditKept.clear();
     _convEditBack = null;
@@ -1849,11 +1858,13 @@ async function openConversation(chat) {
     // kicked together, awaited only where needed; convClearError ran BEFORE the profile sync so its error survives
     const profilesReady = syncConvProfiles();
     const personaReady = convSyncPersonaName();
+    const regexReady = convLoadRegex(chat.id);
     // only the openers' mark waits on it, so it is never awaited
     void convSyncPreset();
     // handled now, so a rejection is never unhandled if the catch below runs first; the awaits still see it
     profilesReady.catch(() => { /* awaited below */ });
     personaReady.catch(() => { /* awaited below */ });
+    regexReady.catch(() => { /* awaited below */ });
 
     try {
         const resp = await CoreAPI.apiRequest(`/chats/${encodeURIComponent(chat.id)}`, 'GET');
@@ -1868,6 +1879,8 @@ async function openConversation(chat) {
         // Still awaited before the first render: painting ahead of the resolve is how the
         // previous persona's name ends up over every message.
         await personaReady;
+        // the rows paint once, through the chat's scripts, rather than as stored and then again
+        await regexReady;
         if (_convChatId !== chat.id) return;
         renderConversation(_convMessages);
         convResetPin();
@@ -1994,6 +2007,7 @@ function closeConversation() {
     convAbortGeneration();
     _convStaleWhileBusy = false;
     _convOwedBehindOwn = false;
+    _convRowsOwed = false;
     // Leaving takes the dropdown and its capture listener with it, rather than parking
     // them in the hidden composer until the next document click cleans up.
     convCloseOptions();
@@ -2007,6 +2021,7 @@ function closeConversation() {
     // the closed chat's row elements leave with it rather than staying reachable through the cache
     _convRowCache = new Map();
     _convMediaMap = null;
+    _convRegex = null;
     _convEmbeddedLore = null;
     _convPersonaId = null;
     _convPersonaAvatarId = null;
@@ -2023,7 +2038,7 @@ function closeConversation() {
     _convLandOnResume = null;
     convSyncViewBadge();
     BackgroundPanel.clearWallpaper();
-    document.getElementById('chatConvLore')?.classList.remove('has-embedded-lore');
+    convSetLoreWaiting(false);
     announceConvSubject();
     convStopClock();
 
@@ -2238,7 +2253,7 @@ function convLandAlternate(seq) {
 function convRowTop(row, text = null, at = 0) {
     if (!text) return Math.max(0, row.offsetTop - (parseFloat(getComputedStyle(row).marginTop) || 0));
     // the measures are the zoomed screen's, the scroll is the layout's
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = CoreAPI.uiZoom();
     return Math.max(0, row.offsetTop + (text.getBoundingClientRect().top - row.getBoundingClientRect().top + at) / zoom);
 }
 
@@ -2266,7 +2281,7 @@ function convRevealNearest(el) {
     const { list } = convEls();
     if (!list) return;
     // the measures are the zoomed screen's, the scroll is the layout's
-    const zoom = parseFloat(document.body.style.zoom) || 1;
+    const zoom = CoreAPI.uiZoom();
     const view = list.getBoundingClientRect();
     const box = el.getBoundingClientRect();
     const above = (box.top - view.top) / zoom;
@@ -2284,7 +2299,9 @@ function convLiveSeenAt() {
 function convSeenAtSettled(text, seen, seq) {
     const probe = text.cloneNode(false);
     // formatted as it streams: a code box or an island the reader left mid-way is laid out as the settled row shows it
-    probe.innerHTML = convRenderText(convLocalizeText(seen), _convChar?.name || '', { ...convRowRenderOpts(seq), streaming: 'live' });
+    const entry = convEntryAtSeq(seq);
+    const regex = entry ? convRegexCtx(entry, null, entry.raw.name || _convChar?.name || '') : null;
+    probe.innerHTML = convRenderText(seen, _convChar?.name || '', { ...convRowRenderOpts(seq), streaming: 'live', regex, localize: true });
     probe.style.cssText = `position: absolute; visibility: hidden; box-sizing: border-box; width: ${text.getBoundingClientRect().width}px`;
     text.after(probe);
     // the copy keeps its first block's top margin, which the row collapses: measured from that block, both agree
@@ -2398,7 +2415,7 @@ function convOnRowAction(e) {
     if (convRowActionsLocked()) return;
     // On touch the overflow opens as a real bottom sheet.
     if (btn.dataset.act === 'more' && CoreAPI.isMobileMode()) {
-        return convOpenRowActionSheet(btn.closest('.chat-conv-msg'), seq);
+        return convOpenRowActionSheet(btn.closest('.chat-conv-msg'), seq, e);
     }
     if (btn.dataset.act === 'more') {
         const row = btn.closest('.chat-conv-msg');
@@ -2431,31 +2448,25 @@ function convRunRowAction(act, seq, btn, messageId = null) {
     }
 }
 
-// the sheet is built FROM the row's overflow buttons, so the two surfaces cant drift
-function convOpenRowActionSheet(row, seq) {
+// the sheet is the shared menu built FROM the row's overflow buttons, so the two surfaces cant drift
+function convOpenRowActionSheet(row, seq, e) {
     // the band's edit and regenerate are hidden at phone width, so the sheet carries them (edit first)
     convEnsureRowActions(row);
     const verbs = [...(row?.querySelectorAll('.chat-conv-msg-actions [data-act="edit"], .chat-conv-msg-actions [data-act="regenerate"], .chat-conv-msg-overflow [data-act]') || [])];
-    if (!verbs.length) return;
-    const sheet = CoreAPI.createMobileSheet();
-    if (!sheet) return;
-    // insertAdjacentHTML, never innerHTML: the builder appends the drag handle first, and
-    // assigning innerHTML deletes it.
-    sheet.sheet.insertAdjacentHTML('beforeend', `<div class="mobile-sheet-group-title">Message</div>` + verbs
-        .map(b => `<button type="button" class="dropdown-item${b.dataset.act === 'delete' ? ' danger' : ''}"
-            data-sheet-act="${b.dataset.act}" data-seq="${seq}">
-            ${b.querySelector('i')?.outerHTML || ''}<span>${CoreAPI.escapeHtml(b.title)}</span></button>`).join(''));
+    const menu = CoreAPI.getModule('context-menu');
+    if (!verbs.length || !menu?.showItems) return;
     // the message the row showed as the sheet opened: the transcript may be re-read while it is open
     const messageId = convMidOf(row);
-    sheet.sheet.addEventListener('click', (e) => {
-        const item = e.target.closest('[data-sheet-act]');
-        if (!item) return;
-        sheet.close();
-        // the delegated handler's gate: a stream or a send waiting on its filter may start while the sheet is open
-        if (convRowActionsLocked()) return;
-        convRunRowAction(item.dataset.sheetAct, Number(item.dataset.seq), item, messageId);
-    });
-    sheet.open();
+    menu.showItems(e, [{ type: 'header', label: 'Message' }, ...verbs.map(b => ({
+        icon: b.querySelector('i')?.className || '',
+        label: b.title,
+        className: b.dataset.act === 'delete' ? 'danger' : '',
+        action: () => {
+            // the delegated handler's gate: a stream or a send waiting on its filter may start while the sheet is open
+            if (convRowActionsLocked()) return;
+            convRunRowAction(b.dataset.act, seq, b, messageId);
+        },
+    }))]);
 }
 
 // A portrait click opens the gallery WINDOW rather than the full-screen viewer, beside the transcript.
@@ -2491,7 +2502,10 @@ function convOpenCardTexts() {
 function convPaintCardMark() {
     // on a phone the Connections and Prompts tiles live in this menu, so their marks are its own too
     const tiles = CoreAPI.isMobileMode() && (_convOwnProfile || _convOwnPreset);
-    document.getElementById('chatConvOptions')?.classList.toggle('is-marked', CardTextsPanel.holdsOwnTexts(_convChatMeta) || tiles);
+    const btn = document.getElementById('chatConvOptions');
+    btn?.classList.toggle('is-marked', CardTextsPanel.holdsOwnTexts(_convChatMeta) || tiles);
+    // a tile's wait (Regex, Lorebooks) is a warning, so its dot on the button wears the warning tone
+    btn?.classList.toggle('is-waiting', CoreAPI.isMobileMode() && (_convLoreWaiting || RegexPanel.waitingSources(_convRegex?.bundle).length > 0));
 }
 
 // the open chat's stored metadata, read again (a write here or elsewhere, a reply's commit)
@@ -2511,7 +2525,7 @@ async function convFollowChatMeta({ followWindow = true } = {}) {
 }
 
 // settings the open conversation applies on the spot; the panel, the menu's switches and another tab run the same applier
-const CONV_SETTING_KEYS = Object.freeze(['chatStreaming', 'chatAmbientMotion', 'chatSmoothStreaming', 'chatBodyLayout', 'chatMessageFill', 'chatDisplayMode', 'chatShowAvatars', 'chatShowTimestamps', 'chatShowMeta', 'chatExpandActions', 'chatReasoningDefaultOpen', 'chatMeasureCh', 'chatMaxContext', 'chatReserveForReply', ...SETTINGS_RERENDER]);
+const CONV_SETTING_KEYS = Object.freeze(['chatStreaming', 'chatAmbientMotion', 'chatSmoothStreaming', 'chatBodyLayout', 'chatMessageFill', 'chatDisplayMode', 'chatShowAvatars', 'chatShowTimestamps', 'chatShowMeta', 'chatExpandActions', 'chatReasoningDefaultOpen', 'chatRenderClosedThinking', 'chatMeasureCh', 'chatMaxContext', 'chatReserveForReply', ...SETTINGS_RERENDER]);
 // each key's value as the open conversation last applied it (set at the open and by every apply)
 let _convApplied = new Map();
 const convSettingValue = (key) => JSON.stringify(CoreAPI.getSetting(key) ?? null);
@@ -2535,6 +2549,10 @@ function convApplySettingKeys(keys, { written = false } = {}) {
     for (const key of keys) TOGGLE_PATCHES[key]?.(convSwitchOn(key));
     // reading the effect while you drag is why this moved here, so it applies on the spot
     if (has('chatMeasureCh')) convApplyMeasure();
+    // on fills every shut thinking in place; off leaves the filled ones, and the next rows build shut
+    if (has('chatRenderClosedThinking')) {
+        if (convSwitchOn('chatRenderClosedThinking')) convFillAllReasoning();
+    }
     // this tab's own write flushes first (the save is debounced, and the seed asks the server); another tab's is stored
     if (has('chatMaxContext', 'chatReserveForReply')) {
         if (written) CoreAPI.flushSettings().then(() => convSeedBudget(_convChatId));
@@ -2567,6 +2585,7 @@ async function convToggleHidden(seq, messageId = null) {
     const next = convWithRaw(entry, raw);
     _convMessages[i] = next;
     convReplaceMessage(next);
+    convRedrawDepthRows();
     invalidateBudget();
     try {
         // the ONE leaf, never the screen's bag: extra merges server-side, where interrupted, reasoning and usage land
@@ -2674,6 +2693,8 @@ function convBeginEdit(seq, messageId = null) {
     const shownId = _convMessages[i].id;
     const shown = convShownOf(_convMessages[i].raw);
     const original = getMessageDisplayText(_convMessages[i].raw) || '';
+    // what the reader saw written: text scripts that cut something stay cut once the message is edited, as in SillyTavern
+    const opened = convWrittenText(original, _convMessages[i]);
     // editing IS holding your place: unpin, or a pinned transcript keeps yanking to the end under the editor
     const back = _convPin.leave();
     // the last editor to close gives back the first one's follow, taken before any place was held
@@ -2689,7 +2710,7 @@ function convBeginEdit(seq, messageId = null) {
     row.classList.add('editing');
     const box = holder.querySelector('.chat-conv-edit-input');
     const wrap = holder.querySelector('.chat-conv-edit');
-    box.value = original;
+    box.value = opened;
     // a Save refused as stale kept the typing; it comes back over the message as it now stands, which this editor names
     if (_convEditKept.has(shownId)) { box.value = _convEditKept.get(shownId); _convEditKept.delete(shownId); }
     // fit once the box has its real width; freeze keeps the measure's collapse from clamping the transcript's scroll
@@ -2714,7 +2735,7 @@ function convBeginEdit(seq, messageId = null) {
     holder.querySelector('[data-edit="cancel"]').addEventListener('click', close);
     holder.querySelector('[data-edit="save"]').addEventListener('click', async () => {
         const text = box.value;
-        if (text === original) { close(); return; }
+        if (text === opened) { close(); return; }
         // landed, or refused as stale: the editor closes, and its owed re-read shows the message as stored
         if (await convSaveEdit(seq, text, shownId, shown)) close();
     });
@@ -2848,7 +2869,7 @@ async function convBranchFrom(seq, messageId = null) {
 }
 
 // the fields of a message that belong to the alternate that made them (the store's GENERATION_KEYS)
-const CONV_GENERATION_KEYS = Object.freeze(['reasoning', 'usage', 'interrupted']);
+const CONV_GENERATION_KEYS = Object.freeze(['reasoning', 'usage', 'interrupted', 'edited', 'guidance']);
 // a greeting pick still waiting on its answer, per message id: { target, chain }; emptied on open and close
 const _convPickPending = new Map();
 
@@ -3053,12 +3074,7 @@ function renderConversation(messages) {
     // a paint with no rows (an error, the skeleton, an empty chat) leaves no row reachable from the cache
     if (messages === null) {
         _convRowCache = new Map();
-        list.innerHTML = `
-            <div class="chats-empty">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <h3>Could not load this chat</h3>
-                <p>The history was not read, so nothing is shown. Try again.</p>
-            </div>`;
+        CoreAPI.renderEmptyState(list, { icon: 'fa-solid fa-triangle-exclamation', title: 'Could not load this chat', hint: 'The history was not read, so nothing is shown. Try again.' });
         return;
     }
     if (messages.length === 1 && messages[0]?._loading) {
@@ -3075,12 +3091,7 @@ function renderConversation(messages) {
     }
     if (!messages.length) {
         _convRowCache = new Map();
-        list.innerHTML = `
-            <div class="chats-empty">
-                <i class="fa-solid fa-comment"></i>
-                <h3>No messages yet</h3>
-                <p>Write the first one below.</p>
-            </div>`;
+        CoreAPI.renderEmptyState(list, { icon: 'fa-solid fa-comment', title: 'No messages yet', hint: 'Write the first one below.' });
         return;
     }
     // unchanged rows are the same elements; only fresh ones are enhanced, in one pass
@@ -3104,7 +3115,7 @@ function convInvalidateRows() {
 
 // rebuild every row from the held messages, but never under a stream or open editor: then it is owed
 function convRebuildRows() {
-    if (_convAbort || convEditorOpen()) { _convStaleWhileBusy = true; return; }
+    if (_convAbort || convEditorOpen()) { _convStaleWhileBusy = true; _convRowsOwed = true; return; }
     convInvalidateRows();
     if (_convMessages.length) renderConversation(_convMessages);
 }
@@ -3132,6 +3143,7 @@ function convPatchRows(list, messages) {
     const carried = live?.parentNode === list ? live : null;
     const liveSeq = carried ? Number(carried.dataset.seq) : null;
     let livePlaced = false;
+    const depths = _convRegex?.screen.length ? convScreenDepths(messages) : null;
     messages.forEach((entry, i) => {
         const seq = entry.seq;
         if (carried && seq === liveSeq) {
@@ -3142,19 +3154,21 @@ function convPatchRows(list, messages) {
         const isLast = i === messages.length - 1;
         const prev = messages[i - 1] || null;
         const divider = convDividerHtml(entry, prev);
+        // a display script bounded by depth: a row inside the bound is rebuilt as a new turn moves it
+        const rx = depths ? convRegexRowKey(convRegexCtx(entry, depths)) : '';
         const hit = _convRowCache.get(seq);
-        if (hit && hit.entry === entry && hit.isLast === isLast && hit.divider === divider
+        if (hit && hit.entry === entry && hit.isLast === isLast && hit.divider === divider && hit.rx === rx
             && hit.gen === _convRenderGen && hit.els.every(el => el.parentNode === list)) {
             frag.append(...hit.els);
             next.set(seq, hit);
             return;
         }
-        const els = convRowFromHtml(convMessageHtml(entry, { isLast, prev }));
+        const els = convRowFromHtml(convMessageHtml(entry, { isLast, prev, depths }));
         const row = els.find(el => el.classList.contains('chat-conv-msg')) || null;
         if (!row) return; // the ST header line renders nothing
         frag.append(...els);
         fresh.push(row);
-        next.set(seq, { entry, isLast, divider, gen: _convRenderGen, els });
+        next.set(seq, { entry, isLast, divider, rx, gen: _convRenderGen, els });
     });
     if (carried && !livePlaced) {
         // a new turn's bubble stays the last message, as convOpenLiveBubble made it
@@ -3263,7 +3277,7 @@ function convSignalComplete() {
 function convAppendMessage(entry) {
     const { list } = convEls();
     if (!list) return;
-    list.querySelector('.chats-empty')?.remove();
+    list.querySelector(':scope > .cl-empty-state')?.remove();
     // the appended row is the new last one, so the previous holder gives up the class
     list.querySelector('.chat-conv-msg.last-message')?.classList.remove('last-message');
     // prev from the array, not the DOM, so a divider opens after a long break exactly as on a reload
@@ -3276,6 +3290,7 @@ function convAppendMessage(entry) {
     convEnhanceRows(row);
     row?.classList.add('entering');
     row?.addEventListener('animationend', () => row.classList.remove('entering'), { once: true });
+    convRedrawDepthRows();
 }
 
 // the dethroned row had isLast baked into its html, so it is rebuilt; an open editor on it owes that to its close
@@ -3338,15 +3353,152 @@ async function convLoadMediaMap(chatId, charId) {
  * @param {string} charName for {{char}}
  * @param {object} [opts] forwarded to formatChatText (streaming, quoteFamilies, ...)
  */
-function convRenderText(text, charName, opts = {}) {
+function convRenderText(text, charName, { regex = null, localize = false, ...opts } = {}) {
+    // the chat's regex scripts see the stored text, before media links are made local, as SillyTavern's see it
+    let shown = regex ? convScreenText(text, regex) : text;
+    if (localize) shown = convLocalizeText(shown);
     // shown as stored, as the model reads it: a sent turn was expanded at send, a reply is the model's own
-    return CoreAPI.safePurify(CoreAPI.formatChatText(text, charName, { ...opts, ...STORED_TEXT }), CHAT_PURIFY_CONFIG);
+    return CoreAPI.safePurify(CoreAPI.formatChatText(shown, charName, { ...opts, ...STORED_TEXT, hideForeign: true }), CHAT_PURIFY_CONFIG);
 }
 
 // row 0 is the one row every build expands again, so a greeting stored with pronoun macros shows the words it sends
 function convRowRenderOpts(seq) {
     return seq === 0 ? { pronouns: _convPersonaPronouns } : {};
 }
+
+// ========================================
+// REGEX SCRIPTS: THE SCREEN'S PASS
+// ========================================
+
+// the open chat's scripts as the server answers them, and the engine it serves; null until both are read
+let _convRegex = null;
+let _convRegexEngine = null;
+
+/** Read the chat's scripts (and the engine, once, when a script can act on screen); a failed read shows text as stored. */
+async function convLoadRegex(chatId) {
+    let bundle = null;
+    try {
+        const resp = await CoreAPI.apiRequest(`/regex/chat/${encodeURIComponent(chatId)}`, 'GET');
+        bundle = resp.ok ? await resp.json() : null;
+    } catch { /* stays null */ }
+    if (_convChatId !== chatId) return false;
+    const active = bundle?.active || [];
+    if (active.length && !_convRegexEngine) {
+        try { _convRegexEngine = await import(CoreAPI.serverUrl('/regex/engine.js')); } catch (e) { console.error('[Chats] regex engine failed to load:', e); }
+        if (_convChatId !== chatId) return false;
+    }
+    // the engine says which scripts can change what is shown; one the server stopped never runs here
+    const screen = _convRegexEngine ? active.filter(s => !s.stopped && _convRegexEngine.takesPass(s, 'screen')) : [];
+    const was = convRegexShape();
+    _convRegex = bundle ? { chatId, bundle, screen, band: _convRegexEngine?.depthBand(screen) ?? null, macros: _convRegexEngine?.namesMacros(bundle.names) } : null;
+    RegexPanel.paintDot(_convRegex?.bundle);
+    convPaintCardMark();
+    return convRegexShape() !== was;
+}
+
+// what the rows' pass depends on, so a re-read that changed nothing on screen rebuilds nothing
+function convRegexShape() {
+    return _convRegex ? JSON.stringify([_convRegex.screen, _convRegex.bundle.names]) : '';
+}
+
+// a row's depth on screen: its place from the end among the rows the prompt also counts (the engine's rule), newest 0
+function convScreenDepths(messages) {
+    const depths = new Map();
+    let depth = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]?.raw;
+        if (!msg || _convRegexEngine.hiddenFromPrompt(msg)) continue;
+        depths.set(messages[i].seq, depth++);
+    }
+    return depths;
+}
+
+/** The screen pass's context for a row, or null when none of the chat's scripts can touch it. */
+function convRegexCtx(entry, depths = null, name = '') {
+    const msg = entry?.raw;
+    if (!_convRegex?.screen.length || !msg || _convRegexEngine.systemLine(msg)) return null;
+    // a hidden row takes its scripts as shown but stands outside the depth count, so no depth bound applies to it
+    const depth = _convRegexEngine.hiddenFromPrompt(msg) ? undefined : ((depths || convScreenDepths(_convMessages)).get(entry.seq) ?? 0);
+    return { where: _convRegexEngine.screenPlace(msg), depth, edited: !!msg.extra?.edited, name };
+}
+
+// the streaming row: a new turn is the newest, a swipe or a reroll keeps its row's place
+function convLiveRegexCtx(reasoning = false) {
+    if (!_convRegex?.screen.length) return null;
+    const seq = Number(_convLiveEl?.closest('.chat-conv-msg')?.dataset.seq);
+    const entry = convEntryAtSeq(seq);
+    const ctx = entry ? convRegexCtx(entry, null, entry.raw.name || _convChar?.name || '') : null;
+    if (ctx && !_convLiveContinues) ctx.edited = false;
+    const base = ctx || { where: _convRegexEngine.PLACE.aiOutput, depth: 0, edited: false, name: _convChar?.name || '' };
+    return reasoning ? { ...base, where: _convRegexEngine.PLACE.reasoning } : base;
+}
+
+// the row cache's key for the pass: rows past the deepest bound share one, so a new turn rebuilds only the rows inside it
+function convRegexRowKey(ctx) {
+    if (!ctx) return '';
+    if (ctx.depth === undefined) return 'u';
+    return _convRegex.band === null ? 's' : String(Math.min(ctx.depth, _convRegex.band + 1));
+}
+
+function convScreenText(text, ctx) {
+    if (!text || !_convRegex?.screen.length || !ctx?.where) return text;
+    try {
+        return _convRegexEngine.applyPass(text, _convRegex.screen, { pass: 'screen', where: ctx.where, depth: ctx.depth, macros: _convRegex.macros, charName: ctx.name, edited: ctx.edited });
+    } catch (e) {
+        console.error('[Chats] a regex script failed on screen:', e);
+        return text;
+    }
+}
+
+// a new turn or a hide moves rows' depths: the rows a depth-bounded display script now treats otherwise are redrawn
+function convRedrawDepthRows() {
+    if (!_convRegex?.screen.length || _convRegex.band === null) return;
+    const depths = convScreenDepths(_convMessages);
+    for (const entry of _convMessages) {
+        const row = convRowEl(entry.seq);
+        if (!row || row.getAttribute('data-live') === '1' || row.dataset.rx === convRegexRowKey(convRegexCtx(entry, depths))) continue;
+        // an open editor on it owes the redraw to its close, as a dethroned row does
+        if (row.querySelector('.chat-conv-edit')) { _convStaleWhileBusy = true; continue; }
+        convReplaceMessage(entry);
+    }
+}
+
+// a script or an answer, the chat's preset, character or persona: each can change what the screen's pass does
+async function patchConvRegexFromFeed(records) {
+    if (!isConversationOpen()) return;
+    const names = (r, id) => r.all || (r.ids || []).includes(id);
+    const moved = !records || records.some(r => r.entity === 'regexScript' || r.entity === 'regexConsent' || r.entity === 'persona' || r.entity === 'preset'
+        || (r.entity === 'character' && names(r, _convChar?.id))
+        || (r.entity === 'chat' && names(r, _convChatId) && (!r.fields || r.fields.some(f => f === 'presetId' || f === 'personaId')))
+        || (r.entity === 'setting' && (r.all || (r.ids || []).some(k => k === 'activePresetId' || k === 'activePersonaId'))));
+    if (!moved) return;
+    await convRefreshRegex();
+    RegexPanel.followScripts();
+}
+
+/** A message as its text scripts write it, which SillyTavern stores: the editor opens on it, so an edit keeps what they cut. */
+function convWrittenText(text, entry) {
+    const ctx = text ? convRegexCtx(entry) : null;
+    if (!ctx) return text;
+    try {
+        return _convRegexEngine.applyPass(text, _convRegex.screen, { pass: 'written', where: ctx.where, macros: _convRegex.macros, edited: ctx.edited });
+    } catch {
+        return text;
+    }
+}
+
+/** The chat's scripts read again (a feed record, a save in the window); the rows follow only when the pass changed. */
+async function convRefreshRegex() {
+    const chatId = _convChatId;
+    if (!chatId) return;
+    const moved = await convLoadRegex(chatId);
+    if (_convChatId !== chatId || !moved || !_convMessages.length) return;
+    convRebuildRows();
+}
+
+// ========================================
+// CONVERSATION ROWS: MARKUP AND ENHANCE
+// ========================================
 
 /** Re-pin when body media loads (it grows the card after the scroll), quietly and never yanking a reader away. */
 function convRepinOnMediaLoad(root) {
@@ -3359,23 +3511,64 @@ function convRepinOnMediaLoad(root) {
     });
 }
 
-// the copy button is added AFTER the sanitiser (no <button> in the allowlist); idempotent, every row path runs it
+const CONV_ISLAND_SEL = '.chat-conv-msg-text > :is(div, table, section, article, aside, figure, center, details, pre, dl, blockquote, h1, h2, h3, h4, h5, h6, ul, ol, p)';
+
+// a block wider than its row scrolls inside itself; judged unmarked, as the mark's own max-width hides the overflow it answers
+function convWidenIslands(root) {
+    // every root's blocks cleared, then measured, then marked: one layout however many rows
+    const els = (Array.isArray(root) ? root : [root]).flatMap(r => [...(r?.querySelectorAll?.(CONV_ISLAND_SEL) || [])]);
+    if (!els.length) return;
+    const held = els.filter(el => el.classList.contains('cl-island-wide')).map(el => [el, el.scrollLeft]);
+    for (const [el] of held) el.classList.remove('cl-island-wide');
+    const wide = els.map(el => el.getBoundingClientRect().width > el.parentElement.clientWidth + 1 || el.scrollWidth > el.clientWidth + 1);
+    els.forEach((el, i) => { if (wide[i]) el.classList.add('cl-island-wide'); });
+    for (const [el, left] of held) if (left && el.classList.contains('cl-island-wide')) el.scrollLeft = left;
+}
+
+// a resize, a turned phone, a return from parked: the list's width moved, so every block's fit is judged again
+let _convIslandWidth = 0;
+let _convIslandRaf = 0;
+function convWatchIslands() {
+    const list = convEls().list;
+    if (!list || list.dataset.islandsWatched) return;
+    list.dataset.islandsWatched = '1';
+    // a disclosure opened on a block that is wider than its row
+    list.addEventListener('toggle', (e) => convWidenIslands(e.target.closest?.('.chat-conv-msg')), true);
+    if (typeof ResizeObserver !== 'function') return;
+    new ResizeObserver(([e]) => {
+        const w = Math.round(e.contentRect.width);
+        if (w === _convIslandWidth) return;
+        _convIslandWidth = w;
+        if (!w) return;
+        cancelAnimationFrame(_convIslandRaf);
+        _convIslandRaf = requestAnimationFrame(() => convWidenIslands(list));
+    }).observe(list);
+}
+
+// a code block's copy button, added AFTER the sanitiser (no <button> in the allowlist); idempotent
+function convAddCodeCopy(root) {
+    root?.querySelectorAll?.('.cl-code-block .cl-code-head').forEach(head => {
+        if (head.querySelector('.cl-code-copy')) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cl-code-copy';
+        btn.dataset.act = 'copy-code';
+        btn.title = 'Copy code';
+        btn.setAttribute('aria-label', 'Copy code');
+        btn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+        head.appendChild(btn);
+    });
+}
+
+// every row path runs it, idempotent: each row's own additions first, then one measure over all of them
 function convEnhanceRows(root) {
     const roots = Array.isArray(root) ? root : [root];
     for (const r of roots) {
         convRepinOnMediaLoad(r);
-        r?.querySelectorAll?.('.cl-code-block .cl-code-head').forEach(head => {
-            if (head.querySelector('.cl-code-copy')) return;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'cl-code-copy';
-            btn.dataset.act = 'copy-code';
-            btn.title = 'Copy code';
-            btn.setAttribute('aria-label', 'Copy code');
-            btn.innerHTML = '<i class="fa-solid fa-copy"></i>';
-            head.appendChild(btn);
-        });
+        convAddCodeCopy(r);
     }
+    // a size read between two rows' additions would lay the transcript out once per row
+    convWidenIslands(roots);
     if (hasHook('message.enhance')) convEnhanceHooked(roots);
 }
 
@@ -3399,7 +3592,7 @@ function convEnhanceHooked(root) {
 function convRenderHooked(html, entry, charName) {
     const out = runFilter('message.render', html, Object.freeze({
         chatId: _convChatId, charId: _convChar?.id ?? null, seq: entry.seq, messageId: entry.id ?? null, message: Object.freeze({ ...entry.raw }),
-        format: (text) => convRenderText(convLocalizeText(String(text ?? '')), charName),
+        format: (text) => convRenderText(String(text ?? ''), charName, { localize: true }),
     }));
     return out === html ? html : CoreAPI.safePurify(out, CHAT_PURIFY_CONFIG);
 }
@@ -3411,18 +3604,25 @@ function getMessageDisplayText(msg) {
     return msg.swipes?.length > 1 ? (msg.swipes[swipeId] || '') : (msg.mes || '');
 }
 
+// the name over a row: the resolved persona's over yours, the message's own or the character's over the rest
+function convSpeakerName(msg, charName) {
+    return msg.is_user ? convUserDisplayName(msg) : (msg.name || charName);
+}
+
 // every row is its own card, never grouped; built from an entry: raw, seq, id and time
-function convMessageHtml(entry, { isLast = false, prev = null } = {}) {
+function convMessageHtml(entry, { isLast = false, prev = null, depths = null } = {}) {
     const msg = entry.raw;
     if (msg?.chat_metadata !== undefined && !msg.mes) return ''; // ST header line
     const seq = entry.seq;
     const charName = _convChar?.name || 'Character';
     const isUser = !!msg.is_user;
     const isSystem = !!msg.is_system;
-    const name = isUser ? convUserDisplayName(msg) : (msg.name || charName);
-    const text = convLocalizeText(getMessageDisplayText(msg));
+    const name = convSpeakerName(msg, charName);
+    const stored = getMessageDisplayText(msg);
+    const text = convLocalizeText(stored);
+    const regex = convRegexCtx(entry, depths, name);
     // untrusted card and model text: the chat producer and gate, never formatRichText (it collapses spaces)
-    const purified = convRenderText(text, charName, convRowRenderOpts(seq));
+    const purified = convRenderText(regex ? stored : text, charName, { ...convRowRenderOpts(seq), regex, localize: !!regex });
     const body = hasHook('message.render') ? convRenderHooked(purified, entry, charName) : purified;
     const cls = ['chat-conv-msg', isUser ? 'user' : 'assistant'];
     if (isSystem) cls.push('system');
@@ -3434,7 +3634,7 @@ function convMessageHtml(entry, { isLast = false, prev = null } = {}) {
 
     return `
         ${convDividerHtml(entry, prev)}
-        <div class="${cls.join(' ')}" data-seq="${seq}"${Number.isInteger(entry.id) ? ` data-mid="${entry.id}"` : ''}${room}>
+        <div class="${cls.join(' ')}" data-seq="${seq}"${Number.isInteger(entry.id) ? ` data-mid="${entry.id}"` : ''}${room}${_convRegex?.band != null ? ` data-rx="${convRegexRowKey(regex)}"` : ''}>
             <span class="chat-conv-msg-avatar-frame">${convAvatarInnerHtml(isUser)}</span>
             <div class="chat-conv-msg-head">
                 <span class="chat-conv-msg-name">${CoreAPI.escapeHtml(name)}</span>
@@ -3442,7 +3642,7 @@ function convMessageHtml(entry, { isLast = false, prev = null } = {}) {
                 ${convActionsHtml(entry, { isLast, isUser, isSystem })}
             </div>
             <div class="chat-conv-msg-body">
-                ${convReasoningHtml(msg, charName)}
+                ${convReasoningHtml(msg, charName, regex)}
                 <div class="chat-conv-msg-text">${body}</div>
                 ${convPicturesHtml(entry)}
             </div>
@@ -3483,18 +3683,26 @@ async function convSyncPersonaName() {
 function convFollowEmbeddedResolved(e) {
     if (!e.detail?.charId || e.detail.charId !== _convChar?.id) return;
     _convEmbeddedLore = null;
-    document.getElementById('chatConvLore')?.classList.remove('has-embedded-lore');
+    convSetLoreWaiting(false);
 }
 
-// a dot on the lore button for a card book the engine cant see; the verdict is the panel's
-async function convSyncEmbeddedLoreBadge() {
+// the one writer of the lore offer's wait: the header's opener here, the phone's doors through the options button
+function convSetLoreWaiting(flag) {
+    _convLoreWaiting = !!flag;
     const btn = document.getElementById('chatConvLore');
-    if (!btn) return;
+    if (btn) {
+        btn.classList.toggle('is-waiting', _convLoreWaiting);
+        btn.title = _convLoreWaiting ? 'Lorebooks: this card carries one that is not imported' : 'Lorebooks';
+    }
+    convPaintCardMark();
+}
+
+// a dot on the lore door for a card book the engine cant see; the verdict is the panel's
+async function convSyncEmbeddedLoreBadge() {
     const charId = _convChar?.id;
     const flag = await LorePanel.embeddedLoreNeedsAttention(charId, _convEmbeddedLore);
     if (_convChar?.id !== charId) return;    // the conversation moved while the store loaded
-    btn.classList.toggle('has-embedded-lore', flag);
-    btn.title = flag ? 'Lorebooks: this card carries one that is not imported' : 'Lorebooks';
+    convSetLoreWaiting(flag);
 }
 
 /** The prompt's precedence (active persona over stored user_name), so the screen names who the model is told; 'unused' is no name. */
@@ -3587,14 +3795,47 @@ function convMetaChipsHtml(entry, text) {
 }
 
 /** Reasoning is marginalia (a rule, dimmer text) through the reply's gate: a think block is just as untrusted. */
-function convReasoningHtml(msg, charName) {
+function convReasoningHtml(msg, charName, regex = null) {
     const raw = msg.extra?.reasoning;
     if (typeof raw !== 'string' || !raw.trim()) return '';   // absent, never an empty disclosure
-    const open = CoreAPI.getSetting('chatReasoningDefaultOpen') === true ? ' open' : '';
-    return `<details class="cl-reasoning"${open}>
+    const open = CoreAPI.getSetting('chatReasoningDefaultOpen') === true;
+    // a shut one is its fold alone until it opens, so a long chat opens without rendering every thinking
+    const now = open || convSwitchOn('chatRenderClosedThinking');
+    return `<details class="cl-reasoning"${open ? ' open' : ''}${now ? '' : ' data-lazy="1"'}>
         <summary>Thought for a moment</summary>
-        <div class="cl-reasoning-body">${convRenderText(raw, charName)}</div>
+        <div class="cl-reasoning-body">${now ? convReasoningBodyHtml(raw, charName, regex) : ''}</div>
     </details>`;
+}
+
+function convReasoningBodyHtml(raw, charName, regex) {
+    return convRenderText(raw, charName, { regex: regex && { ...regex, where: _convRegexEngine.PLACE.reasoning } });
+}
+
+/** A row's thinking as its build renders it, from the entry the row shows; '' with none. */
+function convReasoningOf(entry, depths = null) {
+    const raw = entry?.raw?.extra?.reasoning;
+    if (typeof raw !== 'string' || !raw.trim()) return '';
+    const charName = _convChar?.name || 'Character';
+    return convReasoningBodyHtml(raw, charName, convRegexCtx(entry, depths, convSpeakerName(entry.raw, charName)));
+}
+
+// every door that opens a shut thinking fills it first: the summary's click, a switch, the open state a settle carries
+function convFillReasoning(details, depths = null) {
+    if (!details?.hasAttribute?.('data-lazy')) return;
+    details.removeAttribute('data-lazy');
+    const row = details.closest('.chat-conv-msg[data-seq]');
+    const body = details.querySelector('.cl-reasoning-body');
+    if (!row || !body) return;
+    body.innerHTML = convReasoningOf(convEntryAtSeq(Number(row.dataset.seq)), depths);
+    convRepinOnMediaLoad(body);
+    convAddCodeCopy(body);
+}
+
+function convFillAllReasoning() {
+    const shut = convEls().list?.querySelectorAll('details.cl-reasoning[data-lazy]');
+    if (!shut?.length) return;
+    const depths = _convRegex?.screen.length ? convScreenDepths(_convMessages) : null;
+    shut.forEach(d => convFillReasoning(d, depths));
 }
 
 /** A rule between messages when the day changes or the gap runs long; not accent, the context marker owns that. */
@@ -3692,6 +3933,10 @@ function convSwipeClusterHtml(entry, { isLast }) {
     </div>`;
 }
 
+// ========================================
+// THE LIVE REPLY
+// ========================================
+
 // live state: text accumulates per chunk, the DOM is written on the painter's cadence, nothing while parked or hidden
 let _convLiveText = '';
 let _convLiveReasoning = '';
@@ -3700,6 +3945,11 @@ let _convShownThought = '';
 let _convLiveEl = null;
 // the reply under way as written on screen (a continue's stored text, what showed before a flip to off or a park)
 let _convLiveShownText = '';
+// the stream's display scripts changed it once: it stays in the live mode, or a match that comes and goes flips it
+let _convLiveScripted = false;
+// the same for the thinking under way
+let _convThoughtScripted = false;
+let _convLiveContinues = false;
 // the reader looked away from it (parked, a hidden tab, streaming off): the next paint opens past what they saw
 let _convSightGap = false;
 let _convLivePainter = null;
@@ -3793,6 +4043,8 @@ function convResetLiveReveal() {
     }
     _convReplyReveal.reset();
     _convThinkReveal.reset();
+    _convLiveScripted = false;
+    _convThoughtScripted = false;
 }
 
 // Stop, or smooth streaming switched off: what arrived shows at once, and a catch-up under way ends
@@ -3831,10 +4083,14 @@ function convPaintLiveNow() {
     const seenAt = _convSightGap && shown !== null ? convLiveSeenAt() : undefined;
     if (thought !== null) convWriteLiveReasoning(thought);
     if (shown !== null) {
-        const live = CoreAPI.liveFormattingOn('chat');
+        const regex = convLiveRegexCtx();
+        const passed = regex ? convScreenText(shown, regex) : shown;
+        // a display script's markup is drawn as it streams, as SillyTavern draws it; the plain stream would show it as code
+        if (passed !== shown) _convLiveScripted = true;
+        const live = CoreAPI.liveFormattingOn('chat') || _convLiveScripted;
         // the row's class moves the caret off a box's own line, where it took a line the settled box does not have
         _convLiveEl.closest('.chat-conv-msg')?.classList.toggle('is-live-format', live);
-        const html = convRenderText(shown, _convChar?.name || '', { streaming: live ? 'live' : true });
+        const html = convRenderText(passed, _convChar?.name || '', { streaming: live ? 'live' : true });
         if (live) repaintLive(_convLiveEl, html);
         else _convLiveEl.innerHTML = html;
         _convLiveShownText = shown;
@@ -3876,8 +4132,12 @@ function convWriteLiveReasoning(thought) {
 function convShowLiveThought(box, opening = false) {
     const target = box?.querySelector('.cl-reasoning-body');
     if (!target) return;
-    if ((box.open || opening) && CoreAPI.liveFormattingOn('chat')) repaintLive(target, convRenderText(_convShownThought, _convChar?.name || '', { streaming: 'live', openIslands: false }));
-    else target.textContent = _convShownThought;
+    const regex = convLiveRegexCtx(true);
+    const passed = regex ? convScreenText(_convShownThought, regex) : _convShownThought;
+    // a display script's markup is drawn as the reply's is, whatever Format as it streams says
+    if (passed !== _convShownThought) _convThoughtScripted = true;
+    if ((box.open || opening) && (CoreAPI.liveFormattingOn('chat') || _convThoughtScripted)) repaintLive(target, convRenderText(passed, _convChar?.name || '', { streaming: 'live', openIslands: false }));
+    else target.textContent = passed;
 }
 
 function convStopLive() {
@@ -3929,7 +4189,7 @@ function convOpenLiveBubble(inPlaceSeq = null) {
             return _convLiveEl;
         }
     }
-    list.querySelector('.chats-empty')?.remove();
+    list.querySelector(':scope > .cl-empty-state')?.remove();
     list.querySelector('.chat-conv-msg.last-message')?.classList.remove('last-message');
     // built by the settled row's producer so it lands at final geometry; no id yet, the next place, now
     const nextSeq = (_convMessages.length ? _convMessages[_convMessages.length - 1].seq : -1) + 1;
@@ -4003,6 +4263,7 @@ function convOpenState(row) {
 function convRestoreOpenState(row, state) {
     if (!row || !state) return;
     const thinking = row.querySelector('.cl-reasoning');
+    if (thinking && state.thinking) convFillReasoning(thinking);
     if (thinking && state.thinking !== null) thinking.open = state.thinking;
     if (thinking && state.thinkingFocused) thinking.querySelector('summary')?.focus({ preventScroll: true });
     // after its open state: a box in a shut thinking has no layout to scroll
@@ -4035,6 +4296,7 @@ function convToggleDisplay(key) {
 
 const TOGGLE_PATCHES = {
     chatReasoningDefaultOpen: (on) => {
+        if (on) convFillAllReasoning();
         convEls().list?.querySelectorAll('details.cl-reasoning').forEach(d => { d.open = !!on; });
     },
     // Showing every action inline needs the overflow built on every row, not on first touch.
@@ -4060,9 +4322,10 @@ function convOptionGroups() {
                 { act: 'win:chatConvPersonas', icon: 'fa-masks-theater', label: 'Personas' },
                 { act: 'win:chatConvAssistant', icon: 'fa-robot', label: 'Assistant', working: Assistant.isBusy() },
                 { act: 'win:chatConvGallery', icon: 'fa-images', label: 'Gallery' },
-                { act: 'win:chatConvLore', icon: 'fa-book-atlas', label: 'Lorebooks' },
+                { act: 'win:chatConvLore', icon: 'fa-book-atlas', label: 'Lorebooks', waiting: _convLoreWaiting },
                 { act: 'win:chatConvConnections', icon: 'fa-plug', label: 'Connections', marked: _convOwnProfile },
                 { act: 'win:chatConvPrompts', icon: 'fa-sliders', label: 'Prompts', marked: _convOwnPreset },
+                { act: 'win:chatConvRegex', icon: 'fa-code', label: 'Regex', waiting: RegexPanel.waitingSources(_convRegex?.bundle).length > 0 },
                 { act: 'win:chatConvInspect', icon: 'fa-magnifying-glass-chart', label: 'Inspect' },
                 { act: 'win:chatConvSettings', icon: 'fa-gear', label: 'Settings' },
                 // every extension window the phone shows gets a tile of its own, clicking its own opener
@@ -4160,17 +4423,17 @@ function convOnComposerAction(e) {
 }
 
 function convWinTileHtml(it) {
-    return `<button type="button" class="chat-conv-win-tile${it.working ? ' is-working' : ''}${it.marked ? ' is-marked' : ''}" data-opt="${it.act}">
+    return `<button type="button" class="chat-conv-win-tile${it.working ? ' is-working' : ''}${it.marked ? ' is-marked' : ''}${it.waiting ? ' is-waiting' : ''}" data-opt="${it.act}">
         <i class="fa-solid ${it.icon}"></i><span>${CoreAPI.escapeHtml(it.label)}</span>
     </button>`;
 }
 
-function convOptionItemHtml(it) {
+function convOptionItemHtml(it, rowClass = 'dropdown-item') {
     // A toggle row says its state on the row itself.
     const tick = it.checked === undefined ? ''
         : `<i class="fa-solid ${it.checked ? 'fa-toggle-on is-on' : 'fa-toggle-off'} chat-conv-opt-state"></i>`;
     const mark = it.marked ? '<span class="chat-conv-opt-mark" aria-hidden="true"></span>' : '';
-    return `<button type="button" class="dropdown-item${it.danger ? ' danger' : ''}${it.checked !== undefined ? ' is-toggle' : ''}${it.marked ? ' is-marked' : ''}"
+    return `<button type="button" class="${rowClass}${it.danger ? ' danger' : ''}${it.checked !== undefined ? ' is-toggle' : ''}${it.marked ? ' is-marked' : ''}"
         data-opt="${it.act}"${it.disabled ? ' disabled' : ''}${it.checked === undefined ? '' : ` role="menuitemcheckbox" aria-checked="${it.checked}"`}${it.marked ? ' title="This chat holds texts of its own"' : ''}>
         <i class="fa-solid ${it.icon}"></i><span>${CoreAPI.escapeHtml(it.label)}</span>${tick}${mark}
     </button>`;
@@ -4182,12 +4445,18 @@ function convCloseOptions() {
     document.removeEventListener('click', convOptionsOutside, true);
 }
 
+// Escape's close: the menu goes and the button that opened it takes the focus back
+function convCloseOptionsFromStack() {
+    convCloseOptions();
+    document.getElementById('chatConvOptions')?.focus({ preventScroll: true });
+}
+
 function convOptionsOutside(e) {
     if (e.target.closest('#chatConvOptionsMenu, #chatConvOptions')) return;
     convCloseOptions();
 }
 
-function convToggleOptions() {
+function convToggleOptions(e) {
     if (document.getElementById('chatConvOptionsMenu')) { convCloseOptions(); return; }
 
     const groups = convOptionGroups();
@@ -4201,7 +4470,7 @@ function convToggleOptions() {
             <div class="mobile-sheet-group-title">${CoreAPI.escapeHtml(g.title)}</div>
             ${g.layout === 'grid'
                 ? `<div class="chat-conv-win-grid">${g.items.map(convWinTileHtml).join('')}</div>`
-                : g.items.map(convOptionItemHtml).join('')}`).join(''));
+                : g.items.map(it => convOptionItemHtml(it, 'mobile-sheet-item')).join('')}`).join(''));
         sheet.sheet.addEventListener('click', (e) => {
             const btn = e.target.closest('[data-opt]');
             if (!btn || btn.disabled) return;
@@ -4224,7 +4493,7 @@ function convToggleOptions() {
         <div id="chatConvOptionsMenu" class="dropdown-menu chat-conv-options-menu">
             ${groups.map(g => `
                 <div class="dropdown-section-title">${CoreAPI.escapeHtml(g.title)}</div>
-                ${g.items.map(convOptionItemHtml).join('')}`).join('')}
+                ${g.items.map(it => convOptionItemHtml(it)).join('')}`).join('')}
         </div>`);
     document.getElementById('chatConvOptions')?.setAttribute('aria-expanded', 'true');
     const menu = document.getElementById('chatConvOptionsMenu');
@@ -4239,6 +4508,14 @@ function convToggleOptions() {
         convCloseOptions();
         convRunOption(btn.dataset.opt);
     });
+    // the shared menu's keys over the rows a press can reach; Escape is the overlay stack's
+    menu?.addEventListener('keydown', (ev) => CoreAPI.getModule('context-menu')?.menuKeys?.(ev, [...menu.querySelectorAll('[data-opt]:not([disabled])')], {
+        press: (row) => row.click(),
+        close: convCloseOptionsFromStack,
+        leave: convCloseOptions,
+    }));
+    // opened from the keyboard, its first row takes the focus
+    if (e?.detail === 0) menu?.querySelector('[data-opt]:not([disabled])')?.focus({ preventScroll: true });
     // capture so a click on any app chrome closes it, not just the pane
     document.addEventListener('click', convOptionsOutside, true);
 }
@@ -4286,7 +4563,7 @@ function convRunOption(act) {
 async function convCopyAsMarkdown() {
     const text = _convMessages.map(e => e.raw)
         .filter(m => m?.mes || m?.swipes?.length)
-        .map(m => `**${m.is_user ? convUserDisplayName(m) : (m.name || _convChar?.name || 'Character')}:** ${getMessageDisplayText(m)}`)
+        .map(m => `**${convSpeakerName(m, _convChar?.name || 'Character')}:** ${getMessageDisplayText(m)}`)
         .join('\n\n');
     if (await CoreAPI.copyTextToClipboard(text)) CoreAPI.showToast('Chat copied as markdown', 'success');
     else CoreAPI.showToast('Could not copy the chat', 'error');
@@ -4384,6 +4661,8 @@ async function convImpersonate() {
     _convAbort = new AbortController();
     fireEvent('generation.started', { chatId, mode: 'impersonate', targetSeq: null });
     let draft = '';
+    // the server's finished draft, its regex scripts applied; what streamed is the raw text
+    let finished = null;
     // the box is written and fitted on the reply's painter (a fit forces layout), only while this chat is shown
     const writeBox = (text) => { if (_convChatId === chatId) { input.value = text; convAutosize(input); } };
     const painter = createLivePainter({ paint: () => writeBox(draft), held: () => _convSuspended || document.hidden });
@@ -4402,8 +4681,9 @@ async function convImpersonate() {
                 // parked or hidden, nothing is written and the last write lands it whole
                 painter.mark();
             }
+            if (typeof ev?.done?.draft === 'string') finished = ev.done.draft;
         });
-        landBox(draft);
+        landBox(finished ?? draft);
         // a draft is never stored, so there is no seq or id to name
         fireEvent('generation.ended', { chatId, mode: 'impersonate', seq: null, messageId: null });
     } catch (e) {
@@ -4644,6 +4924,8 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
     const wireMode = mode || (regenerate ? 'regenerate' : 'append');
     fireEvent('generation.started', { chatId, mode: wireMode, targetSeq: Number.isInteger(wireSeq) ? wireSeq : null });
 
+    // a continue extends its row's own text, edits and all; a regenerate or a swipe streams a new alternate
+    _convLiveContinues = mode === 'continue';
     const bubble = convOpenLiveBubble(inPlaceSeq);
     // Continue EXTENDS: the live buffer starts as the existing text, so nothing vanishes and snaps back
     if (mode === 'continue' && bubble && Number.isInteger(inPlaceSeq)) {
@@ -4657,7 +4939,7 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
                 _convLiveDirty = true;
                 convMarkLive();
             } else {
-                bubble.innerHTML = convRenderText(stored, _convChar?.name || '');
+                bubble.innerHTML = convRenderText(stored, _convChar?.name || '', { regex: convRegexCtx(seedFrom, null, seedFrom.raw.name || _convChar?.name || '') });
                 _convLiveShownText = stored;
             }
         }
@@ -4734,6 +5016,7 @@ async function convGenerate({ regenerate = false, mode = null, targetSeq = null,
         const seen = convLandFrom();
         // the stored row replaces the live bubble so the finished turn goes through the gate; the rest stays untouched
         convSettleLiveBubble();
+        convRedrawDepthRows();
         convApplyContextMarker();
         if (seen === null) convScrollToEnd();
         else convLandReplyStart(Number.isInteger(doneSeq) ? doneSeq : _convMessages[_convMessages.length - 1]?.seq, seen);
@@ -4852,11 +5135,13 @@ function initConversation() {
     if (headRight) CoreAPI.fitRow(headRight, {
         entries: () => [...headRight.querySelectorAll('button:not(.chat-conv-minimize):not(.chat-conv-more)')],
         more: document.getElementById('chatConvMore'),
-        current: '.is-panel-open',
-        marked: '.is-marked, .has-embedded-lore',
-        working: '.is-working',
-        separators: '.chat-conv-head-sep, .cxw-sep',
+        ...Object.fromEntries(Object.entries(HeaderLayout.OPENER_MARKS).map(([k, cls]) => [k, `.${cls}`])),
+        separators: '.chat-conv-head-sep',
+        // a row behind More answers its right-click with the opener's own menu
+        context: (el, e) => HeaderLayout.contextForCollapsed(el, e),
     });
+    // the reader's arrangement of the openers: order, groups, dividers, the ones hidden
+    if (headRight) HeaderLayout.init({ header: document.getElementById('chatConvHeader'), row: headRight });
     // the composer's strip keeps the buttons that fit, the rest labelled behind its More
     const strip = document.getElementById('chatConvActions');
     if (strip) {
@@ -4968,6 +5253,9 @@ function initConversation() {
     // a row's first touch builds its overflow ahead of the hover or tap that opens it
     convEls().list?.addEventListener('pointerover', (e) => convEnsureRowActions(e.target.closest('.chat-conv-msg')));
     convEls().list?.addEventListener('focusin', (e) => convEnsureRowActions(e.target.closest('.chat-conv-msg')));
+    // a summary's click runs ahead of its fold opening, so the body is filled before a frame paints it empty
+    convEls().list?.addEventListener('click', (e) => convFillReasoning(e.target.closest?.('details.cl-reasoning > summary')?.parentElement), true);
+    convEls().list?.addEventListener('toggle', (e) => { if (e.target.open) convFillReasoning(e.target); }, true);
     document.getElementById('chatConvJump')?.addEventListener('click', () => {
         convResetPin();
     });
@@ -4992,6 +5280,7 @@ function initConversation() {
         // the cl-chat-open conjunct keeps Escape and the back sweep off a parked conversation (its pane never carries .hidden)
         visible: (el) => !el.classList.contains('hidden') && document.documentElement.classList.contains('cl-chat-open'),
     });
+    window.registerOverlay?.({ id: 'chatConvOptionsMenu', tier: 7, close: convCloseOptionsFromStack, visible: (el) => !!el && document.documentElement.classList.contains('cl-chat-open') });
 }
 
 // ========================================
@@ -5350,8 +5639,11 @@ function init() {
     SettingsPanel.init?.();
     PersonasPanel.init?.();
     CardTextsPanel.init?.();
+    // the window shows the conversation's read of the chat's scripts, so the rows and the window never disagree
+    RegexPanel.init?.({ bundle: () => _convRegex?.bundle ?? null, refresh: () => convRefreshRegex(), render: (text) => convRenderText(text, '') });
+    convWatchIslands();
     PromptInspector.init?.();
-    SwipeCombiner.init?.();
+    SwipeCombiner.init?.({ render: (text, charName) => convRenderText(text, charName) });
     Assistant.init?.();
     // the host reads the live conversation at every open and follow rather than a copy
     ExtensionWindows.init({ context: () => ({ chatId: _convChatId, character: _convChar }) });
@@ -5360,6 +5652,8 @@ function init() {
     // this tab's own connection writes (the settings modal, the Connections window) move the sight and the budget too
     registerFeedPatcher('llmProfile', () => (isConversationOpen() ? syncConvProfiles() : undefined), { own: true });
     registerFeedPatcher('setting', patchConvSettingsFromFeed);
+    // the screen's regex pass follows writes from anywhere, this tab's card editor and preset switch among them
+    registerFeedPatcher(['regexScript', 'regexConsent', 'persona', 'preset', 'character', 'chat', 'setting'], patchConvRegexFromFeed, { own: 'both' });
     followPictureRemovals(_convTray);
     registerFeedPatcher('message', patchConvOwnEcho, { own: true });
     CoreAPI.onCharactersDeleted(onCharactersDeleted);

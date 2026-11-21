@@ -1,16 +1,17 @@
 // The Author's Note, kept in chat metadata under ST's own keys so an imported chat carries its note
 
 import { settingValue } from '../db/settings-store.js';
+import { NOTE_POSITION } from './preset.js';
 
-/** The chat_metadata key each part of the note is kept under (ST's metadata_keys). */
+/** The chat_metadata key each part of the note is kept under, the keys SillyTavern's chats carry. */
 export const NOTE_KEYS = Object.freeze({
     prompt: 'note_prompt', interval: 'note_interval', depth: 'note_depth', position: 'note_position', role: 'note_role',
 });
 
-/** Where the note goes: ST's extension_prompt_types, as the chat stores them. */
-export const NOTE_POSITION = Object.freeze({ after: 0, inChat: 1, before: 2 });
+// the placement codes live in the build's plain-data module, so a store loading presets never pulls in this one
+export { NOTE_POSITION };
 
-/** The voice it arrives in: ST's extension_prompt_roles, as the chat stores them. */
+/** The voice it arrives in, by the code a chat stores. */
 export const NOTE_ROLES = Object.freeze(['system', 'user', 'assistant']);
 
 // the default note's settings (ST's values); these fallbacks must match the client's DEFAULT_SETTINGS
@@ -38,7 +39,7 @@ function noteScansLore(db) {
     return settingValue(db, NOTE_SCAN_SETTING, false) === true;
 }
 
-/** The note in force: each part the chat's own, else the default's (ST's `??`, a stored empty stays empty). */
+/** The note in force: each part the chat's own, else the default's; only an absent part falls back, a stored empty stays empty. */
 export function chatNoteOf(meta, defaults) {
     const own = {};
     const note = {};

@@ -8,13 +8,20 @@ import { findImport, importsOf, enqueueImport, importingBadge } from './import-l
 // SHARED IN-LIBRARY LOOKUP BASE
 // ========================================
 
-// probed name (lowercased) -> the library rows the server relates to it, graded exact or prefix
+// a remote card's name and creator -> the server's score for it (0 to 100); what was asked, its text too, outlives a library change
 const _sharedBaseLookup = {
     answers: new Map(),
+    // the score's basis when it is not the plain rule's: otherListing, an unplaced namesake on the card's own site
+    bases: new Map(),
     asked: new Set(),
+    hits: new Map(),
     gen: -1,
 };
+const HITS_KEPT = 5000;
+// the most of a site's text kept and sent per card: the server reads no more
+const HIT_TEXT_MAX = 4000;
 const nameKey = (raw) => String(raw || '').toLowerCase().trim();
+const matchKey = (name, creator, listing = null) => `${nameKey(name)}\u0000${nameKey(creator)}${listing?.key ? `\u0000${listing.providers.join(',')}\u0000${listing.key}` : ''}`;
 
 // Mobile: reset the browse list to the top on a sort change or a Browse/Following toggle.
 let _browseScrollResetWired = false;
@@ -36,35 +43,20 @@ function wireBrowseScrollReset() {
     });
 }
 let _baseLookupGen = 0;
-// the score reads only the shared base, so one memo serves every provider (and the slider re-reads it free)
-const _possibleMatchMemo = new Map();
-let _possibleMatchMemoGen = -1;
 
 // tier bands are fixed so a card reads the same intensity whatever cutoff the slider sets
-const POSSIBLE_MATCH_DEFAULT_MIN_SCORE = 65;
 const POSSIBLE_MATCH_TIER_HIGH = 85;
 const POSSIBLE_MATCH_TIER_MED = 65;
-function getPossibleMatchMinScore() {
-    const n = Number(CoreAPI.getSetting('possibleMatchMinScore'));
-    return Number.isFinite(n) ? n : POSSIBLE_MATCH_DEFAULT_MIN_SCORE;
-}
+const getPossibleMatchMinScore = () => CoreAPI.numberSetting('possibleMatchMinScore');
 
 /** Mark the shared base stale so the next build recomputes it. O(1). */
 export function invalidateSharedBaseLookup() {
     _baseLookupGen++;
 }
 
-// platform placeholders, not identities: never a disagreeing creator (chub files some cards under 'Anonymous')
-const PLACEHOLDER_CREATOR_RE = /^(anonymous|anon|unknown|deleted|n\/?a|none|user)$/;
-function creatorSignal(raw) {
-    const c = String(raw || '').toLowerCase().trim();
-    return PLACEHOLDER_CREATOR_RE.test(c) ? '' : c;
-}
-
 function ensureSharedBaseLookup() {
     if (_sharedBaseLookup.gen === _baseLookupGen) return;
-    // a library change: forget every answer so the next page asks again
-    _sharedBaseLookup.answers = new Map();
+    // a library change: every score is asked again, the old one shown until its answer lands so no badge flickers
     _sharedBaseLookup.asked = new Set();
     _sharedBaseLookup.gen = _baseLookupGen;
 }
@@ -266,8 +258,8 @@ const CARD_TAGS_RENDERED = 8;
  */
 export function renderViewToggle(attr, buttons, { id = '', className = '' } = {}) {
     const esc = (s) => CoreAPI.escapeHtml(s);
-    const btn = (b) => `<button type="button" class="browse-view-btn${b.active ? ' active' : ''}" data-${attr}="${esc(b.value)}" title="${esc(b.title || '')}"><i class="fa-solid ${esc(b.icon)}"></i> <span>${esc(b.label)}</span></button>`;
-    return `<div class="browse-view-toggle${className ? ` ${className}` : ''}"${id ? ` id="${esc(id)}"` : ''}>${buttons.map(btn).join('')}</div>`;
+    const btn = (b) => `<button type="button" class="browse-view-btn cl-seg-btn${b.active ? ' active' : ''}" data-${attr}="${esc(b.value)}" title="${esc(b.title || '')}"><i class="fa-solid ${esc(b.icon)}"></i> <span>${esc(b.label)}</span></button>`;
+    return `<div class="browse-view-toggle cl-seg${className ? ` ${className}` : ''}"${id ? ` id="${esc(id)}"` : ''}>${buttons.map(btn).join('')}</div>`;
 }
 
 // a card's library state, one spelling for the card templates and the badge heal
@@ -876,7 +868,7 @@ export class BrowseView {
         ensureSharedBaseLookup();
 
         CoreAPI.debugLog(`[${this.provider.name}] Library lookup built:`,
-            'names answered:', _sharedBaseLookup.answers.size);
+            'matches answered:', _sharedBaseLookup.answers.size);
     }
 
     /**
@@ -893,48 +885,86 @@ export class BrowseView {
     hitLinkKey(hit) { return null; }
 
     /**
-     * The name and creator this view scores a hit with, so a page's names are asked before render; null when none.
+     * The name, creator and site text a hit is scored by, asked before render; null when none.
      * @param {Object} hit
-     * @returns {{name: string, creator: string}|null}
+     * @returns {{name: string, creator: string, text?: string}|null}
      */
     hitMatchName(hit) { return null; }
 
-    /**
-     * Ask the server which library names relate to these (the duplicate check's rule) and keep each answer; a failed POST marks nothing.
-     * @param {string[]} names
-     */
-    async probeNamesFor(names) {
-        ensureSharedBaseLookup();
-        const { answers, asked } = _sharedBaseLookup;
-        const wanted = [...new Set((names || []).map(nameKey).filter(Boolean))].filter(k => !asked.has(k));
-        if (!wanted.length) return;
-        const gen = _baseLookupGen;
-        for (let i = 0; i < wanted.length; i += PROBE_PAGE) {
-            const chunk = wanted.slice(i, i + PROBE_PAGE);
-            try {
-                const resp = await CoreAPI.apiRequest('/characters/match', 'POST', { candidates: chunk.map(name => ({ name })) });
-                if (!resp.ok) throw new Error(`characters/match ${resp.status}`);
-                const graded = await resp.json();
-                if (gen !== _baseLookupGen) return;
-                chunk.forEach((k, j) => answers.set(k, graded?.[j]?.matches || []));
-                // a score memoized under the answer this replaces would outlive it
-                _possibleMatchMemo.clear();
-                for (const k of chunk) asked.add(k);
-            } catch (err) {
-                CoreAPI.debugLog(`[${this.provider.name}] name probe failed (asked again next load):`, err);
-                return;
-            }
-        }
+    /** hitMatchName with the listing the hit is, so the score knows its own site's other listings; null when none. */
+    matchFor(hit) {
+        const m = this.hitMatchName(hit);
+        return m?.name ? { ...m, listing: this.listingFor(this.hitLinkKey(hit)) } : m;
     }
 
-    /** A page's hits through hitMatchName, then probeNamesFor. */
-    async probeNames(hits) {
-        const names = [];
+    /** A link key as the listing the match probe sends (the providers this view links under); null without one. */
+    listingFor(key) {
+        return key == null || key === '' ? null : { providers: this.linkProviders, key: String(key) };
+    }
+
+    /**
+     * Ask how likely each card is already here and keep the scores; a failed POST marks nothing.
+     * @param {Array<{name: string, creator?: string, text?: string, listing?: {providers: string[], key: string}|null}>} hits
+     * @returns {Promise<boolean>} whether every one asked was answered
+     */
+    async probeMatchesFor(hits) {
+        ensureSharedBaseLookup();
+        const { answers, asked } = _sharedBaseLookup;
+        const kept = _sharedBaseLookup.hits;
+        const wanted = new Map();
         for (const h of hits || []) {
-            const m = this.hitMatchName(h);
-            if (m?.name) names.push(m.name);
+            if (!nameKey(h?.name)) continue;
+            const key = matchKey(h.name, h.creator, h.listing);
+            if (wanted.has(key)) continue;
+            const text = h.text ? String(h.text).slice(0, HIT_TEXT_MAX) : (kept.get(key)?.text || '');
+            // asked already, unless this ask brings a text the last one lacked (one forgotten past the cap came back without it)
+            if (asked.has(key) && (!text || kept.get(key)?.text)) continue;
+            const ask = { name: String(h.name), creator: String(h.creator || ''), ...(text ? { text } : {}), ...(h.listing?.key ? { providers: h.listing.providers, key: h.listing.key } : {}) };
+            wanted.set(key, ask);
+            kept.delete(key);
+            kept.set(key, ask);
         }
-        if (names.length) await this.probeNamesFor(names);
+        // past the cap the oldest asks are forgotten whole, never one this ask carries
+        while (kept.size > HITS_KEPT) {
+            const oldest = kept.keys().next().value;
+            if (wanted.has(oldest)) break;
+            kept.delete(oldest);
+            answers.delete(oldest);
+            _sharedBaseLookup.bases.delete(oldest);
+            asked.delete(oldest);
+        }
+        if (!wanted.size) return true;
+        const gen = _baseLookupGen;
+        const list = [...wanted];
+        for (let i = 0; i < list.length; i += PROBE_PAGE) {
+            const chunk = list.slice(i, i + PROBE_PAGE);
+            try {
+                const resp = await CoreAPI.apiRequest('/characters/match', 'POST', { candidates: chunk.map(([, hit]) => hit) });
+                if (!resp.ok) throw new Error(`characters/match ${resp.status}`);
+                const graded = await resp.json();
+                if (gen !== _baseLookupGen) return false;
+                chunk.forEach(([key], j) => {
+                    answers.set(key, Number(graded?.[j]?.score) || 0);
+                    if (graded?.[j]?.basis) _sharedBaseLookup.bases.set(key, graded[j].basis);
+                    else _sharedBaseLookup.bases.delete(key);
+                    asked.add(key);
+                });
+            } catch (err) {
+                CoreAPI.debugLog(`[${this.provider.name}] match probe failed (asked again next load):`, err);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** A page's hits through hitMatchName, then probeMatchesFor. */
+    async probeNames(hits) {
+        const wanted = [];
+        for (const h of hits || []) {
+            const m = this.matchFor(h);
+            if (m?.name) wanted.push(m);
+        }
+        if (wanted.length) await this.probeMatchesFor(wanted);
     }
 
     /**
@@ -1041,135 +1071,91 @@ export class BrowseView {
     }
 
     /**
-     * Check if a browse card name+creator is a possible match (cross-provider).
-     * @param {string} name - resolved display name from the browse card
-     * @param {string} [creator] - creator/author name from the browse card
-     * @returns {boolean}
+     * The server's possible-match score (0-100) for a name and creator; one never asked reads 0 and is asked now.
+     * @param {string} [text] the site's text for the card, asked with when the last ask lacked it
+     * @param {{providers: string[], key: string}|null} [listing] the listing the card is (listingFor)
      */
-    isCharPossibleMatch(name, creator) {
-        return this.getPossibleMatchScore(name, creator) >= getPossibleMatchMinScore();
+    getPossibleMatchScore(name, creator, text = '', listing = null) {
+        ensureSharedBaseLookup();
+        if (!nameKey(name)) return 0;
+        const key = matchKey(name, creator, listing);
+        const { answers, asked } = _sharedBaseLookup;
+        // a score held from before a library change is shown while it is asked again (the probe adds the text it was asked with)
+        if (!asked.has(key) || (text && !_sharedBaseLookup.hits.get(key)?.text)) this._askLater(key, { name, creator: creator || '', ...(text ? { text } : {}), listing });
+        return answers.get(key) ?? 0;
     }
 
     /**
-     * Cross-provider memoized possible-match score (0-100). Threshold-independent, so the
-     * sensitivity slider re-reads it without recomputing.
+     * A hit's possible-match tier, read by the name and creator its view asks the server with (hitMatchName).
+     * @param {Object} hit
      */
-    getPossibleMatchScore(name, creator) {
-        // Sync to the current base before the gen stamp, or a refresh in the bump-to-rebuild window memos stale scores that outlive the rebuild.
-        ensureSharedBaseLookup();
-        if (_possibleMatchMemoGen !== _baseLookupGen) {
-            _possibleMatchMemo.clear();
-            _possibleMatchMemoGen = _baseLookupGen;
-        }
-        const key = `${(name || '').toLowerCase().trim()}|${(creator || '').toLowerCase().trim()}`;
-        let score = _possibleMatchMemo.get(key);
-        if (score === undefined) {
-            score = this._computePossibleMatchScore(name, creator);
-            _possibleMatchMemo.set(key, score);
-        }
-        return score;
+    possibleMatchTierFor(hit) {
+        const m = this.matchFor(hit);
+        return m?.name ? this.getPossibleMatchTier(m.name, m.creator, m.text, m.listing) : { show: false, tier: '', tooltip: '' };
+    }
+
+    /**
+     * What a hit's possible-match badge flagged, as pre-import matches: the namesakes the server's hint relates, exact ones first.
+     * Empty when the hit shows no badge.
+     * @param {Object} hit
+     */
+    async badgeMatchesFor(hit) {
+        const m = this.matchFor(hit);
+        if (!m?.name || !this.possibleMatchTierFor(hit).show) return [];
+        const ask = { name: String(m.name), creator: String(m.creator || ''), ...(m.text ? { text: String(m.text).slice(0, HIT_TEXT_MAX) } : {}), ...(m.listing?.key ? { providers: m.listing.providers, key: m.listing.key } : {}) };
+        const resp = await CoreAPI.apiRequest('/characters/match', 'POST', { candidates: [ask] });
+        if (!resp.ok) return [];
+        const [answer] = await resp.json();
+        const ids = (answer?.matches || []).slice().sort((x, y) => (x.relation === 'exact' ? 0 : 1) - (y.relation === 'exact' ? 0 : 1)).map(x => x.id).slice(0, 5);
+        if (!ids.length) return [];
+        const score = Number(answer.score) || 0;
+        return (await CoreAPI.fetchCharactersByIds(ids)).filter(Boolean).map(char => ({
+            id: char.id, char, score, confidence: 'low', textCompared: false, breakdown: {},
+            matchReason: 'Flagged as a possible match in the browser; its text could not confirm it',
+        }));
+    }
+
+    /** Whether a hit shows as a possible match, by the key it was asked with. */
+    isHitPossibleMatch(hit) {
+        return this.possibleMatchTierFor(hit).show;
+    }
+
+    /** The data-match stamp a card carries, so the badge heal reads the key the render read. */
+    matchAttr(hit) {
+        const m = this.hitMatchName(hit);
+        return m?.name ? ` data-match-name="${CoreAPI.escapeHtml(m.name)}" data-match-creator="${CoreAPI.escapeHtml(m.creator || '')}"` : '';
+    }
+
+    // a score read before anyone asked for it: asked in one batch at the end of the task
+    _askLater(key, hit) {
+        (this._askQueue ??= new Map()).set(key, hit);
+        if (this._askQueued) return;
+        this._askQueued = true;
+        queueMicrotask(() => { this._askQueued = false; this._flushAsks(); });
+    }
+
+    /** Ask what the reads queued, then heal the painted badges and the open preview with the answers. */
+    async _flushAsks() {
+        if (!this._askQueue?.size) return;
+        const hits = [...this._askQueue.values()];
+        this._askQueue.clear();
+        if (!await this.probeMatchesFor(hits)) return;
+        this._gradePossibleBadges(this.libraryBadgeGridIds);
+        this._previewRestamp?.();
     }
 
     /**
      * Graded badge data for a browse card: whether to show it, the intensity tier, the tooltip.
      * @returns {{show: boolean, tier: string, tooltip: string}}
      */
-    getPossibleMatchTier(name, creator) {
-        const score = this.getPossibleMatchScore(name, creator);
-        if (score < getPossibleMatchMinScore()) return { show: false, tier: '', tooltip: '' };
+    getPossibleMatchTier(name, creator, text = '', listing = null) {
+        const score = this.getPossibleMatchScore(name, creator, text, listing);
+        if (!score || score < getPossibleMatchMinScore()) return { show: false, tier: '', tooltip: '' };
+        // a namesake on another listing of this site that no text placed: the dim tier, saying why
+        if (_sharedBaseLookup.bases.get(matchKey(name, creator, listing)) === 'otherListing') return { show: true, tier: 'low', tooltip: 'Possible match: another listing on this site, its description does not confirm it' };
         if (score >= POSSIBLE_MATCH_TIER_HIGH) return { show: true, tier: 'high', tooltip: 'Very likely in your library' };
         if (score >= POSSIBLE_MATCH_TIER_MED) return { show: true, tier: 'med', tooltip: 'Likely the same character' };
         return { show: true, tier: 'low', tooltip: 'Possible match (same name)' };
-    }
-
-    _computePossibleMatchScore(name, creator) {
-        // placeholders ('Anonymous', 'Unknown', ...) carry no signal on EITHER side:
-        // a comparison only happens between two real identities
-        const browseCreator = creatorSignal(creator);
-        // creators gather under the probed variant an exact row matched, or the library name a prefix row carries
-        const exact = new Map(), prefix = new Map();
-        for (const row of _sharedBaseLookup.answers.get(nameKey(name)) || []) {
-            const by = row.relation === 'exact' ? exact : row.relation === 'prefix' ? prefix : null;
-            if (!by) continue;
-            const at = row.relation === 'exact' ? row.on : row.as;
-            if (!by.has(at)) by.set(at, { variant: row.on, creatorSet: new Set() });
-            const libCreator = String(row.creator || '').toLowerCase().trim();
-            if (libCreator) by.get(at).creatorSet.add(libCreator);
-        }
-        let best = 0;
-
-        // Exact normalized-name match: base 60, full 95 when the creator agrees (or none to disagree).
-        for (const { variant, creatorSet } of exact.values()) {
-            const realCreators = [...creatorSet].map(creatorSignal).filter(Boolean);
-            if (!browseCreator || realCreators.length === 0) { best = Math.max(best, 95); continue; }
-            let creatorHit = false;
-            for (const libCreator of realCreators) {
-                if (this._isCreatorMatch(browseCreator, libCreator)) { creatorHit = true; break; }
-            }
-            best = Math.max(best, creatorHit ? 95 : 60 + this._distinctiveBonus(variant, creatorSet));
-        }
-        if (best >= 95) return best;
-
-        // Prefix fallback: weaker name signal (base 35), eg. "scar" against "scar - the dark king".
-        for (const { variant, creatorSet } of prefix.values()) {
-            const realCreators = [...creatorSet].map(creatorSignal).filter(Boolean);
-            if (!browseCreator || realCreators.length === 0) { best = Math.max(best, 70); continue; }
-            let creatorHit = false;
-            for (const libCreator of realCreators) {
-                if (this._isCreatorMatch(browseCreator, libCreator)) { creatorHit = true; break; }
-            }
-            best = Math.max(best, creatorHit ? 70 : 35 + Math.round(this._distinctiveBonus(variant, creatorSet) * 0.5));
-        }
-        return best;
-    }
-
-    /**
-     * Bonus (0-30) for an exact name whose creator disagrees: long names score up, names common in the library damp down.
-     */
-    _distinctiveBonus(normName, creatorSet) {
-        const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
-        const lenScore = clamp01((normName.length - 12) / 20) * 20;
-        let words = 0;
-        for (const w of normName.split(' ')) if (w.length >= 2) words++;
-        const wordScore = clamp01((words - 1) / 4) * 10;
-        const rarity = creatorSet.size >= 3 ? 25 : 0;
-        const bonus = lenScore + wordScore - rarity;
-        return bonus < 0 ? 0 : bonus > 30 ? 30 : bonus;
-    }
-
-    /**
-     * Lightweight fuzzy match for creator names across providers.
-     * Handles case differences, prefixes, and small edits.
-     * @param {string} a - normalized (lowered+trimmed) creator name
-     * @param {string} b - normalized (lowered+trimmed) creator name
-     * @returns {boolean}
-     */
-    _isCreatorMatch(a, b) {
-        if (a === b) return true;
-        if (a.includes(b) || b.includes(a)) return true;
-
-        const aCompact = a.replace(/[\s_-]/g, '');
-        const bCompact = b.replace(/[\s_-]/g, '');
-        if (aCompact && aCompact === bCompact) return true;
-
-        const maxLen = Math.max(a.length, b.length);
-        if (maxLen === 0) return false;
-        if (Math.abs(a.length - b.length) > maxLen * 0.4) return false;
-
-        let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-        for (let i = 1; i <= a.length; i++) {
-            const curr = [i];
-            for (let j = 1; j <= b.length; j++) {
-                curr[j] = Math.min(
-                    prev[j] + 1,
-                    curr[j - 1] + 1,
-                    prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-                );
-            }
-            prev = curr;
-        }
-
-        return (1 - prev[b.length] / maxLen) >= 0.75;
     }
 
     /**
@@ -1204,32 +1190,27 @@ export class BrowseView {
      * @returns {{show: boolean}} Tier object from getPossibleMatchTier
      */
     _cardPossibleTier(card, name) {
+        const listing = this.listingFor(card.dataset.linkKey);
+        if ('matchCreator' in card.dataset) return this.getPossibleMatchTier(name, card.dataset.matchCreator, '', listing);
         const creatorEl = card.querySelector('.browse-card-creator-link');
         const creator = creatorEl?.dataset.author || creatorEl?.dataset.creatorName || '';
-        return this.getPossibleMatchTier(name, creator);
+        return this.getPossibleMatchTier(name, creator, '', listing);
     }
 
     /** The grids whose cards the badge heal walks: the image grids, unless a view keeps more painted. */
     get libraryBadgeGridIds() { return this._getImageGridIds(); }
 
     /**
-     * Heal the rendered cards' badges: links from each card's stamped key both ways, names asked first and then graded.
+     * Heal the rendered cards' badges: links from each card's stamped key both ways, then each card's score, any it lacks asked and healed.
      * @param {string[]} [gridIds]
+     * @returns {Promise<void>} settled once the scores the grade lacked are answered and graded
      */
     refreshInLibraryBadges(gridIds = this.libraryBadgeGridIds) {
         this._healLinkedBadges(gridIds);
-        const names = [];
-        for (const gridId of gridIds) {
-            for (const card of document.getElementById(gridId)?.querySelectorAll('.browse-card:not(.in-library)') || []) {
-                names.push(card.dataset.matchName || card.querySelector('.browse-card-name')?.textContent || '');
-            }
-        }
-        return this.probeNamesFor(names).then(() => {
-            const graded = this._gradePossibleBadges(gridIds);
-            // the open preview's button reads the same lookup the cards do
-            this._previewRestamp?.();
-            return graded;
-        });
+        this._gradePossibleBadges(gridIds);
+        // the open preview's button reads the same lookup the cards do
+        this._previewRestamp?.();
+        return this._flushAsks();
     }
 
     /**
@@ -1248,6 +1229,16 @@ export class BrowseView {
         if (key == null || key === '' || this._lookup.probed.has(key)) return;
         const asked = this._previewRestamp;
         this.probeLinkKeys([key]).then(() => { if (this._previewRestamp === asked) asked(); });
+    }
+
+    /**
+     * Stamp a preview's import button from the library as it stands: In Library by the hit's link, a possible match by its score.
+     * @param {HTMLElement|null} btn
+     * @param {Object} hit the row the preview shows
+     */
+    stampPreviewImport(btn, hit) {
+        const inLibrary = this.isHitInLibrary(hit);
+        this.stampImportButton(btn, { inLibrary, possibleMatch: !inLibrary && this.isHitPossibleMatch(hit) });
     }
 
     /**
@@ -1407,6 +1398,8 @@ export class BrowseView {
                     return null;
                 }
             }
+            // a badged card is never imported unasked: the full check found nothing, so the badge's namesakes are shown, unconfirmed
+            if (!matches?.length) matches = await this.badgeMatchesFor(hit).catch(() => []);
             if (matches?.length) {
                 say('<i class="fa-solid fa-exclamation-triangle"></i> Duplicate found...');
                 const answer = await CoreAPI.showPreImportDuplicateWarning(dialog, matches);
@@ -1766,7 +1759,7 @@ export class BrowseView {
      * Listens on .gallery-content (the scrollable parent of #onlineView).
      */
     _getScrollThreshold() {
-        const zoom = parseFloat(document.body.style.zoom) || 1;
+        const zoom = CoreAPI.uiZoom();
         // a content buffer kept below the fold, not a trigger line: four viewports outlast a slow round trip mid-fling
         const viewport = document.querySelector('.gallery-content')?.clientHeight || 0;
         return Math.max(1500 / zoom, viewport * 4);
@@ -2365,13 +2358,15 @@ export class BrowseView {
             this.buildLocalLibraryLookup();
             // probe the catalog before classifying: the lookup holds only what painted pages asked, so linked cards read as new
             await this.probeLinkKeys([...new Set(cards.map(c => c.key).filter(k => k != null && k !== '' && !this._lookup.probed.has(k)))]);
-            await this.probeNamesFor(cards.map(c => c.name || '').filter(Boolean));
-            const minScore = getPossibleMatchMinScore();
+            // asked and skipped by the key the grid's badge reads (hitMatchName over the adapter's hit), the adapter's own fields only without one
+            const matchOf = (c) => (c.raw && this.matchFor(c.raw)) || { name: c.name || '', creator: c.creator || '', text: '', listing: this.listingFor(c.key) };
+            await this.probeMatchesFor(cards.map(matchOf).filter(m => m.name));
             const toImport = [];
             let skipped = 0, flying = 0;
             for (const card of cards) {
                 if (card.key && this._lookup.byProviderId.has(card.key)) { skipped++; continue; }
-                if (this.getPossibleMatchScore(card.name || '', card.creator || '') >= minScore) { skipped++; continue; }
+                const m = matchOf(card);
+                if (m.name && this.getPossibleMatchTier(m.name, m.creator, m.text, m.listing).show) { skipped++; continue; }
                 if (this.importInFlight(card.raw)) { flying++; continue; }
                 toImport.push(card);
             }

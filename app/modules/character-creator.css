@@ -287,21 +287,7 @@
 }
 
 .creator-tag-input-row .tag-autocomplete {
-    position: absolute;
-    top: 100%;
-    bottom: auto;
-    left: 0;
-    right: 0;
     z-index: var(--z-raised);
-    display: block;
-    border-radius: 0 0 var(--radius-md) var(--radius-md);
-    border-bottom: 1px solid var(--cl-ghost-heavy);
-    border-top: none;
-    box-shadow: var(--cl-shadow-md);
-}
-
-.creator-tag-input-row .tag-autocomplete.hidden {
-    display: none;
 }
 
 /* Mobile-only quick-access strip (avatar + the studio button) */

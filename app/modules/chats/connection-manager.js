@@ -177,15 +177,15 @@ function rowHTML(p) {
             <span class="ccm-meta">${esc(meta)}</span>
         </div>
         <div class="ccm-acts">
-            <button type="button" class="ccm-act is-pick${own ? ' is-on' : ''}" data-conn-act="use-chat" data-id="${esc(p.id)}"
+            <button type="button" class="ccm-act is-pick cl-cwin-act${own ? ' is-on' : ''}" data-conn-act="use-chat" data-id="${esc(p.id)}"
                 title="${own ? 'Answering this chat only' : 'Answer this chat only with this connection'}" aria-label="Answer this chat only with this connection" aria-pressed="${own}">
                 <i class="fa-solid fa-comment"></i>
             </button>
-            <button type="button" class="ccm-act is-pick${isDefault ? ' is-on' : ''}" data-conn-act="use-default-for" data-id="${esc(p.id)}"
+            <button type="button" class="ccm-act is-pick cl-cwin-act${isDefault ? ' is-on' : ''}" data-conn-act="use-default-for" data-id="${esc(p.id)}"
                 title="${isDefault ? 'The default for every chat' : 'Make this the default for every chat'}" aria-label="Make this the default for every chat" aria-pressed="${isDefault}">
                 <i class="fa-solid fa-globe"></i>
             </button>
-            <button type="button" class="ccm-act" data-conn-act="edit" data-id="${esc(p.id)}" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button type="button" class="ccm-act cl-cwin-act" data-conn-act="edit" data-id="${esc(p.id)}" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
         </div>
     </div>`;
 }

@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import {
-    listPresets, getPreset, createPreset, updatePreset, deletePreset,
-    getActivePresetId, setActivePreset, planStPresetImport, resolveChatPreset,
+    listPresetRows, getPreset, updatePreset, deletePreset,
+    getActivePresetId, setActivePreset, resolveChatPreset,
 } from '../db/presets-store.js';
-import { MARKERS, POSITIONS, DEFAULT_BLOCKS } from '../llm/preset.js';
+import { createPresetWithScripts, listScripts, scriptError } from '../db/regex-store.js';
+import { MARKERS, POSITIONS, DEFAULT_BLOCKS, promptSettingsOf, promptSettingsError } from '../llm/preset.js';
+import { planStPresetImport, exportSillyTavernPreset } from '../lib/sillytavern-preset.js';
 
 export const presetsRouter = Router();
 
@@ -28,16 +30,20 @@ function validateBlocks(blocks) {
     return null;
 }
 
-// defaultBlocks rides along, sent rather than mirrored, so the client shows what actually runs
+// prompt settings arrive as one object; an unknown key, a wrong type or an overlong text is refused by name, never dropped
+const settingsError = (v) => (v === undefined ? null : promptSettingsError(v));
+
+// each preset by name alone, its blocks read by id; defaultBlocks and defaultSettings ride along so the client shows what runs
 presetsRouter.get('/', (req, res) => {
     res.json({
-        presets: listPresets(req.db),
+        presets: listPresetRows(req.db),
         activeId: getActivePresetId(req.db),
         defaultBlocks: DEFAULT_BLOCKS.map(b => ({
             id: b.id, key: b.id, name: b.name ?? null, kind: b.kind, marker: b.marker,
             content: b.content, role: b.role, position: b.position,
             depth: b.depth ?? 0, enabled: !!b.enabled, pos: b.pos,
         })),
+        defaultSettings: promptSettingsOf(null),
     });
 });
 
@@ -48,10 +54,17 @@ presetsRouter.post('/', (req, res) => {
         const err = validateBlocks(req.body.blocks);
         if (err) return res.status(400).json({ error: err });
     }
-    res.json(createPreset(req.db, {
-        name,
-        blocks: req.body?.blocks,
-    }));
+    const scripts = req.body?.regexScripts;
+    if (scripts !== undefined && !Array.isArray(scripts)) return res.status(400).json({ error: 'regexScripts is a list of regex scripts' });
+    for (const [i, s] of (scripts || []).entries()) {
+        const err = scriptError(s, i);
+        if (err) return res.status(400).json({ error: err });
+    }
+    const settingsErr = settingsError(req.body?.settings);
+    if (settingsErr) return res.status(400).json({ error: settingsErr });
+    // a preset file's own scripts come with it, off until the reader allows this preset; a list refused leaves no preset behind
+    const preset = createPresetWithScripts(req.db, { name, blocks: req.body?.blocks, settings: req.body?.settings }, scripts || []);
+    res.json(preset);
 });
 
 // import an ST chat-completion preset, its report answered beside what was stored
@@ -68,9 +81,8 @@ presetsRouter.post('/import', (req, res) => {
     const err = validateBlocks(plan.blocks);
     if (err) return res.status(400).json({ error: `import produced an invalid block: ${err}`, report: plan.report });
 
-    const preset = createPreset(req.db, {
-        name: plan.name, source: 'sillytavern', blocks: plan.blocks,
-    });
+    // its regex scripts come with it, off until the reader allows this preset; a list refused leaves no preset behind
+    const preset = createPresetWithScripts(req.db, { name: plan.name, source: 'sillytavern', blocks: plan.blocks, settings: plan.settings }, plan.regexScripts);
     res.json({ preset, report: plan.report });
 });
 
@@ -87,7 +99,22 @@ presetsRouter.put('/active', (req, res) => {
 // Ahead of '/:id' too. `override` is the chat's raw pointer and `defaultId` the active preset, so a client tells set-here from inherited
 presetsRouter.get('/resolve', (req, res) => {
     const chatId = req.query.chatId ? String(req.query.chatId) : null;
-    res.json(resolveChatPreset(req.db, chatId));
+    const wanted = req.query.with;
+    if (wanted !== undefined && wanted !== 'preset') return res.status(400).json({ error: "with is 'preset'" });
+    const resolved = resolveChatPreset(req.db, chatId);
+    // the preset in force beside its id, so a client shows it in the one request
+    if (wanted) resolved.preset = resolved.presetId ? getPreset(req.db, resolved.presetId) : null;
+    res.json(resolved);
+});
+
+// the preset as a SillyTavern preset file, with what the file cannot say named beside it
+presetsRouter.get('/:id/export', (req, res) => {
+    const format = String(req.query.format || 'sillytavern');
+    if (format !== 'sillytavern') return res.status(400).json({ error: "format is 'sillytavern'" });
+    const preset = getPreset(req.db, req.params.id);
+    if (!preset) return res.status(404).json({ error: 'preset not found' });
+    const scripts = listScripts(req.db, preset.id).map(({ id, ...script }) => ({ id, ...script }));
+    res.json(exportSillyTavernPreset(preset, scripts));
 });
 
 presetsRouter.get('/:id', (req, res) => {
@@ -107,6 +134,11 @@ presetsRouter.patch('/:id', (req, res) => {
         const err = validateBlocks(req.body.blocks);
         if (err) return res.status(400).json({ error: err });
         patch.blocks = req.body.blocks;
+    }
+    if (req.body?.settings !== undefined) {
+        const settingsErr = settingsError(req.body.settings);
+        if (settingsErr) return res.status(400).json({ error: settingsErr });
+        patch.settings = req.body.settings;
     }
     const preset = updatePreset(req.db, req.params.id, patch);
     if (!preset) return res.status(404).json({ error: 'preset not found' });

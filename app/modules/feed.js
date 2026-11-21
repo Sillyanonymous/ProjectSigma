@@ -24,8 +24,9 @@ defineEvent('library.changed');
 
 // entity -> Set(patcher)
 const _patchers = new Map();
-// patcher -> { shell, at }: every pass runs the shell's patchers first, then each in registration order
+// patcher -> { shell, at, own }: every pass runs the shell's patchers first, then each in registration order
 const _rank = new Map();
+const OWN = new Set([false, true, 'both']);
 let _opts = null;
 let _ws = null;
 let _backoff = BACKOFF_MIN_MS;
@@ -47,8 +48,12 @@ function enqueue(job) {
 }
 
 function addPatcher(entities, fn, shell, own = false) {
+    if (!OWN.has(own)) throw new Error('a feed patcher\'s own is false, true or "both"');
     const list = Array.isArray(entities) ? entities : [entities];
-    if (!_rank.has(fn)) _rank.set(fn, { shell, at: _rank.size, own });
+    const ranked = _rank.get(fn);
+    // one rank per function: a second origin or door registered for it would be dropped without a word
+    if (ranked && (ranked.own !== own || ranked.shell !== shell)) throw new Error('a feed patcher registered again with another origin or door: register it once, with own "both" for every origin');
+    if (!ranked) _rank.set(fn, { shell, at: _rank.size, own });
     for (const e of list) {
         if (!_patchers.has(e)) _patchers.set(e, new Set());
         _patchers.get(e).add(fn);
@@ -63,7 +68,7 @@ const byRank = (a, b) => {
 
 /**
  * Keep a cache in line: fn(records) gets other tabs' records for these entities, or null to re-read the whole view.
- * @param {{ own?: boolean }} [opts] own: fn gets this tab's own records instead, and never a re-read
+ * @param {{ own?: boolean | 'both' }} [opts] own: true hands fn this tab's own records instead and never a re-read; 'both' every origin's, re-reads included
  * @returns {Function} the unregister
  */
 export function registerFeedPatcher(entities, fn, { own = false } = {}) {
@@ -125,7 +130,7 @@ function announce(r) {
 // every patcher once, handed null, in a batch's order: re-read the whole view
 async function rereadAll() {
     const fns = new Set();
-    for (const set of _patchers.values()) for (const fn of set) if (!_rank.get(fn).own) fns.add(fn);
+    for (const set of _patchers.values()) for (const fn of set) if (_rank.get(fn).own !== true) fns.add(fn);
     for (const fn of [...fns].sort(byRank)) await runPatcher(fn, null);
 }
 
@@ -148,7 +153,8 @@ async function flushNow() {
         for (const r of batch) {
             const self = originOf(r) === 'self';
             for (const fn of _patchers.get(r.entity) || []) {
-                if (self !== _rank.get(fn).own) continue;
+                const { own } = _rank.get(fn);
+                if (own !== 'both' && self !== own) continue;
                 if (!byFn.has(fn)) byFn.set(fn, []);
                 byFn.get(fn).push(r);
             }

@@ -13,9 +13,6 @@ const FLAG = 'FLAG'; // ! ? ~ # /
 const FF = 'FF'; // > (the filter flag)
 const MID = 'MID'; // a macro's name
 const ID = 'ID'; // a word inside arguments or a variable's value
-const EP = 'EP'; // \|
-const PIPE = 'PIPE';
-const FID = 'FID'; // the name after a pipe
 const DC = 'DC'; // ::
 const C = 'C'; // :
 const EQ = 'EQ'; // =
@@ -82,8 +79,7 @@ export function tokenize(text) {
             }
             case 'args': {
                 if (two === '{{') { emit(S, 2); modes.push('def'); break; }
-                if (two === '\\|') { emit(EP, 2); break; }
-                if (c === '|') { emit(PIPE, 1); modes.push('filter'); break; }
+                // a pipe is a character of the value: ST lexes no filter here
                 if (two === '::') { emit(DC, 2); break; }
                 if (c === ':') { emit(C, 1); break; }
                 if (c === '=') { emit(EQ, 1); break; }
@@ -94,20 +90,6 @@ export function tokenize(text) {
                 if (ws) { p += ws.length; break; }
                 if (two !== '}}') { emit(U, 1); break; }
                 modes.pop();
-                break;
-            }
-            case 'filter': {
-                const ws = sticky(WS_RE);
-                if (ws) { p += ws.length; break; }
-                const id = sticky(IDENT_RE);
-                if (id) { emit(FID, id.length); replaceTop('filterend'); break; }
-                p++;
-                break;
-            }
-            case 'filterend': {
-                if (two === '}}') { modes.pop(); break; }
-                if (endOfIdent()) { modes.pop(); break; }
-                p++;
                 break;
             }
             case 'varid': {
@@ -726,7 +708,7 @@ export function createEngine(registry) {
     }
 
     // a text's macros, paired into scopes and replaced; the text itself when it holds none
-    function renderText(text, offset, env) {
+    function renderText(text, offset, env, wrap) {
         if (!text.includes('{{')) return text;
         const plan = planText(text, env);
         if (!plan.length) return text;
@@ -736,7 +718,10 @@ export function createEngine(registry) {
         for (let k = 0, step = plan[0]; step !== undefined; step = plan[++k]) {
             out += text.slice(end, step.s);
             if (step.node === null) out += text.slice(step.s, step.e + 1);
-            else out += step.from >= 0 ? macroValue(step.node, text, offset, env, step.from, step.to) : macroValue(step.node, text, offset, env, -1, -1);
+            else {
+                const value = step.from >= 0 ? macroValue(step.node, text, offset, env, step.from, step.to) : macroValue(step.node, text, offset, env, -1, -1);
+                out += wrap ? wrap(value) : value;
+            }
             end = step.e + 1;
         }
         return out + text.slice(end);
@@ -747,10 +732,11 @@ export function createEngine(registry) {
         return text ? renderText(text, offset, env) : '';
     }
 
-    function evaluate(input, env, { offset = 0 } = {}) {
+    // value, when given, rewrites each top-level macro's result (a regex find escapes them); nested ones stay as they are
+    function evaluate(input, env, { offset = 0, value } = {}) {
         if (!input) return '';
         try {
-            return postProcess(renderText(preProcess(input), offset, env));
+            return postProcess(renderText(preProcess(input), offset, env, value));
         } catch {
             return input;
         }

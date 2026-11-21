@@ -4,7 +4,8 @@
 import CoreAPI from '../core-api.js';
 import { mountChatWindow, syncRangeFill, selectFieldHtml, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import ExtensionWindows, { isHidden, liveSpecs, onDoorsSynced, HIDE_SETTING } from './extension-windows.js';
+import ExtensionWindows, { isHidden, liveSpecs, onDoorsSynced, phoneHidden } from './extension-windows.js';
+import HeaderLayout from './header-layout.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -85,6 +86,14 @@ const FIELDS = [
                 hint: 'Each message\'s number in the chat and its length in tokens: the count the model reported, or '
                     + 'an estimate where it reported none. Instrumentation, so it starts off.',
             },
+            {
+                key: 'chatRenderClosedThinking',
+                label: 'Render closed thinking up front',
+                kind: 'toggle',
+                hint: 'A closed Thinking fold is filled the first time you open it, which keeps long chats quick to open. '
+                    + 'On, every fold is filled as the chat opens, so the browser\'s find reaches the words inside closed '
+                    + 'thinking and an extension reading the page sees them.',
+            },
         ],
     },
     {
@@ -116,8 +125,8 @@ const FIELDS = [
                 label: 'Render HTML blocks',
                 kind: 'toggle',
                 hint: 'Some cards and models write styled panels (status blocks, trackers) as HTML. With this on, '
-                    + 'a complete block renders as intended; scripts and event handlers are always stripped. '
-                    + 'Off shows the raw tags.',
+                    + 'a complete block renders as intended; scripts and event handlers are always stripped, and comments '
+                    + 'and tags that are not HTML (a preset\'s own markers) are hidden, their text kept. Off shows the raw tags.',
             },
             {
                 key: 'chatEscapeStrings',
@@ -153,41 +162,6 @@ const FIELDS = [
                 attrs: 'min="0" step="50"',
                 hint: 'Held back from the budget so the model has room to answer. Zero is allowed and means '
                     + 'hold nothing back.',
-            },
-        ],
-    },
-    {
-        group: 'Generation instructions',
-        icon: 'fa-wand-magic-sparkles',
-        note: 'What the server sends when you ask for a continuation or a draft of your own next message. '
-            + 'Blank means the built-in wording. {{char}} and {{user}} are filled in.',
-        items: [
-            {
-                key: 'chatImpersonatePrompt',
-                label: 'Write my next message',
-                kind: 'textarea',
-                attrs: 'rows="4" placeholder="Leave blank for the built-in instruction"',
-                hint: 'This is the one that gets refused. Plenty of presets carry a standing "never write as the '
-                    + 'user" rule, and a model obeying it declines however the request is phrased, so rewording it '
-                    + 'here is the only fix available. Anything already typed in the message box rides separately '
-                    + 'as direction for that draft.',
-            },
-            {
-                key: 'chatGuidedPrompt',
-                label: "Direct the character's next reply",
-                kind: 'textarea',
-                attrs: 'rows="4" placeholder="Leave blank for the built-in instruction"',
-                hint: 'The wand button: whatever is typed in the message box rides separately as direction for '
-                    + 'the reply, so this only frames the task. {{char}} and {{user}} are filled in.',
-            },
-            {
-                key: 'chatContinuePrompt',
-                label: 'Continue last reply',
-                kind: 'textarea',
-                attrs: 'rows="4" placeholder="Leave blank for the built-in instruction"',
-                hint: 'It has to say plainly that the text is being EXTENDED rather than replaced. Without that, '
-                    + 'the model sees an assistant turn at the end of the history and writes a fresh one, which '
-                    + 'then gets concatenated onto the old one.',
             },
         ],
     },
@@ -249,7 +223,7 @@ const FIELDS = [
 
 // Where everything that is NOT here actually lives.
 const ELSEWHERE = [
-    ['Prompt manager', 'presets, blocks and their order'],
+    ['Prompt manager', 'presets, blocks and their order, and each preset\'s wording for Continue, Write My Next Message and a directed reply'],
     ['Connections', 'which endpoint answers, and its samplers'],
     ['Lorebooks', 'what this chat has bound, and every entry'],
     ['This chat\'s card', 'its own scenario, examples and main prompt'],
@@ -263,6 +237,7 @@ let _onChange = null;
 let _filterTerms = [];   // the find field's words, lowercased
 let _owed = false;       // a write elsewhere the open window holds while the reader is in a field
 let _doorsHtml = '';     // the Extensions group as last painted
+let _headerHtml = '';    // the Conversation header group as last painted
 
 const FILTER_DEBOUNCE_MS = 140;
 
@@ -343,17 +318,17 @@ function controlHtml(f) {
         ${f.attrs || ''} value="${esc(v ?? '')}" autocomplete="off">`;
 }
 
-// one extension window's switches: Header (its opener) and Phone (its Windows tile), both app-wide
+// one extension window's switch for its phone Windows tile, app-wide; its desktop opener is the header's arrangement
 function extWindowRowHtml(spec) {
-    const sw = (scope, label) => `<label class="cl-cwin-ext-scope">
-            <span>${esc(label)}</span>
-            <input type="checkbox" class="cl-switch-input" data-ext-scope="${scope}" data-ext-key="${esc(spec.key)}" ${isHidden(spec.key, scope) ? '' : 'checked'}>
+    const phone = `<label class="cl-cwin-ext-scope">
+            <span>Phone</span>
+            <input type="checkbox" class="cl-switch-input" data-ext-scope="phone" data-ext-key="${esc(spec.key)}" ${isHidden(spec.key) ? '' : 'checked'}>
             <span class="cl-switch" aria-hidden="true"></span>
         </label>`;
     return `<div class="cl-cwin-block cl-cwin-ext-window">
         <div class="cl-cwin-field cl-cwin-ext-row">
             <span class="cl-cwin-field-label cl-cwin-ext-id" title="${esc(spec.label)} (${esc(spec.extName)})"><i class="fa-solid ${esc(spec.icon)}"></i><span class="cl-cwin-ext-name">${esc(spec.label)}</span><small class="cl-cwin-ext-owner">${esc(spec.extName)}</small></span>
-            <span class="cl-cwin-ext-scopes">${sw('header', 'Header')}${sw('phone', 'Phone')}</span>
+            <span class="cl-cwin-ext-scopes">${phone}</span>
         </div>
     </div>`;
 }
@@ -368,10 +343,53 @@ function extensionsGroupHtml() {
     if (!shown.length && (specs.length || !matches(title))) return '';
     return `<section class="cl-cwin-group cl-cwin-extensions">
         <h4 class="cl-cwin-group-title"><i class="fa-solid fa-puzzle-piece"></i>${title}</h4>
-        <p class="cl-cwin-group-note">Which extension windows keep a button in the conversation header, and which keep a tile under Windows in the phone's chat options.</p>
+        <p class="cl-cwin-group-note">Which extension windows keep a tile under Windows in the phone's chat options. Their buttons in the desktop header are under Conversation header.</p>
         <div class="cl-cwin-fields">
             ${shown.length ? shown.map(extWindowRowHtml).join('') : '<p class="cl-cwin-hint">No extension has added a chat window.</p>'}
         </div>
+    </section>`;
+}
+
+// one header opener, group or divider: a group's members indented under it, dimmed while it is hidden
+function headerRowHtml(r, { member = false, groupHidden = false } = {}) {
+    if (r.kind === 'divider') {
+        return `<div class="cl-cwin-block cl-cwin-head-divider${member ? ' is-member' : ''}">
+            <span class="cl-cwin-field-label"><i class="fa-solid fa-grip-lines-vertical"></i><span>Divider</span></span>
+            <button type="button" class="cl-cwin-btn-text" data-head-remove="${esc(r.id)}" title="Remove the divider" aria-label="Remove the divider"><i class="fa-solid fa-xmark"></i></button>
+        </div>`;
+    }
+    const off = member && groupHidden;
+    const tag = r.kind === 'group' ? 'Group' : r.owner;
+    return `<div class="cl-cwin-block cl-cwin-head-row${member ? ' is-member' : ''}">
+        <label class="cl-cwin-field cl-cwin-toggle${off ? ' is-off' : ''}"${off ? ' title="Its group is hidden"' : ''}>
+            <span class="cl-cwin-field-label cl-cwin-ext-id"><i class="fa-solid ${esc(r.icon)}"></i><span class="cl-cwin-ext-name">${esc(r.label)}</span>${tag ? `<small class="cl-cwin-ext-owner">${esc(tag)}</small>` : ''}</span>
+            <input type="checkbox" class="cl-switch-input" data-head-item="${esc(r.id)}" aria-label="Show ${esc(r.label)}" ${r.hidden ? '' : 'checked'}${off ? ' disabled' : ''}>
+            <span class="cl-switch" aria-hidden="true"></span>
+        </label>
+    </div>`;
+}
+
+// the desktop header's openers in their order, each with a show switch; built from the header at every render
+function headerGroupHtml() {
+    if (document.documentElement.classList.contains('cl-mobile')) return '';
+    const title = 'Conversation header';
+    const rows = HeaderLayout.headerRows();
+    // under a query: the openers it names, a group with its members when it or one of them is named
+    const named = (r) => matches(title, r.label);
+    const filtered = _filterTerms.length ? rows.flatMap((r) => {
+        if (r.kind === 'divider') return [];
+        if (r.kind === 'group') { const items = r.items.filter(m => m.kind === 'item' && named(m)); return named(r) || items.length ? [{ ...r, items: named(r) ? r.items : items }] : []; }
+        return named(r) ? [r] : [];
+    }) : rows;
+    if (!filtered.length && (_filterTerms.length || !rows.length)) return '';
+    const body = filtered.map(r => (r.kind === 'group'
+        ? headerRowHtml(r) + r.items.map(m => headerRowHtml(m, { member: true, groupHidden: r.hidden })).join('')
+        : headerRowHtml(r))).join('');
+    return `<section class="cl-cwin-group cl-cwin-head-arrange">
+        <h4 class="cl-cwin-group-title"><i class="fa-solid fa-window-maximize"></i>${title}</h4>
+        <p class="cl-cwin-group-note">Drag buttons in the header to reorder them, drop one on a group to file it, and right-click the header for the rest. A switch turned off hides its button.</p>
+        <div class="cl-cwin-fields">${body}</div>
+        <div class="cl-cwin-head-foot"><button type="button" class="cl-cwin-btn-text" data-head-reset${HeaderLayout.isDefault() ? ' disabled' : ''}><i class="fa-solid fa-rotate-left"></i> Reset Header</button></div>
     </section>`;
 }
 
@@ -397,17 +415,14 @@ function fieldGroupHtml({ g, items }) {
     </section>`;
 }
 
-/** Persist one window's switch: the key joins or leaves the scope's hidden list. */
+/** Persist one window's switch: the key joins or leaves the phone's hidden list. */
 function onExtToggle(el) {
-    const scope = el.dataset.extScope;
     const key = el.dataset.extKey;
-    if (!HIDE_SETTING[scope] || !key) return;
-    const current = CoreAPI.getSetting(HIDE_SETTING[scope]);
-    const next = new Set(Array.isArray(current) ? current : []);
+    if (!key) return;
+    const next = phoneHidden();
     if (el.checked) next.delete(key); else next.add(key);
-    if (scope === 'phone') CoreAPI.setSetting('chatExtHiddenPhone', [...next]);
-    else CoreAPI.setSetting('chatExtHiddenHeader', [...next]);
-    // the header reads the set now, the phone's tiles when its options sheet next opens
+    CoreAPI.setSetting('chatExtHiddenPhone', [...next]);
+    // the phone's tiles read the set when its options sheet next opens
     ExtensionWindows.syncWindows();
 }
 
@@ -420,9 +435,11 @@ function render() {
     const shown = (f) => !(f.desktopOnly && mobile);
 
     _doorsHtml = extensionsGroupHtml();
+    _headerHtml = headerGroupHtml();
     const groups = [
         ...FIELDS.map(g => ({ g, items: g.items.filter(f => shown(f) && matches(g.group, f.label, f.hint)) }))
             .filter(x => x.items.length).map(fieldGroupHtml),
+        _headerHtml,
         _doorsHtml,
         elsewhereGroupHtml(),
     ].filter(Boolean);
@@ -479,7 +496,7 @@ function held() {
 // a setting written in another tab, after the shell adopted it: the open window paints it, never under the reader's hands
 function patchSettingsFromFeed(records) {
     if (!panelOpen) return;
-    if (records && !records.some(r => r.all || (r.ids || []).some(k => SHOWN_KEYS.has(k)))) return;
+    if (records && !records.some(r => r.all || (r.ids || []).some(k => SHOWN_KEYS.has(k) || k === 'chatHeaderLayout'))) return;
     if (held()) { _owed = true; return; }
     render();
 }
@@ -487,6 +504,13 @@ function patchSettingsFromFeed(records) {
 // the window host laid its doors out again: the open window paints its Extensions group when that moved, held the same way
 function paintDoors() {
     if (!panelOpen || extensionsGroupHtml() === _doorsHtml) return;
+    if (held()) { _owed = true; return; }
+    render();
+}
+
+// the header arranged again (here, in another tab, an extension come or gone): the open window paints its group, held the same way
+function paintHeader() {
+    if (!panelOpen || headerGroupHtml() === _headerHtml) return;
     if (held()) { _owed = true; return; }
     render();
 }
@@ -508,6 +532,9 @@ function injectPanel() {
 
     sheet?.addEventListener('click', (e) => {
         if (e.target.closest('[data-cset-act="close"]')) closePanel();
+        const remove = e.target.closest('[data-head-remove]');
+        if (remove) HeaderLayout.removeDivider(remove.dataset.headRemove);
+        if (e.target.closest('[data-head-reset]')) void HeaderLayout.resetHeader();
     });
 
     // 'change' rather than 'input': a text field written on every keystroke would issue a
@@ -515,6 +542,7 @@ function injectPanel() {
     sheet?.addEventListener('change', (e) => {
         if (e.target?.dataset?.set) onSettingInput(e.target);
         else if (e.target?.dataset?.extScope) onExtToggle(e.target);
+        else if (e.target?.dataset?.headItem) HeaderLayout.setHidden(e.target.dataset.headItem, !e.target.checked);
     });
 
     // after the focus has landed, so a move between two fields of the form still holds
@@ -539,6 +567,7 @@ function injectPanel() {
     }, FILTER_DEBOUNCE_MS));
 
     registerChatWindow('chatSettingsPanel', { close: closePanel });
+    document.addEventListener('cl-header-arranged', paintHeader);
 }
 
 /** @param {{onChange?: (key: string) => void}} ctx the conversation's apply hook */

@@ -245,19 +245,19 @@
                         <option value="least_messages" data-icon="fa-solid fa-comment">Least Messages</option>
                         <option value="most_chats" data-icon="fa-solid fa-layer-group">Most Chats (Character)</option>
                     </select>
-                    <div class="chats-seg" role="group" aria-label="View">
-                        <button class="chats-seg-btn grouping-btn active" data-group="flat" title="Recent, by time">
+                    <div class="chats-seg cl-seg" role="group" aria-label="View">
+                        <button class="cl-seg-btn chats-seg-btn grouping-btn active" data-group="flat" title="Recent, by time">
                             <i class="fa-solid fa-clock"></i>
                         </button>
-                        <button class="chats-seg-btn grouping-btn" data-group="grouped" title="By character">
+                        <button class="cl-seg-btn chats-seg-btn grouping-btn" data-group="grouped" title="By character">
                             <i class="fa-solid fa-layer-group"></i>
                         </button>
                     </div>
-                    <div class="chats-seg" id="chatLayoutToggle" role="group" aria-label="Layout">
-                        <button class="chats-seg-btn chat-layout-btn active" data-layout="list" title="List">
+                    <div class="chats-seg cl-seg" id="chatLayoutToggle" role="group" aria-label="Layout">
+                        <button class="cl-seg-btn chats-seg-btn chat-layout-btn active" data-layout="list" title="List">
                             <i class="fa-solid fa-list"></i>
                         </button>
-                        <button class="chats-seg-btn chat-layout-btn" data-layout="cards" title="Cards">
+                        <button class="cl-seg-btn chats-seg-btn chat-layout-btn" data-layout="cards" title="Cards">
                             <i class="fa-solid fa-address-card"></i>
                         </button>
                     </div>
@@ -399,6 +399,9 @@
                                 </button>
                                 <button id="chatConvPrompts" class="cpm-open-btn" title="Prompt manager" aria-label="Prompt manager">
                                     <i class="fa-solid fa-sliders"></i>
+                                </button>
+                                <button id="chatConvRegex" title="Regex scripts" aria-label="Regex scripts">
+                                    <i class="fa-solid fa-code"></i>
                                 </button>
                                 <span class="chat-conv-head-sep" aria-hidden="true"></span>
                                 <button id="chatConvSettings" title="Chat settings" aria-label="Chat settings">
@@ -962,8 +965,8 @@
                                 <i class="fa-solid fa-lock"></i> Update Lock
                             </div>
                             <div class="provider-link-update-lock-hint">Skip this character during update checks</div>
-                            <button id="providerLinkUpdateLockBtn" class="provider-link-update-lock-btn" title="Toggle update lock">
-                                <span class="update-lock-status"></span>
+                            <button type="button" id="providerLinkUpdateLockBtn" class="provider-link-update-lock-btn" aria-pressed="false" title="Toggle update lock">
+                                <span class="update-lock-status">Unlocked</span>
                                 <i class="fa-solid fa-toggle-off update-lock-toggle-icon"></i>
                             </button>
                         </div>
@@ -1197,86 +1200,6 @@ https://jannyai.com/characters/uuid_slug
         </div>
     </div>
 
-    <!-- Bulk Localize Media Modal -->
-    <div id="bulkLocalizeModal" class="cl-modal">
-        <div class="cl-modal-content import-modal-content bulk-localize-modal-content">
-            <div class="cl-modal-header">
-                <h3><i class="fa-solid fa-download"></i> Bulk Media Localization</h3>
-                <button class="cl-modal-close" id="closeBulkLocalizeModal" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="cl-modal-body">
-                <div id="bulkLocalizeCharInfo" class="bulk-localize-char-info">
-                    <img id="bulkLocalizeCharAvatar" src="" alt="">
-                    <span id="bulkLocalizeCharName">Preparing...</span>
-                </div>
-                <p id="bulkLocalizeStatus">Scanning library...</p>
-                <div id="bulkLocalizeProgress" class="import-progress">
-                    <div class="import-progress-header">
-                        <span>Overall Progress</span>
-                        <span id="bulkLocalizeProgressCount">0/0 characters</span>
-                    </div>
-                    <div class="import-progress-bar">
-                        <div id="bulkLocalizeProgressFill" class="import-progress-fill"></div>
-                    </div>
-                    <div class="import-progress-header u-mt-sm-md">
-                        <span>Current Character</span>
-                        <span id="bulkLocalizeFileCount">0/0 files</span>
-                    </div>
-                    <div class="import-progress-bar">
-                        <div id="bulkLocalizeFileFill" class="import-progress-fill"></div>
-                    </div>
-                </div>
-                <div id="bulkLocalizeStats" class="bulk-localize-stats">
-                    <div class="stat-item" title="New media files downloaded to gallery"><i class="fa-solid fa-download"></i> <span id="bulkStatDownloaded">0</span> downloaded</div>
-                    <div class="stat-item" title="Files already exist locally (matched by content hash)"><i class="fa-solid fa-forward"></i> <span id="bulkStatSkipped">0</span> skipped</div>
-                    <div class="stat-item" title="Downloads that failed"><i class="fa-solid fa-xmark"></i> <span id="bulkStatErrors">0</span> errors</div>
-                </div>
-            </div>
-            <div class="cl-modal-footer">
-                <button id="cancelBulkLocalizeBtn" class="cl-btn cl-btn-danger-hover"><i class="fa-solid fa-xmark"></i> Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Bulk Localize Summary Modal -->
-    <div id="bulkLocalizeSummaryModal" class="cl-modal">
-        <div class="cl-modal-content bulk-summary-modal-content">
-            <div class="cl-modal-header">
-                <h3><i class="fa-solid fa-chart-bar"></i> Bulk Localization Complete</h3>
-                <button class="cl-modal-close" id="closeBulkSummaryModal" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="cl-modal-body">
-                <div id="bulkSummaryOverview" class="bulk-summary-overview">
-                    <!-- Overview stats go here -->
-                </div>
-                <div id="bulkSummaryFilter" class="bulk-summary-filter">
-                    <label for="bulkSummaryFilterSelect">Show:</label>
-                    <select id="bulkSummaryFilterSelect" class="glass-select">
-                        <option value="all" data-icon="fa-solid fa-list">All Characters</option>
-                        <option value="localized" data-icon="fa-solid fa-circle-check">Fully Localized</option>
-                        <option value="downloaded" data-icon="fa-solid fa-download">With Downloads</option>
-                        <option value="skipped" data-icon="fa-solid fa-forward">With Skipped</option>
-                        <option value="errors" data-icon="fa-solid fa-triangle-exclamation">With Errors</option>
-                        <option value="incomplete" data-icon="fa-solid fa-circle-half-stroke">Incomplete (Errors/Stopped)</option>
-                        <option value="none" data-icon="fa-solid fa-circle-xmark">No Remote Media</option>
-                    </select>
-                    <input type="search" id="bulkSummarySearch" class="glass-input" placeholder="Search character..." autocomplete="one-time-code">
-                </div>
-                <div id="bulkSummaryList" class="bulk-summary-list">
-                    <!-- Per-character results go here -->
-                </div>
-                <div id="bulkSummaryPagination" class="bulk-summary-pagination">
-                    <button id="bulkSummaryPrevBtn" class="glass-btn icon-only" aria-label="Previous page"><i class="fa-solid fa-chevron-left"></i></button>
-                    <span id="bulkSummaryPageInfo">Page 1 of 1</span>
-                    <button id="bulkSummaryNextBtn" class="glass-btn icon-only" aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>
-                </div>
-            </div>
-            <div class="cl-modal-footer">
-                <button id="closeBulkSummaryBtn" class="cl-btn cl-btn-secondary"><i class="fa-solid fa-xmark"></i> Close</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Bulk Auto-Link Modal -->
     <div id="bulkAutoLinkModal" class="cl-modal">
         <div class="cl-modal-content bulk-auto-link-modal-content">
@@ -1310,15 +1233,15 @@ https://jannyai.com/characters/uuid_slug
                 
                 <!-- Results Phase -->
                 <div id="bulkAutoLinkResults" class="bulk-auto-link-phase hidden">
-                    <div class="bulk-auto-link-tabs">
-                        <button class="bulk-auto-link-tab active" data-tab="confident">
-                            <i class="fa-solid fa-check-circle"></i> Confident (<span id="bulkAutoLinkConfidentTabCount">0</span>)
+                    <div class="cl-cwin-tabs bulk-auto-link-tabs" role="tablist" aria-label="Show">
+                        <button type="button" role="tab" class="cl-cwin-tab is-on" data-tab="confident" aria-selected="true">
+                            <i class="fa-solid fa-check-circle" aria-hidden="true"></i> <span>Confident (<span id="bulkAutoLinkConfidentTabCount">0</span>)</span>
                         </button>
-                        <button class="bulk-auto-link-tab" data-tab="uncertain">
-                            <i class="fa-solid fa-question-circle"></i> Needs Review (<span id="bulkAutoLinkUncertainTabCount">0</span>)
+                        <button type="button" role="tab" class="cl-cwin-tab" data-tab="uncertain" aria-selected="false">
+                            <i class="fa-solid fa-question-circle" aria-hidden="true"></i> <span>Needs Review (<span id="bulkAutoLinkUncertainTabCount">0</span>)</span>
                         </button>
-                        <button class="bulk-auto-link-tab" data-tab="nomatch">
-                            <i class="fa-solid fa-times-circle"></i> No Match (<span id="bulkAutoLinkNoMatchTabCount">0</span>)
+                        <button type="button" role="tab" class="cl-cwin-tab" data-tab="nomatch" aria-selected="false">
+                            <i class="fa-solid fa-times-circle" aria-hidden="true"></i> <span>No Match (<span id="bulkAutoLinkNoMatchTabCount">0</span>)</span>
                         </button>
                     </div>
                     <div class="bulk-auto-link-actions" id="bulkAutoLinkConfidentActions">
@@ -1334,7 +1257,7 @@ https://jannyai.com/characters/uuid_slug
             </div>
             <div class="cl-modal-footer">
                 <button id="bulkAutoLinkCancelBtn" class="cl-btn cl-btn-danger-hover"><i class="fa-solid fa-xmark"></i> Cancel</button>
-                <button id="bulkAutoLinkApplyBtn" class="cl-btn cl-btn-primary hidden"><i class="fa-solid fa-link"></i> Link Selected (<span id="bulkAutoLinkSelectedCount">0</span>)</button>
+                <button id="bulkAutoLinkApplyBtn" class="cl-btn cl-btn-primary hidden"><i class="fa-solid fa-link"></i> <span>Link Selected (<span id="bulkAutoLinkSelectedCount">0</span>)</span></button>
             </div>
         </div>
     </div>
@@ -1924,6 +1847,13 @@ https://jannyai.com/characters/uuid_slug
                                 <span class="settings-hint">Edits leave the search index in pieces, and searches that read from the disk get slower with every piece. The figures above say how many times slower than a tidy index. Once an index reaches 2.0×, it is tidied in the background the next time the app sits idle for two minutes, and the tidy-up pauses the moment you click, type or scroll again. Tidy Now tidies every index straight away while you keep working.</span>
                             </div>
 
+                            <div class="settings-row">
+                                <label>
+                                    <input type="checkbox" class="cl-switch-input" id="settingsPreloadLibrary" checked><span class="cl-switch" aria-hidden="true"></span> Load the library into memory at startup
+                                </label>
+                                <span class="settings-hint">A few seconds after the server starts, it reads your library once in the background, so your system keeps it in memory and the first search after a restart is as quick as the rest. On a hard drive this means some seconds of disk activity after each start. Your system gives the memory back whenever another program needs it, and a library too large for a quarter of the free memory is left out. Takes effect at the next server start.</span>
+                            </div>
+
                             <details class="bk-list-wrap" id="sixListWrap">
                                 <summary class="bk-list-summary">Each index</summary>
                                 <div class="bk-list" id="sixList"></div>
@@ -1990,7 +1920,7 @@ https://jannyai.com/characters/uuid_slug
                                         </select>
                                     </div>
                                     <div class="settings-row" id="browserManagedRow">
-                                        <span class="settings-hint">A hidden browser starts on the machine running Project Σ, the first time something actually needs it, and shuts itself down after 10 minutes idle. Whether it gets past Cloudflare depends on the machine, so press <strong>Test</strong> to find out instead of assuming: a headless server or single-board computer can work (measured on an ARM board, software rendering included). On a shared server only the owner can use it; other accounts point the endpoint setting at a browser they run themselves.</span>
+                                        <span class="settings-hint">A hidden browser starts on the machine running Project Σ, the first time something actually needs it, and shuts itself down after 10 minutes idle. Whether it gets past Cloudflare depends on the machine, so press <strong>Test</strong> to find out instead of assuming: a headless server or single-board computer can work (measured on an ARM board, software rendering included). On a shared server only admins can use it; other accounts point the endpoint setting at a browser they run themselves.</span>
                                     </div>
                                     <div class="settings-row browser-managed-status-row" id="browserManagedStatusRow">
                                         <span id="browserManagedStatus" class="settings-status-badge inactive"><i class="fa-solid fa-circle"></i> Not started</span>
@@ -1998,7 +1928,7 @@ https://jannyai.com/characters/uuid_slug
                                         <button id="browserManagedStopBtn" class="settings-action-btn danger-hover">Stop</button>
                                     </div>
                                     <div class="settings-row" id="browserEndpointHintRow">
-                                        <span class="settings-hint">Point this at any Chrome DevTools endpoint and Project Σ drives it. Useful when Project Σ runs somewhere without a GPU, since the built-in browser needs one, and the way a non-owner account uses a browser on a shared server. On an ordinary desktop, start Chrome with <code>--remote-debugging-port=9222</code> and paste that endpoint here.</span>
+                                        <span class="settings-hint">Point this at any Chrome DevTools endpoint and Project Σ drives it. Useful when Project Σ runs somewhere without a GPU, since the built-in browser needs one, and the way an account that is not an admin uses a browser on a shared server. On an ordinary desktop, start Chrome with <code>--remote-debugging-port=9222</code> and paste that endpoint here.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsBrowserEndpoint">Endpoint:</label>
@@ -2222,12 +2152,12 @@ https://jannyai.com/characters/uuid_slug
                                     </div>
                                     <div class="provider-link-divider"><span>or use a session token</span></div>
                                     <div class="settings-row">
-                                        <span class="settings-hint">Use this if you sign in to JanitorAI with <strong>Google, Discord, X or Apple</strong> (those accounts have no password to give here), or if the sign-in above keeps failing. Log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the <strong>sb-auth-auth-token</strong> cookie. If you see <strong>sb-auth-auth-token.0</strong> and <strong>.1</strong> instead of one cookie, paste their values joined in order. The session refreshes itself afterwards, the same as signing in above.</span>
+                                        <span class="settings-hint">Use this if you sign in to JanitorAI with <strong>Google, Discord, X or Apple</strong> (those accounts have no password to give here), or if the sign-in above keeps failing. Log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the cookie whose name starts with <strong>sb-</strong> and ends in <strong>-auth-token</strong> (today <strong>sb-mcmzxtzommpnxkynddbo-auth-token</strong>). If you see it split into <strong>.0</strong> and <strong>.1</strong>, paste their values joined in order. The session refreshes itself afterwards, the same as signing in above.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsJanitoraiToken">Token:</label>
                                         <div class="settings-input-group">
-                                            <input type="password" id="settingsJanitoraiToken" placeholder="Paste the sb-auth-auth-token cookie value" autocomplete="off" spellcheck="false">
+                                            <input type="password" id="settingsJanitoraiToken" placeholder="Paste the sb-...-auth-token cookie value" autocomplete="off" spellcheck="false">
                                             <button id="toggleJanitoraiTokenVisibility" class="glass-btn icon-only" title="Show/Hide">
                                                 <i class="fa-solid fa-eye"></i>
                                             </button>
@@ -2434,12 +2364,12 @@ https://jannyai.com/characters/uuid_slug
                                 <div class="settings-group">
                                     <div class="settings-group-title"><i class="fa-solid fa-user-lock"></i> JanitorAI Login (Hampter pagination)</div>
                                     <div class="settings-row">
-                                        <span class="settings-hint">Optional, and separate from the JanitorAI provider's own login. JanitorAI serves only the <strong>first page</strong> of the Hampter sorts without an account. Paste your session cookie to page through more; the session then <strong>refreshes itself</strong> (no repeated pasting). To get it: log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the <strong>sb-auth-auth-token</strong> cookie. Saved server-side against your account. Tip: paste from a browser you are not actively browsing JanitorAI in, so the two sessions do not rotate each other out.</span>
+                                        <span class="settings-hint">Optional, and separate from the JanitorAI provider's own login. JanitorAI serves only the <strong>first page</strong> of the Hampter sorts without an account. Paste your session cookie to page through more; the session then <strong>refreshes itself</strong> (no repeated pasting). To get it: log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the cookie whose name starts with <strong>sb-</strong> and ends in <strong>-auth-token</strong> (today <strong>sb-mcmzxtzommpnxkynddbo-auth-token</strong>). Saved server-side against your account. Tip: paste from a browser you are not actively browsing JanitorAI in, so the two sessions do not rotate each other out.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsDatacatJanitoraiToken">Cookie:</label>
                                         <div class="settings-input-group">
-                                            <input type="password" id="settingsDatacatJanitoraiToken" placeholder="Paste the sb-auth-auth-token cookie value" autocomplete="off" spellcheck="false">
+                                            <input type="password" id="settingsDatacatJanitoraiToken" placeholder="Paste the sb-...-auth-token cookie value" autocomplete="off" spellcheck="false">
                                             <button id="toggleDatacatJanitoraiTokenVisibility" class="glass-btn icon-only" title="Show/Hide">
                                                 <i class="fa-solid fa-eye"></i>
                                             </button>
@@ -2610,16 +2540,16 @@ https://jannyai.com/characters/uuid_slug
                         <div class="settings-group">
                             <div class="settings-group-title"><i class="fa-solid fa-download"></i> Bulk Operations</div>
                             <div class="settings-row">
-                                <button id="bulkLocalizeBtn" class="settings-action-btn primary">
-                                    <i class="fa-solid fa-download"></i> Bulk Localize All Characters
+                                <button id="downloadAllMediaBtn" class="settings-action-btn primary">
+                                    <i class="fa-solid fa-cloud-arrow-down"></i> Download Media for All Characters
                                 </button>
-                                <span class="settings-hint">Scan and download remote media for ALL characters. Previously processed are skipped.</span>
+                                <span class="settings-hint">Queue every character with remote media or a provider link for a media download, in the background. Characters processed before are left out.</span>
                             </div>
                             <div class="settings-row">
-                                <button id="clearBulkLocalizeHistoryBtn" class="settings-action-btn danger">
+                                <button id="clearMediaHistoryBtn" class="settings-action-btn danger">
                                     <i class="fa-solid fa-eraser"></i> Clear Processed History
                                 </button>
-                                <span class="settings-hint">Reset the processed list so bulk localize scans everyone again.</span>
+                                <span class="settings-hint">Forget which characters were processed, so Download Media for All Characters scans every one again.</span>
                             </div>
                             <div class="settings-row">
                                 <button type="button" id="thumbWarmBtn" class="settings-action-btn">
@@ -2809,6 +2739,13 @@ https://jannyai.com/characters/uuid_slug
                             <h4><i class="fa-solid fa-puzzle-piece"></i> Extensions</h4>
                             <p class="settings-panel-desc">The server's installs, then the set that ships with the app; every switch is your account's own</p>
                         </div>
+                        <div class="settings-band is-warn" id="extTrustBand" role="note">
+                            <i class="fa-solid fa-shield-halved settings-band-icon"></i>
+                            <div class="settings-band-text">
+                                <span class="settings-band-when">Extensions run with full access</span>
+                                <span class="settings-band-sub">Installed extensions are third-party code with full access to this server, every account on it and the computer it runs on. Project Σ does not review them and is not responsible for what they do. Switch one on only if you trust it.</span>
+                            </div>
+                        </div>
                         <div class="settings-group" id="extAdminGroup" hidden>
                             <div class="settings-group-title"><i class="fa-solid fa-download"></i> Install</div>
                             <div class="settings-row">
@@ -2826,20 +2763,27 @@ https://jannyai.com/characters/uuid_slug
                                 <span class="settings-hint">A zip of the extension's folder, as a repository's "Download ZIP" makes it.</span>
                             </div>
                         </div>
-                        <div class="settings-group">
-                            <div class="settings-group-title ext-group-title"><i class="fa-solid fa-list"></i> Installed
-                                <span class="ext-count" id="extCountPill"></span>
-                                <button class="glass-btn icon-only ext-refresh-btn" id="extCheckUpdatesBtn" title="Check for Updates" aria-label="Check for Updates" hidden><i class="fa-solid fa-cloud-arrow-down"></i></button>
-                                <button class="glass-btn icon-only ext-refresh-btn" id="extRefreshBtn" title="Refresh both lists"><i class="fa-solid fa-rotate"></i></button>
+                        <div class="settings-group" id="extUpdatesGroup" hidden>
+                            <div class="settings-group-title"><i class="fa-solid fa-cloud-arrow-down"></i> Updates</div>
+                            <div class="settings-band" id="extUpdatesBand">
+                                <i class="fa-solid fa-cloud-arrow-down settings-band-icon" id="extUpdatesIcon"></i>
+                                <div class="settings-band-text">
+                                    <span class="settings-band-when" id="extUpdatesWhen">Not checked yet</span>
+                                    <span class="settings-band-sub" id="extUpdatesSub"></span>
+                                </div>
+                                <button type="button" class="cl-btn cl-btn-primary" id="extCheckUpdatesBtn"><i class="fa-solid fa-arrows-rotate"></i> Check Now</button>
                             </div>
-                            <div class="settings-row">
-                                <span class="settings-hint settings-hint-warn"><i class="fa-solid fa-triangle-exclamation"></i> Installed extensions are third-party code with full access to this server, every account on it and the computer it runs on. Project Σ does not review them and is not responsible for what they do. Switch one on only if you trust it.</span>
-                            </div>
-                            <div class="settings-row" id="extNotifyUpdatesRow" hidden>
+                            <div class="settings-row" id="extNotifyUpdatesRow">
                                 <label>
                                     <input type="checkbox" class="cl-switch-input" id="settingsExtNotifyUpdates"><span class="cl-switch" aria-hidden="true"></span> Tell me when an extension has an update
                                 </label>
                                 <span class="settings-hint">Once a day while the app is open, each installed extension's repository is asked whether it has a newer version, and what it finds shows in the notifications. Nothing is ever updated for you: Update on an extension's row does that.</span>
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <div class="settings-group-title ext-group-title"><i class="fa-solid fa-list"></i> Installed
+                                <span class="ext-count" id="extCountPill"></span>
+                                <button class="glass-btn icon-only ext-refresh-btn" id="extRefreshBtn" title="Refresh both lists"><i class="fa-solid fa-rotate"></i></button>
                             </div>
                             <div id="extListBody"></div>
                         </div>
@@ -2974,6 +2918,7 @@ https://jannyai.com/characters/uuid_slug
                                             <li>Group chats and group definitions. They are counted in the plan and stay at the source.</li>
                                             <li>Character Library extension settings: provider logins, view preferences, every other extension option. Configure Project Σ fresh.</li>
                                             <li>SillyTavern's own settings: API connections, sampler presets, themes, Quick Replies, instruct and context templates. Chat-completion prompt presets can be imported inside the Prompt Manager.</li>
+                                            <li>Your own regex scripts, which live in SillyTavern's settings. Export them there and import them in a chat's Regex Scripts window; scripts saved on a card come across with it, off until you allow them.</li>
                                             <li>Tags applied through SillyTavern's tag manager. Those live in its settings, not on the cards; only tags embedded in the cards migrate.</li>
                                             <li>Chat backgrounds, expression sprites and other SillyTavern asset folders.</li>
                                         </ul>

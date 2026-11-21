@@ -284,6 +284,10 @@ function injectMultiSelectToolbar() {
                 <i class="fa-solid fa-arrows-rotate"></i>
                 <span>Updates</span>
             </button>
+            <button id="multiSelectDownloadMediaBtn" class="ms-btn" title="Download the media of the selected characters, in the background" data-overflow-label="Download media">
+                <i class="fa-solid fa-cloud-arrow-down"></i>
+                <span>Media</span>
+            </button>
             <button id="multiSelectPlaylistBtn" class="ms-btn" title="Add selected characters to a playlist" data-overflow-label="Add to playlist">
                 <i class="fa-solid fa-list-ul"></i>
                 <span>Playlist</span>
@@ -349,6 +353,12 @@ function injectMultiSelectToolbar() {
         if (cardUpdates?.checkSelectedCharacters) {
             cardUpdates.checkSelectedCharacters();
         }
+    });
+
+    // always on the background queue, whatever the media setting: a batch never holds the page
+    document.getElementById('multiSelectDownloadMediaBtn')?.addEventListener('click', () => {
+        const selection = MultiSelect.getSelection();
+        if (selection.count) CoreAPI.queueMediaDownloads(selection);
     });
 
     document.getElementById('multiSelectPlaylistBtn')?.addEventListener('click', () => {

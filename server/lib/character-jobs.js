@@ -38,7 +38,8 @@ export function startDeleteJob(db, paths, set, { expect } = {}) {
 export function startFavoriteJob(db, set, { value, origin }) {
     let changed = 0;
     return startSetJob(db, {
-        kind: 'favorite', label: value ? 'Favorite characters' : 'Unfavorite characters', origin, set,
+        // the write lands on each character's own row, so the set runs in storage order
+        kind: 'favorite', label: value ? 'Favorite characters' : 'Unfavorite characters', origin, set, storageOrder: true,
         step(job, next) {
             const ids = next(SET_WRITE_CHUNK);
             if (!ids.length) return false;
@@ -58,7 +59,7 @@ export function startFavoriteJob(db, set, { value, origin }) {
 export function startFlagsJob(db, flags, { origin }) {
     let changed = 0;
     return startSetJob(db, {
-        kind: 'flags', label: 'Set character flags', origin, set: flagMoversSet(flags),
+        kind: 'flags', label: 'Set character flags', origin, set: flagMoversSet(flags), storageOrder: true,
         step(job, next) {
             const ids = next(SET_WRITE_CHUNK);
             if (!ids.length) return false;

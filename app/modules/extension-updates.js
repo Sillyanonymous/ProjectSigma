@@ -103,7 +103,7 @@ function renderSection(el) {
             <div class="notif-header"><i class="fa-solid fa-puzzle-piece"></i><span>Extension updates</span></div>
             ${list.map(updateRow).join('')}
             <div class="notif-row-choices">
-                <button class="cl-btn cl-btn-primary cl-btn-sm" data-ext-updates-open title="Update them in Settings, Extensions">Open Extensions</button>
+                <button class="notif-choice is-primary" data-ext-updates-open title="Update them in Settings, Extensions">Open Extensions</button>
             </div>
         </div>`
         : '';
@@ -116,8 +116,7 @@ export async function startExtensionUpdates(shell) {
     _node = shell.registerNotificationSection({ id: 'extension-updates', getStatus: sectionStatus, onOpen: (node) => renderSection(node) });
     _node?.addEventListener('click', (e) => { if (e.target.closest('[data-ext-updates-open]')) shell.openExtensions(); });
     // an update or a check announces the installs it touched, this tab's own update included
-    registerFeedPatcher('extension', () => readUpdates());
-    registerFeedPatcher('extension', () => readUpdates(), { own: true });
+    registerFeedPatcher('extension', () => readUpdates(), { own: 'both' });
     // the switch saved here or in another tab: the bell follows it, and a check that is due runs
     const switched = (records) => !records || records.some(r => r.all || (r.ids || []).includes('notifyExtensionUpdates'));
     const onSwitch = (records) => {
@@ -126,15 +125,16 @@ export async function startExtensionUpdates(shell) {
         shell.refreshNotificationsUI();
         void lookIfDue();
     };
-    registerFeedPatcher('setting', onSwitch);
-    registerFeedPatcher('setting', onSwitch, { own: true });
+    registerFeedPatcher('setting', onSwitch, { own: 'both' });
     // Settings' Check for Updates: the reader asked, so the answer is said either way
     doc?.addEventListener('cl-extension-updates-check', async () => {
         try {
             const answer = await checkUpdates();
             const n = (answer?.extensions || []).filter(e => e.available).length;
             const failed = (answer?.extensions || []).filter(e => e.error).length;
-            const said = n ? `${n} extension${n === 1 ? ' has' : 's have'} an update` : 'Every extension is up to date';
+            // the band beside it words the empty answer the same way
+            const said = n ? `${n} extension${n === 1 ? ' has' : 's have'} an update`
+                : (answer?.extensions || []).length ? 'Every extension is up to date' : 'Nothing to check: no installed extension came from a repository';
             shell.showToast(failed ? `${said}; ${failed} could not be checked` : said, n || !failed ? 'success' : 'warning');
         } catch (e) {
             shell.showToast(`Could not check for updates: ${e.message}`, 'error');

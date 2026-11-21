@@ -264,12 +264,10 @@ class JanitoraiProvider extends ProviderBase {
                 } catch (e) {
                     recoveryError = e?.message || 'extraction failed';
                     console.warn('[JanitoraiProvider] definition recovery failed:', recoveryError);
-                    if (!options?.requireDefinition) {
-                        CoreAPI.showToast(`Could not recover the hidden definition: ${recoveryError}`, 'warning', 7000);
-                    }
                 }
             }
-            if (options?.requireDefinition && !definition && !recovered && hasHiddenDefinition(detail)) {
+            // a recovery that ran and failed, or came back empty, fails the import on its row: a card saved without it is silent corruption
+            if (!definition && !recovered && hasHiddenDefinition(detail) && (hasBrowserEndpoint() || options?.requireDefinition)) {
                 if (recoveryError) throw new Error(`Hidden definition recovery failed: ${recoveryError}`);
                 throw new Error(hasBrowserEndpoint()
                     ? 'Hidden definition recovery returned nothing'
@@ -290,6 +288,8 @@ class JanitoraiProvider extends ProviderBase {
             const avatarUrl = resolveJanitoraiAvatarUrl(detail, { preferOriginal: true });
             let imageBuffer = null;
             const missing = [];
+            // with no browser no recovery can run: the card comes in, and says what it came in without
+            if (!definition && !recovered && hasHiddenDefinition(detail)) missing.push('its hidden definition');
             if (avatarUrl) {
                 try {
                     const resp = await fetchWithProxy(avatarUrl);

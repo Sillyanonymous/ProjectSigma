@@ -325,13 +325,6 @@ function editorHtml(state, kinds, uid, { back }) {
     </div>`;
 }
 
-const ACTIONS = [
-    { act: 'duplicate', icon: 'fa-clone', label: 'Duplicate (key included)' },
-    { act: 'delete', icon: 'fa-trash', label: 'Delete', danger: true },
-];
-const actionItemsHtml = () => ACTIONS.map(a => `<button type="button" class="dropdown-item${a.danger ? ' danger' : ''}" data-sheet-act="${a.act}">
-    <i class="fa-solid ${a.icon}"></i><span>${esc(a.label)}</span></button>`).join('');
-
 // ========================================
 // MOUNT
 // ========================================
@@ -571,40 +564,14 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
         }
     };
 
-    const runAction = (act) => { if (act === 'duplicate') duplicate(); else if (act === 'delete') remove(); };
-
-    // the preset menu's shape: a dropdown placed from the button's rect on desktop, a bottom sheet on a phone
-    const openActions = () => {
-        if (CoreAPI.isMobileMode()) {
-            const sheet = CoreAPI.createMobileSheet();
-            if (!sheet) return;
-            sheet.sheet.insertAdjacentHTML('beforeend', '<div class="mobile-sheet-group-title">Connection</div>' + actionItemsHtml());
-            sheet.sheet.addEventListener('click', (e) => {
-                const btn = e.target.closest('[data-sheet-act]');
-                if (!btn) return;
-                sheet.close();
-                runAction(btn.dataset.sheetAct);
-            });
-            sheet.open();
-            return;
-        }
-        root.querySelector('.ce-menu')?.remove();
-        const anchor = root.querySelector('.ce-more');
-        root.insertAdjacentHTML('beforeend', `<div class="dropdown-menu ce-menu">${actionItemsHtml()}</div>`);
-        const menu = root.querySelector('.ce-menu');
-        const a = anchor.getBoundingClientRect();
-        const r = root.getBoundingClientRect();
-        menu.style.top = `${Math.round(a.bottom - r.top + 4)}px`;
-        menu.style.right = `${Math.max(4, Math.round(r.right - a.right))}px`;
-        const closeMenu = () => { menu?.remove(); document.removeEventListener('click', outside, true); };
-        const outside = (ev) => { if (!ev.target.closest('.ce-menu, .ce-more')) closeMenu(); };
-        document.addEventListener('click', outside, true);
-        menu.addEventListener('click', (ev) => {
-            const btn = ev.target.closest('[data-sheet-act]');
-            if (!btn) return;
-            closeMenu();
-            runAction(btn.dataset.sheetAct);
-        });
+    // the shared menu under the More, so a menu opened from the keyboard stands where the button is; a phone gets its sheet
+    const openActions = (e, btn) => {
+        const r = btn.getBoundingClientRect();
+        CoreAPI.getModule('context-menu')?.showItems?.(e, [
+            { type: 'header', label: 'Connection' },
+            { icon: 'fa-solid fa-clone', label: 'Duplicate (key included)', action: duplicate },
+            { icon: 'fa-solid fa-trash', label: 'Delete', className: 'danger', action: remove },
+        ], { x: r.left, y: r.bottom + 4 });
     };
 
     root.addEventListener('click', (e) => {
@@ -617,7 +584,7 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
             case 'models': return listModels();
             case 'close': return close();
             case 'reload': return onReload?.();
-            case 'more': return openActions();
+            case 'more': return openActions(e, btn);
             case 'key-replace': state.keyMode = 'replace'; return renderKeyRow();
             case 'key-remove': state.keyMode = 'remove'; return renderKeyRow();
             case 'key-keep': state.keyMode = 'keep'; return renderKeyRow();

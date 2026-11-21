@@ -55,6 +55,11 @@ export const CHAT_PURIFY_CONFIG = {
     ALLOWED_ATTR: [...BROWSE_PURIFY_CONFIG.ALLOWED_ATTR],
     ALLOW_DATA_ATTR: false
 };
+// frozen with their lists, so safePurify reads each once
+for (const config of [BROWSE_PURIFY_CONFIG, CHAT_PURIFY_CONFIG]) {
+    for (const list of Object.values(config)) if (Array.isArray(list)) Object.freeze(list);
+    Object.freeze(config);
+}
 
 // n shimmer rows, last two tapered so it reads as a paragraph not a bar block.
 export function skeletonLines(n = 3) {

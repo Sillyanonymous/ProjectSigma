@@ -190,9 +190,9 @@ function buildModalHTML() {
             </div>
             <div class="cl-modal-body ccss-body">
                 <div class="ccss-toolbar">
-                    <div class="ccss-mode-toggle" role="tablist">
-                        <button class="ccss-mode-btn" data-mode="snippets" role="tab"><i class="fa-solid fa-layer-group"></i> Snippets</button>
-                        <button class="ccss-mode-btn" data-mode="raw" role="tab"><i class="fa-solid fa-code"></i> Raw</button>
+                    <div class="ccss-mode-toggle cl-seg" role="tablist">
+                        <button class="ccss-mode-btn cl-seg-btn" data-mode="snippets" role="tab"><i class="fa-solid fa-layer-group"></i> Snippets</button>
+                        <button class="ccss-mode-btn cl-seg-btn" data-mode="raw" role="tab"><i class="fa-solid fa-code"></i> Raw</button>
                     </div>
                     <div class="ccss-toolbar-spacer"></div>
                     <span id="ccssDirtyIndicator" class="ccss-dirty-indicator" hidden><i class="fa-solid fa-circle"></i> Unapplied changes</span>

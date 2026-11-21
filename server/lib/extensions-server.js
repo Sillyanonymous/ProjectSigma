@@ -280,7 +280,7 @@ export function buildServerCtx(row, stores, mount = { open: true }) {
         hooks: Object.freeze({ add: (name, fn, opts) => addHook(row, name, fn, opts) }),
         // {{name}} in a prompt: a function, or { args, list, strict, handler }, called with the build's facts
         macros: Object.freeze({ add: (name, macro) => addMacro(row, name, macro) }),
-        // a block of each prompt build, and a chat read as its prompt reads it (read, names, visible, fence)
+        // a block of each prompt build, and a chat's names, stored history and macros (read, names, visible, fence)
         prompt: Object.freeze({
             addBlock: (spec) => addPromptBlock(row, spec),
             read: (db, chatId) => readChatForPrompt(db, chatId),

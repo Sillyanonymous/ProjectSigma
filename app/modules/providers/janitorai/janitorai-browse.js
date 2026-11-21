@@ -118,7 +118,7 @@ let jaNoticeArgs = null;          // the last setHiddenNotice call, replayed the
 
 function isCharPossibleMatchObj(hit) {
     if (view.isHitInLibrary(hit)) return false;
-    return view.isCharPossibleMatch(hit?.name || '', hit?.creator_name || '');
+    return view.isHitPossibleMatch(hit);
 }
 
 // ========================================
@@ -134,7 +134,7 @@ function createCard(hit) {
     const charId = hit.character_id || '';
     const creatorName = hit.creator_name || '';
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(name, creatorName);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(hit);
 
     const badges = [];
     const importing = view.importingBadge(hit);
@@ -147,7 +147,7 @@ function createCard(hit) {
     const cardClass = libraryCardClass(inLibrary, possibleTier);
 
     return `
-        <div class="${cardClass}" data-janitorai-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)} ${desc ? `title="${escapeHtml(desc.slice(0, 300))}"` : ''}>
+        <div class="${cardClass}" data-janitorai-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)}${view.matchAttr(hit)} ${desc ? `title="${escapeHtml(desc.slice(0, 300))}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${badges.length ? `<div class="browse-feature-badges">${badges.join('')}</div>` : ''}
@@ -551,7 +551,7 @@ function openPreviewModal(hit) {
     view.trackPreview(() => {
         if (jaSelectedChar !== hit || !jaImportBtnArgs) return;
         const inLibraryNow = view.isHitInLibrary(hit);
-        setImportButtonState(inLibraryNow, !inLibraryNow && view.isCharPossibleMatch(hit.name || 'Unknown', hit.creator_name || ''), jaImportBtnArgs[2]);
+        setImportButtonState(inLibraryNow, !inLibraryNow && view.isHitPossibleMatch(hit), jaImportBtnArgs[2]);
     }, hit);
     CoreAPI.resetBrowseSectionCollapseState(modal);
 
@@ -559,7 +559,7 @@ function openPreviewModal(hit) {
     const charId = hit.character_id || hit.id || '';
     const avatarUrl = resolveJanitoraiAvatarUrl(hit) || '/img/no-portrait.png';
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleMatch = !inLibrary && view.isCharPossibleMatch(name, hit.creator_name || '');
+    const possibleMatch = !inLibrary && view.isHitPossibleMatch(hit);
 
     const avatarImg = document.getElementById('janitoraiCharAvatar');
     BrowseView.setPreviewPortrait(avatarImg, avatarUrl);
@@ -1011,7 +1011,7 @@ async function fetchAndPopulateDetails(hit, token) {
             : null, isLockedNoProxy(detail, hit));
         // The import path branches on the detail (public vs recovery), and it just arrived.
         const inLib = view.isHitInLibrary(hit);
-        setImportButtonState(inLib, !inLib && view.isCharPossibleMatch(name, detail.creator_name || hit.creator_name || ''));
+        setImportButtonState(inLib, !inLib && view.isHitPossibleMatch(hit));
 
         // The listing truncates description, so replace it with the detail's full copy.
         const fullNotes = decodeHtmlEntities(detail.description || '');
@@ -1244,6 +1244,8 @@ async function importCharacter(hit) {
                     description: detail?.personality || '',
                     first_mes: detail?.first_message || '',
                     scenario: detail?.scenario || '',
+                    // the public description, which the card builder keeps as the creator notes: a hidden definition still has it
+                    creator_notes: detail?.description || '',
                 },
                 dialog: { name: charName, creator: charCreator, fullPath: String(charId), avatarUrl: resolveJanitoraiAvatarUrl(detail || hit) || '/img/no-portrait.png' },
                 name: charName,
@@ -1827,7 +1829,7 @@ class JanitoraiBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: hit?.name || '', creator: hit?.creator_name || '' };
+        return { name: hit?.name || '', creator: hit?.creator_name || '', text: hit?.description || '' };
     }
 
     hitLinkKey(hit) {

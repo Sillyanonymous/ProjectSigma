@@ -308,83 +308,6 @@ label.card-update-list-head {
     display: none;
 }
 
-/* Side-by-side diff view */
-.card-update-diff-sidebyside {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.card-update-diff-panel {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.card-update-diff-panel.local {
-    border-right: 1px solid var(--cl-ghost-mid);
-}
-
-.card-update-diff-panel-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs-sm);
-    padding: var(--space-xs-sm) var(--space-sm-md);
-    font-size: var(--font-xs);
-    color: var(--text-secondary);
-    border-bottom: 1px solid var(--cl-ghost-mid);
-}
-
-.card-update-diff-panel.local .card-update-diff-panel-header i {
-    color: var(--cl-error-pale);
-}
-
-.card-update-diff-panel.remote .card-update-diff-panel-header i {
-    color: var(--cl-success-pale);
-}
-
-.card-update-diff-panel-content {
-    font-family: var(--font-stack-mono);
-    font-size: var(--font-sm);
-    line-height: 1.6;
-}
-
-.card-update-diff-panel-content .diff-line {
-    padding: var(--space-2xs) var(--space-sm-md);
-    white-space: pre-wrap;
-    word-break: break-word;
-    min-height: 1.6em;
-    border-left: 3px solid transparent;
-}
-
-.card-update-diff-panel-content .diff-line.empty {
-    background: var(--cl-ghost-faint);
-}
-
-.card-update-diff-panel.local .diff-line.changed,
-.card-update-diff-panel.local .diff-line.removed {
-    background: rgba(var(--cl-error-rgb), 0.12);
-    border-left-color: var(--cl-error);
-}
-
-.card-update-diff-panel.remote .diff-line.changed,
-.card-update-diff-panel.remote .diff-line.added {
-    background: rgba(var(--cl-success-rgb), 0.12);
-    border-left-color: var(--cl-success);
-}
-
-/* Word-level highlighting within side-by-side panels */
-/* no inset of their own, so a run of changed words reads as one band */
-.card-update-diff-panel-content .word-removed {
-    background: rgba(var(--cl-error-rgb), 0.35);
-    color: var(--text-primary);
-    text-decoration: line-through;
-}
-
-.card-update-diff-panel-content .word-added {
-    background: rgba(var(--cl-success-rgb), 0.35);
-    color: var(--text-primary);
-}
-
 /* ---- batch, step one: which fields to compare ---- */
 .card-update-fields {
     display: flex;
@@ -956,16 +879,8 @@ html.cl-mobile .card-update-diff-stats {
     padding-left: calc(var(--cu-check) + var(--space-sm));
 }
 
-html.cl-mobile .card-update-array-diff,
-html.cl-mobile .card-update-diff-sidebyside {
+html.cl-mobile .card-update-array-diff {
     grid-template-columns: minmax(0, 1fr);
-}
-html.cl-mobile .card-update-diff-panel.local {
-    border-right: none;
-    border-bottom: 1px solid var(--cl-ghost-mid);
-}
-html.cl-mobile .card-update-diff-panel-content {
-    font-size: var(--font-xs);
 }
 
 html.cl-mobile .card-update-field-grid {

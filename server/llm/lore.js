@@ -504,11 +504,17 @@ export function selectLore(worlds, historyTexts, opts = {}) {
 
     const suppressed = [];
     const suppressedSeen = new Set();
+    // the overflow never lifts, so an entry held for the budget stays held for it: no later pass's reason goes over it
+    const overBudget = new Set();
+    /** Records why an entry was held; true when the reason is new for it. */
     const suppress = (r, reason) => {
+        if (overBudget.has(r)) return false;
         const id = `${r.world}::${r.entry.uid}::${reason}`;
-        if (suppressedSeen.has(id)) return;
+        if (suppressedSeen.has(id)) return false;
         suppressedSeen.add(id);
+        if (reason === 'budget') overBudget.add(r);
         suppressed.push({ world: r.world, uid: r.entry.uid, reason });
+        return true;
     };
 
     // ---------------------------------------------------------- timed effects
@@ -922,16 +928,12 @@ export function selectLore(worlds, historyTexts, opts = {}) {
         // the budget walk
         const base = budgetOn ? estimateTokens(baseText) : 0;
         let accumulated = '';
-        let exempt = 0;
-        for (const r of cands) if (r.entry.ignoreBudget) exempt++;
         for (const r of cands) {
             const e = r.entry;
-            if (e.ignoreBudget) exempt--;
+            // past the overflow only what ignores the budget is placed; every other candidate is held for it, and counted once
             if (overflowed && !e.ignoreBudget) {
-                dropped++;
-                suppress(r, 'budget');
-                if (exempt > 0) continue;
-                break;
+                if (suppress(r, 'budget')) dropped++;
+                continue;
             }
             if (e.useProbability && typeof e.probability === 'number' && e.probability !== 100 && !isSticky(r)) {
                 if (dryRun) {
@@ -946,8 +948,7 @@ export function selectLore(worlds, historyTexts, opts = {}) {
             accumulated += r.placed + '\n';
             if (budgetOn && !e.ignoreBudget && base + estimateTokens(accumulated) >= budgetTokens) {
                 overflowed = true;
-                dropped++;
-                suppress(r, 'budget');
+                if (suppress(r, 'budget')) dropped++;
                 continue;
             }
             activated.set(r.key, r);

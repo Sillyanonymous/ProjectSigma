@@ -99,43 +99,7 @@
     display: none;
 }
 
-/* ChubAI View Toggle (Browse/Timeline) */
-.browse-view-toggle {
-    display: flex;
-    background: var(--cl-shade-30);
-    border-radius: var(--radius-lg);
-    padding: var(--space-xs);
-    gap: var(--space-2xs);
-    border: 1px solid var(--glass-border);
-}
-
-.browse-view-btn {
-    padding: var(--space-sm) var(--space-md-lg);
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-radius: var(--radius-md);
-    font-size: var(--font-md);
-    font-weight: 500;
-    transition: all var(--dur-base) ease;
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs-sm);
-    white-space: nowrap;
-}
-
-.browse-view-btn:hover {
-    color: var(--text-primary);
-    background: var(--cl-ghost-mid);
-}
-
-.browse-view-btn.active {
-    background: var(--accent);
-    color: var(--accent-text);
-    box-shadow: 0 2px 8px var(--accent-glow);
-}
-
+/* the mode toggle (a cl-seg) sets its glyph a step under its label */
 .browse-view-btn i {
     font-size: var(--font-sm);
 }
@@ -2854,11 +2818,6 @@ html.cl-mobile .browse-char-modal .modal-controls .cl-btn:not(.mobile-more-actio
     .browse-view-btn {
         padding: var(--space-xs-sm) var(--space-sm-md);
         font-size: var(--font-sm);
-    }
-
-    .browse-view-toggle {
-        padding: var(--space-2xs);
-        gap: var(--space-2xs);
     }
 }
 

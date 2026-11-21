@@ -485,21 +485,11 @@
     text-overflow: ellipsis;
 }
 
-/* quieter than the status column: the toggle is occasional, the status is what you read */
-.clp-icon {
-    background: none;
-    border: 0;
-    padding: var(--space-2xs);
-    cursor: pointer;
-    color: var(--text-faint);
-    font-size: var(--font-2xs);
-    opacity: 0.4;
-    flex-shrink: 0;
-    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease;
-}
+/* the family's .cl-cwin-act, quieter than the status column: the toggle is occasional, the status is what you read */
+.clp-icon { color: var(--text-faint); }
 
 .clp-entry:hover .clp-icon, .clp-book-head:hover .clp-icon { opacity: 0.75; }
-.clp-icon:hover { opacity: 1; color: var(--accent); }
+.clp-icon:hover { opacity: 1; }
 
 .clp-none, .clp-dim {
     font-size: var(--font-3xs);
@@ -734,7 +724,7 @@
     gap: var(--space-2xs) var(--space-sm);
 }
 
-.clp-check-grid .clp-check { font-size: var(--font-2xs); }
+.clp-check-grid .cl-cwin-pick { font-size: var(--font-2xs); }
 
 /* ---- Not yet honoured ---- */
 
@@ -802,15 +792,6 @@
     line-height: 1.45;
 }
 
-.clp-check {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2xs);
-    font-size: var(--font-xs);
-    color: var(--text-secondary);
-    cursor: pointer;
-}
-
 .clp-editor-actions {
     display: flex;
     justify-content: flex-end;
@@ -876,66 +857,6 @@
    ======================================== */
 
 /* the card's own book, where the engine never looks: .clp-book's geometry, warning toned since accent means LIVE */
-.clp-embedded {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-sm);
-    padding: var(--space-sm) var(--space-sm-md);
-    border: 1px solid color-mix(in srgb, var(--cl-warning) 34%, transparent);
-    border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--cl-warning) 8%, var(--cl-veil-1));
-}
-
-.clp-embedded-glyph {
-    flex-shrink: 0;
-    margin-top: 1px;
-    font-size: var(--font-md);
-    color: var(--cl-warning);
-}
-
-.clp-embedded-text { flex: 1; min-width: 0; }
-
-.clp-embedded-title {
-    margin: 0 0 var(--space-2xs);
-    font-size: var(--font-xs);
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.clp-embedded-body {
-    margin: 0;
-    font-size: var(--font-2xs);
-    line-height: 1.45;
-    color: var(--text-secondary);
-}
-
-/* under the text: a side column narrow enough for Import left the second action dangling as debris */
-.clp-embedded-acts {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-top: var(--space-xs);
-}
-
-/* Leaving it embedded is a real answer, so it is a real button, just not the one being
-   offered: quiet until approached. */
-.clp-embedded-dismiss {
-    padding: var(--space-xs) var(--space-xs);
-    border: none;
-    border-radius: var(--radius-sm);
-    background: none;
-    color: var(--text-muted);
-    font-size: var(--font-2xs);
-    cursor: pointer;
-    transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
-}
-
-.clp-embedded-dismiss:hover {
-    color: var(--text-secondary);
-    background: var(--cl-veil-2);
-}
-
 /* ========================================
    MOBILE
    ======================================== */
@@ -944,25 +865,19 @@ html.cl-mobile .clp-nh-row .clp-input { min-height: 0; }
 
 html.cl-mobile .clp-body { padding-bottom: max(var(--space-md), var(--safe-bottom)); }
 
-/* Dense row chrome takes the slim tier: the on/off toggle and per-book add were text-size
-   targets with 2px of padding. */
-html.cl-mobile .clp-icon,
+/* the source chips take the slim tier the row's icon verbs get from .cl-cwin-act */
 html.cl-mobile .clp-src {
     min-width: var(--touch-target-slim);
     min-height: var(--touch-target-slim);
     opacity: 0.75;
 }
 
+html.cl-mobile .clp-icon { opacity: 0.75; }
+
 html.cl-mobile .clp-crumb-back,
 html.cl-mobile .clp-chip {
     min-height: var(--touch-target-slim);
     touch-action: manipulation;
-}
-
-/* The quiet answer still has to be tappable: 18px of text is not a target. */
-html.cl-mobile .clp-embedded-dismiss {
-    min-height: var(--touch-target-slim);
-    padding-inline: var(--space-sm);
 }
 
 /* phone: keys and tags one tier up (4xs is under nine pixels here); tags are labels, no tap height */

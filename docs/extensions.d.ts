@@ -46,7 +46,7 @@ export interface ClientExtension {
 /** What init is handed: api 2, the part promised not to break casually. */
 export interface ExtensionContext {
     /** The host's extension api, '<major>.<minor>': the minor counts the batches of doors added within the major. */
-    readonly apiVersion: '2.7';
+    readonly apiVersion: '2.8';
     /** Your row in the server's inventory: its reading of your manifest.json. */
     readonly manifest: ManifestRow;
     /** The facade the app's own modules use, every function it exports; not typed here. What you register through onViewEnter, onViewExit, onCharactersDeleted, storeWatch or onJob answers its removal and is undone when you are switched off; a notifications section from registerNotificationSection answers its node and is taken out then too, or sooner by removeNotificationSection(id); its id is yours alone, held under your extension's name, so it never replaces the app's section or another extension's. */
@@ -765,6 +765,8 @@ export interface ServerStores {
     readonly personas: StoreModule;
     readonly playlists: StoreModule;
     readonly presets: StoreModule;
+    /** Regex scripts: your own list, each preset's, and whether a preset's or a character's list may run. */
+    readonly regex: StoreModule;
     readonly setJobs: StoreModule;
     readonly settings: StoreModule;
     readonly stats: StoreModule;
@@ -887,7 +889,7 @@ export interface MacroFacts {
 export interface ServerPrompt {
     /** A block of your own text in every chat prompt. Answers the removal. */
     addBlock(spec: PromptBlockSpec): () => void;
-    /** A chat as its prompt reads it; null for a chat that does not exist. */
+    /** A chat's names, the messages its prompt is written from as stored, and its macros; null for a chat that does not exist. */
     read(db: Database, chatId: string): ChatForPrompt | null;
     /** The two names alone, for a caller that reads the messages itself; null for a chat that does not exist. */
     names(db: Database, chatId: string): ChatNames | null;
@@ -934,7 +936,7 @@ export interface ChatNames {
 }
 
 export interface ChatForPrompt extends ChatNames {
-    /** The messages a reply is written from, oldest first, each with its id and its place. */
+    /** The messages a reply is written from, oldest first, each with its id and place; each msg as stored, without the prompt or screen regex passes. */
     history: Array<{ id: number; seq: number; msg: Message }>;
     /** Expands the chat's macros in text of yours. */
     expand(text: string): string;
@@ -1188,6 +1190,8 @@ export interface ReportRecord {
 export interface PromptMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
+    /** A speaker name sent with the message. The app sets none (an example turn keeps its speaker in its text); one you set is sent as it is. */
+    name?: string;
     /** Pictures the model reads with a user's message. */
     images?: PromptImage[];
 }
@@ -1547,6 +1551,8 @@ export interface ChangeVocabulary {
     persona: 'created' | 'updated' | 'deleted';
     playlist: 'created' | 'updated' | 'deleted';
     preset: 'created' | 'updated' | 'deleted';
+    regexConsent: 'updated';
+    regexScript: 'created' | 'updated' | 'deleted';
     setting: 'updated';
     studioSession: 'created' | 'updated' | 'deleted';
     tag: 'updated' | 'deleted';
@@ -1561,7 +1567,7 @@ export interface ChangeVocabulary {
 export type ChangeEntity = keyof ChangeVocabulary;
 
 /** The entities a library write reports: what the store guards see and ctx.report reports. */
-export type LibraryWriteEntity = 'assistantSession' | 'attachment' | 'background' | 'backgroundBinding' | 'character' | 'chat' | 'document' | 'llmProfile' | 'media' | 'mediaJob' | 'message' | 'persona' | 'playlist' | 'preset' | 'setting' | 'studioSession' | 'tag' | 'tagRun' | 'version' | 'world' | 'worldEntry' | 'worldLink';
+export type LibraryWriteEntity = 'assistantSession' | 'attachment' | 'background' | 'backgroundBinding' | 'character' | 'chat' | 'document' | 'llmProfile' | 'media' | 'mediaJob' | 'message' | 'persona' | 'playlist' | 'preset' | 'regexConsent' | 'regexScript' | 'setting' | 'studioSession' | 'tag' | 'tagRun' | 'version' | 'world' | 'worldEntry' | 'worldLink';
 
 /** A store guard's name: one per entity and op a library write reports. */
 export type StoreGuardName =
@@ -1603,6 +1609,10 @@ export type StoreGuardName =
     | 'store.before.preset.created'
     | 'store.before.preset.updated'
     | 'store.before.preset.deleted'
+    | 'store.before.regexConsent.updated'
+    | 'store.before.regexScript.created'
+    | 'store.before.regexScript.updated'
+    | 'store.before.regexScript.deleted'
     | 'store.before.setting.updated'
     | 'store.before.studioSession.created'
     | 'store.before.studioSession.updated'

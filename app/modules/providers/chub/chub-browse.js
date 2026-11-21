@@ -11,6 +11,7 @@ import {
 import CoreAPI from '../../core-api.js';
 import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, deferRender, deferCall, isMobileMode, importThroughCommand, proxiedUrl, readJsonClassified, renderBrowseError, definitionFailedNotice } from '../provider-utils.js';
 import {
+    fetchChubMetadata,
     CHUB_API_BASE,
     CHUB_GATEWAY_BASE,
     CHUB_AVATAR_BASE,
@@ -148,9 +149,7 @@ let view; // module-scoped BrowseView instance reference (set once in constructo
 
 function isCharPossibleMatchObj(c) {
     if (view.isHitInLibrary(c)) return false;
-    const name = c.name || '';
-    const creator = (c.fullPath || c.full_path || '').split('/')[0] || '';
-    return view.isCharPossibleMatch(name, creator);
+    return view.isHitPossibleMatch(c);
 }
 
 function getChubFullPath(char) {
@@ -179,7 +178,7 @@ class ChubBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: hit.name || '', creator: (hit.fullPath || hit.full_path || '').split('/')[0] || '' };
+        return { name: hit.name || '', creator: (hit.fullPath || hit.full_path || '').split('/')[0] || '', text: hit.description || '' };
     }
 
     hitLinkKey(hit) {
@@ -2821,7 +2820,7 @@ function createChubCard(char) {
     const avatarUrl = char.avatar_url || (fullPath ? `https://avatars.charhub.io/avatars/${fullPath}/avatar.webp` : '/img/no-portrait.png');
 
     const inLibrary = view.isHitInLibrary(char);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(char.name || '', creatorName);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(char);
 
     const tags = (char.topics || []);
     
@@ -2844,7 +2843,7 @@ function createChubCard(char) {
     const taglineTooltip = char.tagline ? escapeHtml(char.tagline) : '';
     
     return `
-        <div class="${cardClass}" data-full-path="${escapeHtml(fullPath)}"${view.linkKeyAttr(char)} ${taglineTooltip ? `title="${taglineTooltip}"` : ''}>
+        <div class="${cardClass}" data-full-path="${escapeHtml(fullPath)}"${view.linkKeyAttr(char)}${view.matchAttr(char)} ${taglineTooltip ? `title="${taglineTooltip}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${char.nsfw ? '<span class="browse-nsfw-badge">NSFW</span>' : ''}
@@ -3032,10 +3031,7 @@ async function openChubCharPreview(char) {
     if (galleryGrid) galleryGrid.innerHTML = '';
     
     // Import button state, kept in step with the library while the preview is open
-    const restampImport = () => {
-        const inLibraryNow = view.isHitInLibrary(char);
-        view.stampImportButton(document.getElementById('chubDownloadBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && !!view.getPossibleMatchTier(char.name || '', creatorName)?.show });
-    };
+    const restampImport = () => view.stampPreviewImport(document.getElementById('chubDownloadBtn'), char);
     restampImport();
     view.trackPreview(restampImport, char);
     
@@ -3435,20 +3431,26 @@ async function downloadChubCharacter() {
     const fullPath = hit.fullPath;
     const characterName = hit.name || fullPath.split('/').pop();
     const characterCreator = fullPath.split('/')[0] || '';
-    // the preview's cached detail, so the duplicate check compares definitions, not blurbs
-    const cachedDetail = chubDetailCache.get(fullPath);
-    const definition = cachedDetail?.definition;
     await view.importFromPreview({
         button: document.getElementById('chubDownloadBtn'), hit, provider: 'chub', id: fullPath, data: hit, label: 'ChubDownload',
         closePreview: closeChubCharPreview,
-        probe: {
-            name: characterName, creator: characterCreator, fullPath,
-            description: cachedDetail?.description || hit.description || '',
-            first_mes: definition?.first_message || definition?.first_mes || '',
-            personality: definition?.personality || '',
-            scenario: definition?.scenario || '',
+        prepare: async () => {
+            // the duplicate check compares definitions: a Download pressed before the preview's detail lands reads the metadata the import reads
+            const cachedDetail = chubDetailCache.get(fullPath);
+            const definition = cachedDetail?.definition || (await fetchChubMetadata(fullPath).catch(() => null))?.definition || {};
+            return {
+                // its fields as the card builder maps chub's: the body is definition.personality, the public description the creator notes
+                probe: {
+                    name: characterName, creator: characterCreator, fullPath,
+                    description: definition.personality || '',
+                    personality: definition.tavern_personality || '',
+                    first_mes: definition.first_message || definition.first_mes || '',
+                    scenario: definition.scenario || '',
+                    creator_notes: cachedDetail?.description || definition.description || '',
+                },
+                dialog: { name: characterName, creator: characterCreator, fullPath, avatarUrl: hit.avatar_url || `${CHUB_AVATAR_BASE}${fullPath}/avatar.webp` },
+            };
         },
-        dialog: { name: characterName, creator: characterCreator, fullPath, avatarUrl: hit.avatar_url || `${CHUB_AVATAR_BASE}${fullPath}/avatar.webp` },
     });
 }
 

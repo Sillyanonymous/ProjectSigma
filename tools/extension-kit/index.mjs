@@ -82,6 +82,13 @@ export async function startSigma({ extensions = [], accounts = null, prefix = 's
     const installed = folders.map(f => f.id);
     if (setup) await setup(dataDir);
 
+    // a server module imported before startSigma read its data folder then, and the server reads it once
+    const { config } = await serverModule('config.js');
+    if (config.dataDir !== path.resolve(dataDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        throw new Error(`startSigma: the server was loaded before the kit set its data folder, so it would open ${config.dataDir}; import server modules after startSigma`);
+    }
+
     const { writeCardChunks } = await serverModule('lib/png-card.js');
     const { openDb, closeDb } = await serverModule('db/database.js');
     const serverStore = await serverModule('db/server-store.js');

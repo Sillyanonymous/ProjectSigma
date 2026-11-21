@@ -25,6 +25,8 @@ export const CHANGE_VOCABULARY = Object.freeze(Object.fromEntries(Object.entries
     persona: ['created', 'updated', 'deleted'],
     playlist: ['created', 'updated', 'deleted'],
     preset: ['created', 'updated', 'deleted'],
+    regexConsent: ['updated'],
+    regexScript: ['created', 'updated', 'deleted'],
     setting: ['updated'],
     studioSession: ['created', 'updated', 'deleted'],
     tag: ['updated', 'deleted'],

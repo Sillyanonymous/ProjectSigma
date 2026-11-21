@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import { guardedFetch, readBodyCapped, RELAY_MAX_BYTES } from '../lib/net-guard.js';
 import { setRelayedType } from '../services/shared.js';
+import { closeSignal } from '../lib/request-guard.js';
 
 // CORS pass-through, bytes verbatim, mounted before the json parser; every hop through guardedFetch
 const TIMEOUT_MS = 60_000;
@@ -32,13 +33,12 @@ proxyRouter.use(express.raw({ type: () => true, limit: '100mb' }), async (req, r
 
     // the upstream call ends when the client's does: a browser that navigated away must
     // not keep a 200MB download running on its behalf
-    const gone = new AbortController();
-    res.on('close', () => { if (!res.writableEnded) gone.abort(); });
+    const gone = closeSignal(res);
     try {
         const init = {
             method: req.method,
             headers,
-            signal: AbortSignal.any([gone.signal, AbortSignal.timeout(TIMEOUT_MS)]),
+            signal: AbortSignal.any([gone, AbortSignal.timeout(TIMEOUT_MS)]),
         };
         if (req.method !== 'GET' && req.method !== 'HEAD' && Buffer.isBuffer(req.body) && req.body.length) {
             init.body = req.body;
@@ -51,7 +51,7 @@ proxyRouter.use(express.raw({ type: () => true, limit: '100mb' }), async (req, r
         setRelayedType(res, upstream);
         res.send(buf);
     } catch (err) {
-        if (gone.signal.aborted) return;
+        if (gone.aborted) return;
         if (err?.statusCode === 403) return res.status(403).json({ error: err.message });
         res.status(502).json({ error: err.name === 'TimeoutError' ? 'upstream timed out' : err.message });
     }

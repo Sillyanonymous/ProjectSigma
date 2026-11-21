@@ -23,7 +23,7 @@ const LOOKS = Object.freeze({
 /** @param {unknown} e */
 const why = (e) => (e instanceof Error ? e.message : String(e));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const fileNameOf = (name) => `${String(name).trim().replace(/[^\w -]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'style'}.md`;
+const fileNameOf = (name) => `${String(name).trim() || 'style'}.md`;
 // a labelled button: the label and the attributes are markup the caller wrote, never a reader's text
 const buttonHtml = (cls, attrs, icon, label) => `<button type="button" class="${cls}" ${attrs}>${icon ? `<i class="fa-solid ${icon}" aria-hidden="true"></i>` : ''}<span>${label}</span></button>`;
 

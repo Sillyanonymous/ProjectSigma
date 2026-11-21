@@ -18,6 +18,10 @@ import { deleteAllMediaFiles } from './media-store.js';
 import { attachmentsHeldBy, removeAttachmentFiles } from './attachments-store.js';
 import { UUID_RE } from '../lib/uuid.js';
 import { httpError } from '../lib/http-error.js';
+import { finishSteps } from '../lib/steps.js';
+import { writeFingerprint, fingerprintsOf } from './fingerprint-index.js';
+import { pairJudge } from './duplicate-judge.js';
+import { cardFingerprint, isSameCharacter } from '../lib/duplicate-match.js';
 
 const NS_FIELD_RE = new RegExp(`^extensions\\.(${NS_SEGMENT})(?:\\.(.+))?$`);
 
@@ -123,6 +127,7 @@ export function upsertImportedCharacter(db, { card, fav, updateLocked = false, l
                 INSERT INTO characters (id, card, fav, update_locked, lore_dismissed, media_localized, token_estimate, content_hash, created_at, imported_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(id, JSON.stringify(card), fav ? 1 : 0, updateLocked ? 1 : 0, loreDismissed ? 1 : 0, mediaLocalized ? 1 : 0, computeTokenEstimate(card.data), cardContentHash(card), createdAt ?? now, now, now);
+            writeFingerprint(db, id, card.data);
         } else {
             const row = db.prepare('SELECT card, fav, update_locked, content_hash FROM characters WHERE id = ?').get(id);
             const stored = JSON.parse(row?.card || '{}');
@@ -159,6 +164,7 @@ export function upsertImportedCharacter(db, { card, fav, updateLocked = false, l
             if (flagMoved.fav) { sets.push('fav = ?'); vals.push(newFav); }
             if (flagMoved.update_locked) { sets.push('update_locked = ?'); vals.push(newLocked); }
             if (sets.length) db.prepare(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+            if (cardMoved) writeFingerprint(db, id, card.data);
             healed = { contentMoved, flagMoved, stored: storedData };
         }
 
@@ -804,8 +810,9 @@ export const CARD_ROOT_FIELDS = new Set([
 
 /**
  * A partial update (null: unknown id): card dot-paths, null deleting, and flag columns. Only what moves is written; only card content moves updated_at.
+ * @param {{ answer?: boolean }} [how] answer false skips reading the character back, true answered instead
  */
-export function patchCharacter(db, id, { fields = {}, fav, mediaLocalized, loreDismissed } = {}) {
+export function patchCharacter(db, id, { fields = {}, fav, mediaLocalized, loreDismissed } = {}, { answer = true } = {}) {
     for (const fieldPath of Object.keys(fields)) {
         const root = String(fieldPath).split('.')[0];
         if (!CARD_ROOT_FIELDS.has(root)) {
@@ -894,6 +901,7 @@ export function patchCharacter(db, id, { fields = {}, fav, mediaLocalized, loreD
         if (contentMoved) { sets.push('updated_at = ?'); vals.push(Date.now()); }
         if (!sets.length && !moved.size) return;
         if (sets.length) db.prepare(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+        if (cardMoved) writeFingerprint(db, id, card.data);
 
         // the record names what moved: a card path when the card did, a diverted key when its rows did, a flag when its column did
         const flagOfKey = { 'extensions.fav': 'fav', 'extensions.update_locked': 'update_locked' };
@@ -903,7 +911,7 @@ export function patchCharacter(db, id, { fields = {}, fav, mediaLocalized, loreD
         }
         emitChange(db, { entity: 'character', op: 'updated', ids: [id], fields: named });
     })();
-    return getCharacter(db, id);
+    return answer ? getCharacter(db, id) : true;
 }
 
 // a PATCH key that writes rows or a column instead of the card
@@ -1041,6 +1049,7 @@ export function promoteKnownNamespaces(db) {
             // storage-shape move, not a user edit: updated_at stays put
             db.prepare('UPDATE characters SET card = ?, content_hash = ? WHERE id = ?')
                 .run(JSON.stringify(card), cardContentHash(card), row.id);
+            writeFingerprint(db, row.id, card.data);
         }
         return rows.length === PROMOTE_PAGE ? rows[rows.length - 1].rid : null;
     });
@@ -1116,43 +1125,6 @@ function forgetNamePreferences(db, ids) {
     if (!held.length) return;
     for (const id of held) delete prefs[id];
     patchSettings(db, { namePreferences: prefs });
-}
-
-// every cut of the candidate before a boundary, four chars or longer: "Scar - The Dark King" asks "Scar", "Scar -", "Scar - The Dark"
-const NAME_BOUNDARY = [' ', '-', '|', ':', ',', '.'];
-function wordStems(name) {
-    const out = new Set();
-    for (let i = 4; i < name.length; i++) {
-        if (!NAME_BOUNDARY.includes(name[i])) continue;
-        const stem = name.slice(0, i).trim();
-        if (stem.length >= 4 && stem !== name) out.add(stem);
-    }
-    return [...out];
-}
-
-/**
- * "Who could this be": per name, characters and listing page names equal to it, starting with it as a word, or a word-prefix of it.
- * @returns {Array<{matches: Array<{id: string, name: string, creator: string|null}>}>}
- */
-export function matchCharactersByName(db, names) {
-    // "starts with name + boundary" as a NOCASE index range: the bounds take the name as written, where a LIKE would need escaping
-    const byName = db.prepare('SELECT id, name, creator FROM characters WHERE name = ? COLLATE NOCASE LIMIT 16');
-    const byPrefix = db.prepare('SELECT id, name, creator FROM characters WHERE name >= ? COLLATE NOCASE AND name < ? COLLATE NOCASE LIMIT 8');
-    const byListing = db.prepare('SELECT c.id, pl.page_name AS name, c.creator FROM provider_links pl JOIN characters c ON c.id = pl.char_id WHERE pl.page_name = ? COLLATE NOCASE LIMIT 16');
-    const byListingPrefix = db.prepare('SELECT c.id, pl.page_name AS name, c.creator FROM provider_links pl JOIN characters c ON c.id = pl.char_id WHERE pl.page_name >= ? COLLATE NOCASE AND pl.page_name < ? COLLATE NOCASE LIMIT 8');
-    return names.map(raw => {
-        const name = typeof raw === 'string' ? raw.trim() : '';
-        if (!name) return { matches: [] };
-        const seen = new Map();
-        const take = (rows) => { for (const row of rows) { const k = `${row.id}|${row.name}`; if (!seen.has(k)) seen.set(k, row); } };
-        const stems = wordStems(name);
-        for (const [exact, prefix] of [[byName, byPrefix], [byListing, byListingPrefix]]) {
-            take(exact.all(name));
-            for (const b of NAME_BOUNDARY) take(prefix.all(`${name}${b}`, `${name}${b}￿`));
-            for (const s of stems) take(exact.all(s));
-        }
-        return { matches: [...seen.values()] };
-    });
 }
 
 /** The providers the link rows name: a seek per provider on the lookup index, never a read of every link. */
@@ -1297,7 +1269,7 @@ export function getCharacter(db, id) {
 
 // the related query's arms, exported so their plans can be read; the tag arm starts at the tag index and never joins characters
 export const RELATED_SQL = {
-    source: 'SELECT rowid AS rid, id, name, creator, description, personality, scenario, first_mes FROM characters WHERE id = ?',
+    source: 'SELECT rowid AS rid, id, name, creator, description, personality, scenario, first_mes, creator_notes FROM characters WHERE id = ?',
     posting: 'SELECT rowid FROM characters_fts WHERE characters_fts MATCH ? LIMIT ?',
     ranked: 'SELECT rowid AS rid, bm25(characters_fts) AS r FROM characters_fts WHERE characters_fts MATCH ? ORDER BY r LIMIT ?',
     idsOf: 'SELECT rowid AS rid, id FROM characters WHERE rowid IN (SELECT value FROM json_each(?))',
@@ -1305,16 +1277,26 @@ export const RELATED_SQL = {
     foldTags: 'SELECT id, fold, char_count AS n FROM tags WHERE fold IN (SELECT value FROM json_each(?))',
     holders: 'SELECT char_id, tag_id FROM char_tags WHERE tag_id IN (SELECT value FROM json_each(?)) AND char_id != ?',
     tagMass: 'SELECT ct.char_id, t.char_count FROM char_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.char_id IN (SELECT value FROM json_each(?))',
-    rows: 'SELECT id, name, creator FROM characters WHERE id IN (SELECT value FROM json_each(?))',
-    creatorCount: 'SELECT COUNT(*) FROM characters WHERE creator COLLATE NOCASE IN (?, ?)',
+    creatorCount: 'SELECT COUNT(*) FROM character_fingerprints WHERE creator_key = ?',
 };
 const RELATED_COLUMNS = '{name description personality scenario first_mes}';
 const RELATED = {
     textWeight: 0.65, tagWeight: 0.35, creatorBonus: 0.12, strong: 22, moderate: 14,
     // words asked about per card, words ranked, candidates kept per arm, copies listed per row, rows one creator may hold
     lookups: 150, picks: 30, pool: 300, copies: 10, perCreator: 5,
+    // rows composed, and scattered rows read, per step: cold, each row is its own disk seek
+    compose: 5, rowsPerStep: 25,
 };
-const PLACEHOLDER_CREATORS = new Set(['', 'anonymous', 'anon', 'unknown', 'none', 'n/a', 'na', '-', '?', 'null', 'undefined']);
+
+// one read over many scattered rows, a step at a time; the rows come back as one list
+function* relatedInSteps(list, read) {
+    const out = [];
+    for (let i = 0; i < list.length; i += RELATED.rowsPerStep) {
+        out.push(...read(list.slice(i, i + RELATED.rowsPerStep)));
+        yield;
+    }
+    return out;
+}
 const _relatedStmts = new WeakMap();
 // a word's card count once past fifty, per library; dropped when the library's size moves a tenth
 const _relatedWords = new WeakMap();
@@ -1333,11 +1315,8 @@ function relatedStmts(db) {
     return s;
 }
 
-const foldCreator = (c) => String(c || '').trim().replace(/^@+/, '').toLowerCase();
-const foldName = (n) => String(n || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-
-// the source's rarest words other cards share, ranked by bm25 over its own score; fills cands' content and terms
-function relatedTextArm(db, S, src, N, cands, cand) {
+// the source's rarest words others share, ranked by bm25 over its own score; fills cands, a step per read
+function* relatedTextArm(db, S, src, N, cands, cand) {
     const raw = [src.name, src.description, src.personality, src.scenario, src.first_mes].filter(Boolean).join(' ')
         .normalize('NFKD').replace(/\p{M}/gu, '');
     const tf = new Map(), shown = new Map();
@@ -1365,6 +1344,7 @@ function relatedTextArm(db, S, src, N, cands, cand) {
             df = rows.length > cap ? Infinity : rows.length;
             if (df > 50) cache.df.set(w, df);
             else postings.set(w, rows);
+            yield;
         }
         if (df >= 2 && df <= cap) scored.push({ w, df, s: Math.min(tf.get(w), 3) * Math.log(N / df) });
     }
@@ -1374,27 +1354,31 @@ function relatedTextArm(db, S, src, N, cands, cand) {
     const picks = chosen.map(p => p.w);
     // the source ranks in its own list: a bm25 read pinned to one rowid weighs the terms differently
     const rows = S.ranked.all(`${RELATED_COLUMNS} : (${picks.map(w => `"${w}"`).join(' OR ')})`, RELATED.pool + 1);
+    yield;
     const self = rows.find(r => r.rid === src.rid)?.r ?? rows[0]?.r;
     if (!(self < 0)) return false;
-    const idOf = new Map(S.idsOf.all(JSON.stringify(rows.filter(r => r.rid !== src.rid).map(r => r.rid))));
+    const idOf = new Map(yield* relatedInSteps(rows.filter(r => r.rid !== src.rid).map(r => r.rid), (part) => S.idsOf.all(JSON.stringify(part))));
     for (const r of rows) if (idOf.has(r.rid)) cand(idOf.get(r.rid)).content = Math.min(1, r.r / self);
     // a reason names the rarest shared words first
     for (const { w } of [...chosen].sort((a, b) => a.df - b.df || (a.w < b.w ? -1 : 1))) {
-        for (const rid of postings.get(w) || S.posting.all(match(w), cap + 1)) {
+        const held = postings.get(w);
+        for (const rid of held || S.posting.all(match(w), cap + 1)) {
             const id = idOf.get(rid);
             if (id) cands.get(id)?.terms.push(shown.get(w) || w);
         }
+        if (!held) yield;
     }
     return true;
 }
 
 // spellings folded, each tag weighed ln(N / carriers), the overlap over the geometric mean of both cards' tag mass
-function relatedTagArm(S, src, N, cands, cand) {
+function* relatedTagArm(S, src, N, cands, cand) {
     const own = S.sourceFolds.all(src.id);
     if (!own.length) return false;
     const shownAs = new Map();
     for (const t of own) if (!shownAs.has(t.fold)) shownAs.set(t.fold, t.name);
     const tags = S.foldTags.all(JSON.stringify([...shownAs.keys()]));
+    yield;
     const carriers = new Map(), foldOf = new Map();
     for (const t of tags) { carriers.set(t.fold, (carriers.get(t.fold) || 0) + t.n); foldOf.set(t.id, t.fold); }
     const weight = (fold) => Math.log(N / Math.max(1, carriers.get(fold) || 1));
@@ -1409,12 +1393,13 @@ function relatedTagArm(S, src, N, cands, cand) {
         if (!set) shared.set(id, set = new Set());
         set.add(foldOf.get(tagId));
     }
+    yield;
     const sumOf = (set) => { let s = 0; for (const f of set) s += weight(f); return s; };
     // a candidate's own tag mass is read for the strongest overlaps and the content arm's candidates alone
     const pool = [...shared].map(([id, set]) => [id, sumOf(set)]).sort((a, b) => b[1] - a[1]).slice(0, RELATED.pool).map(([id]) => id);
     const need = [...new Set([...pool, ...[...cands.keys()].filter(id => shared.has(id))])];
     const mass = new Map();
-    for (const [id, n] of S.tagMass.all(JSON.stringify(need))) mass.set(id, (mass.get(id) || 0) + Math.log(N / Math.max(1, n)));
+    for (const [id, n] of yield* relatedInSteps(need, (part) => S.tagMass.all(JSON.stringify(part)))) mass.set(id, (mass.get(id) || 0) + Math.log(N / Math.max(1, n)));
     for (const id of need) {
         const set = shared.get(id), sum = sumOf(set);
         const c = cand(id);
@@ -1427,6 +1412,14 @@ function relatedTagArm(S, src, N, cands, cand) {
 
 /** Related characters: rarity-weighted shared words and tags on one scale, a small same-creator lift, one row per name with its copies. */
 export function getRelatedCharacters(db, id, opts = {}) {
+    return finishSteps(relatedCharacterSteps(db, id, opts));
+}
+
+/**
+ * The same lookup as steps (runSteps drives it a slice at a time): its answer, or null for an unknown character.
+ * @returns {Generator<undefined, object|null>}
+ */
+export function* relatedCharacterSteps(db, id, opts = {}) {
     const { limit = 20, useTags = true, useCreator = true, useContent = true } = opts;
     const S = relatedStmts(db);
     const src = S.source.get(id);
@@ -1438,51 +1431,63 @@ export function getRelatedCharacters(db, id, opts = {}) {
         if (!c) cands.set(cid, c = { id: cid, content: 0, tags: 0, shared: [], terms: [] });
         return c;
     };
-    const wText = useContent && relatedTextArm(db, S, src, N, cands, cand) ? RELATED.textWeight : 0;
-    const wTags = useTags && relatedTagArm(S, src, N, cands, cand) ? RELATED.tagWeight : 0;
+    yield;
+    const wText = useContent && (yield* relatedTextArm(db, S, src, N, cands, cand)) ? RELATED.textWeight : 0;
+    const wTags = useTags && (yield* relatedTagArm(S, src, N, cands, cand)) ? RELATED.tagWeight : 0;
     if (!wText && !wTags) return { items: [] };
     const ranked = [...cands.values()].map(c => ({ ...c, score: (wText * c.content + wTags * c.tags) / (wText + wTags) })).filter(c => c.score > 0);
 
-    // the creator lifts a match by less the more cards it has, a placeholder never; at most five of the list are its
-    const rows = new Map(S.rows.all(JSON.stringify(ranked.map(r => r.id))).map(r => [r.id, r]));
-    const srcCreator = foldCreator(src.creator);
-    const realCreator = !PLACEHOLDER_CREATORS.has(srcCreator);
-    const lift = realCreator && useCreator
-        ? RELATED.creatorBonus * Math.max(0, 1 - Math.log(Math.max(1, S.creatorCount.get(srcCreator, `@${srcCreator}`))) / Math.log(N)) : 0;
+    // the creator key lifts a match by less the more cards it has, a placeholder never; at most five rows are its
+    const rows = new Map((yield* relatedInSteps(ranked.map(r => r.id), (part) => [...fingerprintsOf(db, part).values()])).map(r => [r.id, r]));
+    const judge = pairJudge(db);
+    judge.remember(rows.values());
+    // a source not fingerprinted yet (written outside the funnel moments ago) is read off its own fields
+    let srcPrint = judge.print(src.id);
+    if (!srcPrint) judge.remember([srcPrint = { id: src.id, ...cardFingerprint(src) }]);
+    const srcCreator = srcPrint.creatorKey;
+    const lift = srcCreator && useCreator
+        ? RELATED.creatorBonus * Math.max(0, 1 - Math.log(Math.max(1, S.creatorCount.get(srcCreator))) / Math.log(N)) : 0;
+    yield;
     for (const r of ranked) {
-        r.sameCreator = realCreator && foldCreator(rows.get(r.id)?.creator) === srcCreator;
+        r.sameCreator = !!srcCreator && rows.get(r.id)?.creatorKey === srcCreator;
         // uncapped here, so the lift still orders two matches that both reach the top
         if (r.sameCreator) r.score += lift;
     }
     ranked.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
 
-    // one row per folded name, its other copies listed under it
-    const top = [], byName = new Map(), srcName = foldName(src.name);
+    // one row per character, its copies listed under it: a copy is what the duplicate rule calls the same character, never a shared name
+    const top = [];
     let sameCreatorShown = 0;
+    const sameAs = (a, b) => isSameCharacter(judge.judge(a.id, b.id));
     for (const r of ranked) {
         const row = rows.get(r.id);
         if (!row) continue;
-        const key = foldName(row.name);
-        const held = key && byName.get(key);
+        const held = top.find(t => sameAs(t.row, row));
+        yield;
+        // a copy past the list's cap is counted and dropped, never shown as a row of its own
         if (held) {
+            held.copyCount++;
             if (held.copies.length < RELATED.copies) held.copies.push(r.id);
             continue;
         }
         if (top.length >= limit) continue;
         if (r.sameCreator && sameCreatorShown >= RELATED.perCreator) continue;
         if (r.sameCreator) sameCreatorShown++;
-        const entry = { r, sameName: !!key && key === srcName, copies: [] };
-        if (key) byName.set(key, entry);
-        top.push(entry);
+        top.push({ r, row, versionOfSource: sameAs(srcPrint, row), copies: [], copyCount: 0 });
     }
     if (!top.length) return { items: [] };
+    yield;
 
-    const { items } = queryCharacters(db, { ids: top.flatMap(t => [t.r.id, ...t.copies]), count: false });
-    const byId = new Map(items.map(it => [it.id, it]));
+    const want = top.flatMap(t => [t.r.id, ...t.copies]);
+    const byId = new Map();
+    for (let i = 0; i < want.length; i += RELATED.compose) {
+        for (const it of queryCharacters(db, { ids: want.slice(i, i + RELATED.compose), count: false }).items) byId.set(it.id, it);
+        yield;
+    }
     return {
-        items: top.filter(t => byId.has(t.r.id)).map(({ r, sameName, copies }) => {
+        items: top.filter(t => byId.has(t.r.id)).map(({ r, versionOfSource, copies, copyCount }) => {
             const reasons = [];
-            if (sameName) reasons.push('Another version of this character');
+            if (versionOfSource) reasons.push('Another version of this character');
             if (r.terms.length) reasons.push(`Both mention ${r.terms.slice(0, 3).join(', ')}`);
             if (r.shared.length) reasons.push(`${r.shared.length === 1 ? 'Shared tag' : `${r.shared.length} shared tags`}: ${r.shared.slice(0, 3).map(t => t.tag).join(', ')}`);
             if (r.sameCreator) reasons.push(`Same creator: ${rows.get(r.id).creator}`);
@@ -1497,6 +1502,7 @@ export function getRelatedCharacters(db, id, opts = {}) {
                 matchReasons: reasons,
                 character: byId.get(r.id),
                 copies: copies.map(cid => byId.get(cid)).filter(Boolean),
+                copyCount,
             };
         }),
     };

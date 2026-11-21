@@ -405,7 +405,8 @@ class BotbooruProvider extends ProviderBase {
         if (!CoreAPI.getSetting('botbooruToken')) return null;
         const me = await fetchBotbooruMe();
         if (me && typeof me.use_tag_weights === 'boolean') {
-            CoreAPI.setSetting('botbooruUseTagWeights', me.use_tag_weights);
+            // every Settings open asks; only an answer that moved is written
+            if (CoreAPI.getSetting('botbooruUseTagWeights') !== me.use_tag_weights) CoreAPI.setSetting('botbooruUseTagWeights', me.use_tag_weights);
             return me.use_tag_weights;
         }
         return null;

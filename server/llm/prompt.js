@@ -3,12 +3,12 @@ import { getCharacter } from '../db/characters-store.js';
 import { getWorld } from '../db/worlds-store.js';
 import { listWorldsFor } from '../db/world-links-store.js';
 import { resolvePersona } from '../db/personas-store.js';
-import { resolveChatPreset, presetBlockRows } from '../db/presets-store.js';
+import { resolveChatPreset, getPreset } from '../db/presets-store.js';
 import seedrandom from 'seedrandom';
 import { getChatRow, listMessageRows, readMessageRow, countMessages, chatMetadataOf, alignActiveSwipe, syncActiveSwipe, chatIdNamed, parseStDate } from '../db/chats-store.js';
 import { GLOBAL_VARIABLES_KEY, appendMessageWithMacros, commitChatMacros, createChatWithMacros } from '../db/chat-macros.js';
 import { profileContextSize, profileRow, resolveChatProfile, maxImagesOf } from '../db/llm-profiles-store.js';
-import { DEFAULT_BLOCKS, DEFAULT_MAIN_PROMPT, assembleBlocks, blocksFromRows, resolveBlocksInOrder } from './preset.js';
+import { DEFAULT_BLOCKS, assembleBlocks, blocksForBuild, resolveBlocksInOrder, joinSystemMessages, promptSettingsOf } from './preset.js';
 import { buildMacroEnv, chatCardTexts, expandMacros, stringHash, unansweredMacros } from './macros.js';
 import { mayHoldMacros } from './macro-engine.js';
 import { selectLore, scanWindow } from './lore.js';
@@ -22,6 +22,9 @@ import { settingValue } from '../db/settings-store.js';
 import { runHook, runRegistry } from '../db/hook-seat.js';
 import { extensionEnabledFor, listExtensions } from '../lib/extensions.js';
 import { readerContext } from '../lib/reader-context.js';
+import { scriptsForChat } from '../db/regex-store.js';
+import { runPass, buildBudget } from '../lib/regex/run.js';
+import { PLACE, screenPlace, systemLine, hiddenFromPrompt, namesMacros } from '../lib/regex/engine.js';
 
 // tokens bound the prompt and nothing else, no "unlimited". 8192 is ST's text-completion default, not its stale 4095
 export const DEFAULT_MAX_CONTEXT = 8192;
@@ -39,13 +42,14 @@ export function contextBudget(db, profileId) {
     return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_MAX_CONTEXT;
 }
 
-// a missing or empty preset falls back to the default; an empty prompt reads as the model losing its personality
-export function presetBlocksFor(db, chatId) {
+// the chat's preset as a build reads it, its blocks for this type and its settings; a missing or empty one is the built-in blocks
+export function presetFor(db, chatId, { trigger = 'normal' } = {}) {
     const id = resolveChatPreset(db, chatId).presetId;
-    if (!id) return DEFAULT_BLOCKS;
-    const rows = presetBlockRows(db, id);
-    const blocks = blocksFromRows(rows);
-    return blocks.length ? blocks : DEFAULT_BLOCKS;
+    if (!id) return { blocks: DEFAULT_BLOCKS, settings: promptSettingsOf(null) };
+    const preset = getPreset(db, id);
+    const blocks = blocksForBuild(preset?.blocks ?? [], { trigger });
+    // an emptied Main alone is no preset to send
+    return blocks.some(b => !b.held) ? { blocks, settings: promptSettingsOf(preset.settings) } : { blocks: DEFAULT_BLOCKS, settings: promptSettingsOf(null) };
 }
 
 /**
@@ -60,9 +64,73 @@ export function visibleHistory(db, chatId, { excludeSeq = null } = {}) {
 
 const visibleOf = (rows, excludeSeq) => rows.filter(r => r.seq !== excludeSeq && promptVisible(r.msg));
 
+/**
+ * The rows a build reads for the connection that answers it, the reroll's target gone; the build and every lore scan read this one window.
+ * @returns {{ visible: Array, seeing: Array, sending: boolean, pictures: Map }} seeing keeps the picture rows whatever the connection, for the withheld count
+ */
+function promptWindow(db, rows, { answering = null, excludeSeq = null } = {}) {
+    // the messages' pictures, sent only when the answering connection is known to see them (else the inspector says so)
+    const pictures = attachmentsOfMessages(db, rows.map(r => r.id));
+    const sending = profileSees(db, answering) === true;
+    // a build that sends pictures keeps a message of pictures with no text in its window (the text readers' rule is promptVisible's)
+    const seeing = rows.filter(r => r.seq !== excludeSeq && (promptVisible(r.msg) || (pictures.get(r.id)?.length && !hiddenFromPrompt(r.msg))));
+    return { visible: sending ? seeing : visibleOf(rows, excludeSeq), seeing, sending, pictures };
+}
+
+// each row's depth as the screen counts it (any row not hidden, text or not), the reroll's target gone; a continue's own row is -1
+function promptDepths(rows, excludeSeq, continuing) {
+    const depths = new Map();
+    let depth = continuing ? -1 : 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const { seq, msg } = rows[i];
+        if (seq === excludeSeq || hiddenFromPrompt(msg)) continue;
+        depths.set(seq, depth++);
+    }
+    return depths;
+}
+
+/**
+ * The prompt pass: the chat's active scripts over each turn at its depth, new copies so the stored rows keep their text.
+ * @param {{ continuing: boolean, expand: Function, depths: Map, budget: Map }} at the build's: its macros, promptDepths, buildBudget
+ */
+function regexHistory(db, scripts, visible, { continuing, expand, depths, budget }) {
+    if (!scripts.length) return visible;
+    return visible.map((r, i) => {
+        const msg = r.msg;
+        const at = { pass: 'prompt', depth: depths.get(r.seq) ?? 0, macros: expand, edited: !!msg.extra?.edited, budget };
+        // a narrator's line takes its text scripts at Narrator, as ST writes them, and its prompt scripts as an AI reply
+        const mes = typeof msg.mes === 'string' && msg.mes
+            ? runPass(db, msg.mes, scripts, { ...at, where: msg.is_user ? PLACE.userInput : PLACE.aiOutput, textWhere: screenPlace(msg) })
+            : msg.mes;
+        // a continue sends the continued message's reasoning back, through the reasoning scripts at its depth
+        const thought = msg.extra?.reasoning;
+        const reasoning = continuing && i === visible.length - 1 && typeof thought === 'string' && thought
+            ? runPass(db, thought, scripts, { ...at, where: PLACE.reasoning })
+            : thought;
+        if (mes === msg.mes && reasoning === thought) return r;
+        return { ...r, msg: { ...msg, mes, ...(reasoning === thought ? {} : { extra: { ...msg.extra, reasoning } }) } };
+    });
+}
+
+// the groups selectLore places, in its return's order: the lore pass and lore.activate both read them
+const LORE_GROUPS = ['before', 'after', 'atDepth', 'emBefore', 'emAfter', 'anTop', 'anBottom', 'outlets'];
+// the lore pass: each placed entry's content, at its depth when it has one; an entry the scripts empty is not sent
+function regexLore(db, scripts, lore, expand, budget) {
+    if (!scripts.length) return lore;
+    const out = { ...lore };
+    for (const group of LORE_GROUPS) {
+        if (!Array.isArray(lore[group])) continue;
+        out[group] = lore[group].map((item) => {
+            const content = runPass(db, String(item.content ?? ''), scripts, { pass: 'lore', where: PLACE.lore, depth: group === 'atDepth' ? item.depth : undefined, macros: expand, budget });
+            return content === item.content ? item : { ...item, content };
+        }).filter(item => item.content);
+    }
+    return out;
+}
+
 /** Whether the prompt reads a stored message: not a system note, not hidden, not empty. */
 export function promptVisible(msg) {
-    return !!msg && !msg.is_system && !msg.extra?.hidden && typeof msg.mes === 'string' && !!msg.mes;
+    return !!msg && !hiddenFromPrompt(msg) && typeof msg.mes === 'string' && !!msg.mes;
 }
 
 /**
@@ -83,8 +151,8 @@ export function chatNames(db, chatRow) {
 }
 
 /**
- * A chat as its prompt reads it, for an extension's own model call; null when there is no such chat.
- * @returns {{ charName: string, userName: string, history: Array<{id: number, seq: number, msg: object}>, expand: (text: string) => string }|null}
+ * A chat's names, its prompt's messages as stored, and its macros, for an extension's own model call; null for no such chat.
+ * @returns {{ charName: string, userName: string, history: Array<{id: number, seq: number, msg: object}>, expand: (text: string, opts?: object) => string }|null}
  */
 export function readChatForPrompt(db, chatId) {
     const chatRow = getChatRow(db, chatId);
@@ -98,12 +166,12 @@ export function readChatForPrompt(db, chatId) {
         userName,
         history: visible.map(r => ({ id: r.id, seq: r.seq, msg: r.msg })),
         // an extension's own model call reads the chat's variables and never writes them
-        expand(text) {
+        expand(text, opts) {
             macros ||= chatMacroEnv(db, chatRow, {
                 card, charName, userName, persona,
                 chat: rows.map(r => r.msg), lastSeq: visible.at(-1)?.seq ?? null,
             });
-            return macros.expand(String(text ?? ''));
+            return macros.expand(String(text ?? ''), opts);
         },
     };
 }
@@ -210,6 +278,15 @@ function chatMacroEnv(db, chatRow, { card, charName, userName, persona, chat, la
     const answering = () => (answered ??= resolveChatProfile(db, chatRow.id ?? null));
     const reader = readerContext();
     let inventory = null; // the extensions on disk, read once for every {{hasExtension}} of one build
+
+    // a message as its text scripts write it, what ST stored and its {{lastMessage}} reads; the scripts read once a macro asks
+    let scripts = null;
+    const written = (msg) => {
+        scripts ??= scriptsForChat(db, chatRow.id)?.active || [];
+        const text = msg?.mes ?? '';
+        if (!scripts.length || typeof text !== 'string' || !text || systemLine(msg)) return text;
+        return runPass(db, text, scripts, { pass: 'written', where: screenPlace(msg), macros: namesMacros({ user: userName, char: charName }), edited: !!msg.extra?.edited });
+    };
     const env = buildMacroEnv({
         charName, userName, persona: persona?.description || '', pronouns: persona?.pronouns || null, card, chat,
         chatId: chatRow.id, chatName: chatRow.name, chatMetadata: meta,
@@ -229,6 +306,7 @@ function chatMacroEnv(db, chatRow, { card, charName, userName, persona, chat, la
             random: build.random ?? null,
             authorsNote: chatNoteOf(meta, noteDefs).prompt,
             defaultAuthorsNote: noteDefs.prompt,
+            written,
             extensionOn: (id) => {
                 inventory ??= listExtensions();
                 const row = inventory.find(r => r.id === id && !r.error);
@@ -254,8 +332,10 @@ function chatMacroEnv(db, chatRow, { card, charName, userName, persona, chat, la
 export function macrosForChat(db, chatRow, { chat = null, build = {} } = {}) {
     const { card, persona, charName, userName } = chatNames(db, chatRow);
     const msgs = chat || (chatRow.id ? listMessageRows(db, chatRow.id).map(r => r.msg) : []);
+    // seqs are contiguous from 0, so the newest visible row's index is its seq, as a build tells it
+    const newest = msgs.findLastIndex(promptVisible);
     return chatMacroEnv(db, chatRow, {
-        card, charName, userName, persona, chat: msgs, lastSeq: msgs.length ? msgs.length - 1 : null, build,
+        card, charName, userName, persona, chat: msgs, lastSeq: newest >= 0 ? newest : null, build,
     });
 }
 
@@ -357,17 +437,29 @@ export function replyReserve(db) {
 
 /**
  * THE lore scan for the prompt, the panel and the assistant, so they cant disagree. dryRun (default) consumes no state.
+ * @param {Array} [opts.visible] the build's window; absent, the window the chat's own connection builds from
+ * @returns {object} picturesAlone: seqs of that window's messages of pictures alone, null when the window was handed in
  */
 export function runLoreScan(db, chatRow, {
     visible = null, excludeSeq = null, trigger = 'normal', dryRun = true,
-    rng = Math.random, macros = null, maxContext = null, note = null, names = null,
+    rng = Math.random, macros = null, maxContext = null, note = null, names = null, regex = null,
 } = {}) {
+    // the chat's scripts and the build's budget, or this read's own: the window it reads and the lore it places go through them
+    const scripts = regex?.scripts || scriptsForChat(db, chatRow.id)?.active || [];
+    const budget = regex?.budget || buildBudget();
     // the prompt builder's window, or one read here once for the environment too
     let vis = visible;
     let rows = null;
+    let picturesAlone = null;
+    // the chat's own connection, read once for both the window and the budget it sizes
+    let ownResolved;
+    const ownConnection = () => (ownResolved ??= resolveChatProfile(db, chatRow.id)).row ?? null;
     if (!vis) {
         rows = listMessageRows(db, chatRow.id).map(r => ({ id: r.id, seq: r.seq, msg: { ...r.msg } }));
-        vis = visibleOf(rows, excludeSeq);
+        const own = promptWindow(db, rows, { answering: ownConnection(), excludeSeq });
+        vis = own.visible;
+        // what the text readers' rule leaves out of that window, for a reader of text alone
+        picturesAlone = new Set(own.sending ? vis.filter(r => !promptVisible(r.msg)).map(r => r.seq) : []);
     }
     const settings = loreSettings(db);
     const src = activeWorldSources(db, chatRow);
@@ -385,16 +477,18 @@ export function runLoreScan(db, chatRow, {
         card, charName, userName, persona,
         chat: (rows || listMessageRows(db, chatRow.id)).map(r => r.msg), lastSeq: vis.at(-1)?.seq ?? null,
     });
-    // row 0 expanded into a copy, so the panel and assistant scan what the prompt scans
-    if (!macros) {
+    // row 0 expanded into a copy and the prompt pass over the window, so the panel and assistant scan what the prompt scans
+    if (!visible) {
         const first = vis.find(r => r.seq === 0);
         if (first && typeof first.msg.mes === 'string' && mayHoldMacros(first.msg.mes)) {
             const copy = { ...first, msg: { ...first.msg, mes: env.expand(first.msg.mes) } };
             vis = vis.map(r => (r === first ? copy : r));
         }
+        const continuing = trigger === 'continue';
+        vis = regexHistory(db, scripts, vis, { continuing, expand: env.expand, depths: promptDepths(rows, excludeSeq, continuing), budget });
     }
     const noteState = note || chatNoteState(db, parsedMeta(chatRow), (rows || listMessageRows(db, chatRow.id)).map(r => r.msg));
-    // ST's inject buffer: with the scan switch on, every scan reads the due note and the card's note
+    // with the scan switch on, the due note and the card's note join every scan's text
     const injectTexts = noteState.scanLore ? [
         ...(noteState.due && noteState.note.prompt ? [{ source: 'authorsNote', text: env.expand(noteState.note.prompt) }] : []),
         ...(env.fields.depth_prompt ? [{ source: 'characterDepthPrompt', text: env.fields.depth_prompt }] : []),
@@ -412,7 +506,7 @@ export function runLoreScan(db, chatRow, {
     const candidates = runHook('lore.candidates', [], hookFacts);
     for (const w of candidates) scopes.set(w.name, 'global');
 
-    const budgetBase = Number(maxContext) > 0 ? Number(maxContext) : contextBudget(db, resolveChatProfile(db, chatRow.id).row?.id);
+    const budgetBase = Number(maxContext) > 0 ? Number(maxContext) : contextBudget(db, ownConnection()?.id);
     // the budget as SillyTavern sizes it: a share of the context, floored to 1, then the cap
     let budgetTokens = settings.budgetPercent > 0 ? (Math.round(settings.budgetPercent * budgetBase / 100) || 1) : 0;
     if (budgetTokens && settings.budgetCap > 0 && budgetTokens > settings.budgetCap) budgetTokens = settings.budgetCap;
@@ -443,15 +537,12 @@ export function runLoreScan(db, chatRow, {
         rng,
     });
     // and may drop or rewrite what was placed; the engine's activated list stays what it decided
-    const placed = {
-        before: lore.before, after: lore.after, atDepth: lore.atDepth, emBefore: lore.emBefore, emAfter: lore.emAfter,
-        anTop: lore.anTop, anBottom: lore.anBottom, outlets: lore.outlets,
-    };
+    const placed = Object.fromEntries(LORE_GROUPS.map(g => [g, lore[g]]));
     const kept = runHook('lore.activate', placed, hookFacts);
     if (kept !== placed) Object.assign(lore, kept);
     // what the anchored groups wait on, for every reader of this scan's placement
     lore.authorsNote = noteState;
-    return { lore, worlds, candidates, src, settings, visible: vis, note: noteState };
+    return { lore: regexLore(db, scripts, lore, env.expand, budget), worlds, candidates, src, settings, visible: vis, note: noteState, picturesAlone };
 }
 
 // the block each placed group reaches the model through
@@ -484,7 +575,7 @@ function placedNote(state, lore, expand) {
  * @returns {{ inPrompt: Map<string, { group: string, placed: object, outlet: string|null }>, notes: string[] }} keyed world::uid
  */
 export function loreInPrompt(db, chatId, lore) {
-    const blocks = presetBlocksFor(db, chatId);
+    const { blocks } = presetFor(db, chatId);
     const markers = new Set(blocks.filter(b => b.kind === 'marker').map(b => b.marker));
     const inPrompt = new Map();
     const notes = [];
@@ -528,18 +619,26 @@ export function loreInPrompt(db, chatId, lore) {
     return { inPrompt, notes };
 }
 
+// what a build with nothing to send is refused with: the reader's words, and the way out
+const EMPTY_BUILD ='this preset sends nothing for this kind of reply: every block in force for it is switched off, empty, or kept for another kind. '
+    + 'Switch a block on in the Prompt Manager, or pick another preset.';
+
+// the card's texts in the order SillyTavern finishes them as a generation starts
+const CARD_TEXTS_AT_START =['system_prompt', 'mes_example', 'description', 'personality', 'persona', 'scenario', 'post_history_instructions', 'depth_prompt', 'creator_notes'];
+
 /**
- * Build the completion prompt for a chat; messages go as written, except row 0, expanded every build.
+ * Build the completion prompt for a chat; turns go as stored through its prompt regex scripts at their depths, row 0 expanded every build.
  * @param {number|null} [opts.excludeSeq] a reroll's target, which the model must not see or it continues it
- * @param {string} [opts.trigger] ST's generation type: normal, swipe, regenerate, continue, impersonate
- * @param {string} [opts.input] the composer's text this build reads as {{input}}
+ * @param {string} [opts.trigger] ST's generation type: normal, swipe, regenerate, continue, impersonate; it picks the trailing instruction
+ * @param {string} [opts.input] the composer's text: {{input}}, and the direction after the trailing instruction on impersonate or a normal reply
  * @param {number|null} [opts.firstDisplayed] the first message the reader's screen shows
+ * @param {number|null} [opts.continueSeq] a continue's target, sent as the continued turn only when the history ends on it
  * @returns {{ messages, charName, userName, lore, budget, commit }} commit is what a real build writes through commitBuild
  */
 export function buildChatPrompt(db, chatId, {
-    excludeSeq = null, appendSystem = null, profileId = null,
+    excludeSeq = null, profileId = null,
     trigger = 'normal', loreDryRun = true, rng = Math.random,
-    input = '', firstDisplayed = null,
+    input = '', firstDisplayed = null, continueSeq = null,
 } = {}) {
     const chatRow = getChatRow(db, chatId);
     if (!chatRow) throw badRequest(`no such chat: ${chatId}`);
@@ -562,22 +661,14 @@ export function buildChatPrompt(db, chatId, {
     const maxContext = contextBudget(db, answering?.id);
     const reserve = replyReserve(db);
 
-    // the messages' pictures, sent only when the answering connection is known to see them (else the inspector says so)
-    const pictures = attachmentsOfMessages(db, rows.map(r => r.id));
-    const sending = profileSees(db, answering) === true;
-    // this build alone sends pictures, so a message of pictures with no text is in its window (the text readers' rule is promptVisible's)
-    const seeing = rows.filter(r => r.seq !== excludeSeq && (promptVisible(r.msg) || (pictures.get(r.id)?.length && !r.msg.is_system && !r.msg.extra?.hidden)));
-    const visible = sending ? seeing : visibleOf(rows, excludeSeq);
+    const { pictures, sending, seeing, visible: windowRows } = promptWindow(db, rows, { answering, excludeSeq });
+    let visible = windowRows;
     // The seqs ride ALONGSIDE, never on the message objects: these flow into assembleBlocks
     // and a seq field there would follow the turn into stored output.
-    const history = visible.map(r => r.msg);
-    // a message copy to its pictures, by identity, so no field rides the turn into stored output
-    const picturesOf = new WeakMap();
-    if (sending) for (const r of visible) if (pictures.get(r.id)?.length) picturesOf.set(r.msg, pictures.get(r.id));
-    // the newest turn's pictures are why it was sent: only older ones may stand in as text, oldest first
-    const strippable = history.slice(0, -1).filter(msg => picturesOf.has(msg));
     const historySeqs = visible.map(r => r.seq);
     const lastSeq = historySeqs.at(-1) ?? null;
+    // a target this connection cant read (pictures alone, unseen) is not in the history, so nothing is pulled out as the continued turn
+    const continuing = trigger === 'continue' && lastSeq !== null && (continueSeq == null || continueSeq === lastSeq);
 
     // one environment per build, built before the scan so a {{char}} key resolves at match time
     const macros = chatMacroEnv(db, chatRow, {
@@ -588,11 +679,26 @@ export function buildChatPrompt(db, chatId, {
         },
     });
     const m = macros.expand;
+    // SillyTavern finishes the card's texts as a generation starts, so their macros run before the lore's and the preset's
+    for (const key of CARD_TEXTS_AT_START) void macros.fields[key];
 
     // ST expands row 0 before every generation; the copies mean every later reader sees it expanded
     const first = rows.find(r => r.seq === 0 && r.seq !== excludeSeq);
     const firstBefore = first?.msg.mes;
     if (first && typeof first.msg.mes === 'string' && first.msg.mes) first.msg.mes = m(first.msg.mes);
+
+    // regex scripts read each turn at its depth before the lore scan and the budget do; one budget for every pass of the build
+    const regexScripts = scriptsForChat(db, chatId)?.active || [];
+    const regexBudget = buildBudget();
+    const depths = promptDepths(rows, excludeSeq, continuing);
+    visible = regexHistory(db, regexScripts, visible, { continuing, expand: m, depths, budget: regexBudget });
+    const history = visible.map(r => r.msg);
+    const { blocks: presetBlocks, settings } = presetFor(db, chatId, { trigger });
+    // a message copy to its pictures, by identity, so no field rides the turn into stored output
+    const picturesOf = new WeakMap();
+    if (sending) for (const r of visible) if (pictures.get(r.id)?.length) picturesOf.set(r.msg, pictures.get(r.id));
+    // the newest turn's pictures are why it was sent: only older ones may stand in as text, oldest first
+    const strippable = history.slice(0, -1).filter(msg => picturesOf.has(msg));
 
     // the note as the chat stands while it generates (ST counts the reader's turns of the whole chat)
     const meta = parsedMeta(chatRow);
@@ -602,6 +708,7 @@ export function buildChatPrompt(db, chatId, {
     // already a row by the time generate runs)
     const scan = runLoreScan(db, chatRow, {
         visible, trigger, dryRun: loreDryRun, rng, macros, maxContext, note: noteState, names,
+        regex: { scripts: regexScripts, budget: regexBudget },
     });
     const lore = scan.lore;
     // what {{outlet::name}} answers: the outlet entries of each name, one per line
@@ -612,8 +719,9 @@ export function buildChatPrompt(db, chatId, {
 
     // extension blocks follow the preset's, their text computed once so the budget only measures it
     const extensionBlocks = runRegistry('prompt.blocks', { db, chatId, charId: chatRow.char_id, dryRun: loreDryRun, lastSeq });
-    const presetBlocks = presetBlocksFor(db, chatId);
     const blocks = extensionBlocks?.length ? [...presetBlocks, ...extensionBlocks] : presetBlocks;
+    // how the continued message is sent: as the reply's opening, or nudged by the instruction; null when none is continued
+    const continuedAs = continuing ? (settings.continueAsOpening ? 'opening' : 'nudged') : null;
     const ctx = {
         card, fields: macros.fields,
         picturesOf: (msg) => picturesOf.get(msg),
@@ -621,18 +729,26 @@ export function buildChatPrompt(db, chatId, {
         characterPicture: sending ? { ref: { kind: 'avatar', id: char.id }, name: `${charName}.png` } : null,
         loreBefore: lore.before, loreAfter: lore.after, loreAtDepth: lore.atDepth,
         loreEmBefore: lore.emBefore, loreEmAfter: lore.emAfter,
-        macro: m, defaultMain: DEFAULT_MAIN_PROMPT,
+        macro: m, settings, names: { user: userName, char: charName }, personaText: persona?.description || '', continuing: continuedAs,
         // every block expanded once in preset order, so {{incvar}} or a roll runs once however often the budget refits
         cache: new Map(),
     };
-    // the trailing instruction goes inside assemble so every refit measures it; expanded first, as ST does
-    const trailing = typeof appendSystem === 'function' ? appendSystem({ charName, userName, expand: m }) : appendSystem;
+    // a reply written to the reader's direction: a new one, or a swipe or a reroll of one
+    const directed = !!input && (trigger === 'normal' || trigger === 'swipe' || trigger === 'regenerate');
+    // the preset's instruction for a turn that needs telling; an emptied one sends nothing, a message sent as the opening has none
+    const instruction = trigger === 'impersonate' ? settings.impersonateInstruction
+        : trigger === 'continue' ? (continuedAs === 'opening' ? '' : settings.continueInstruction)
+            : directed ? settings.guidedInstruction : '';
+    // the direction steers impersonate and a directed reply, after the instruction, marked as direction
+    const direction = input && (trigger === 'impersonate' || directed) ? `Follow this direction for what to write, without quoting it back: ${input}` : '';
+    // expanded before the blocks are; it goes inside assemble so every refit measures it
+    const trailing = [instruction ? m(instruction) : '', direction].filter(Boolean).join('\n\n') || null;
     resolveBlocksInOrder(blocks, ctx);
     ctx.authorsNote = placedNote(noteState, lore, m);
     const assemble = (turns, stoodIn = 0) => {
         const msgs = assembleBlocks(blocks, { ...ctx, history: turns, stoodIn: new Set(strippable.slice(0, stoodIn)) });
-        if (trailing) msgs.push({ role: 'system', content: String(trailing) });
-        return msgs;
+        if (trailing) msgs.push({ role: 'system', content: trailing });
+        return settings.joinSystem ? joinSystemMessages(msgs) : msgs;
     };
 
     // a host's picture limit: the pictures that must go (the newest turn's, the character's) count first, then the newest older ones that fit
@@ -659,6 +775,8 @@ export function buildChatPrompt(db, chatId, {
     // the last word on what is sent (and what the prompt inspector shows), after the budget: what
     // an extension adds here is not measured
     const messages = runHook('prompt.final', fitted.messages, { db, chatId, charId: chatRow.char_id, trigger, dryRun: loreDryRun });
+    // nothing to send is refused here, as a build that does not fit is, so the caller writes none of this build's state
+    if (!messages.length) throw badRequest(EMPTY_BUILD);
     const firstSeq = historySeqs[historySeqs.length - fitted.history.length] ?? null;
     // what became of the pictures in the window, for the inspector: sent, stood in as text by the budget, or withheld from a blind connection
     const inWindow = (list) => list.reduce((n, msg) => n + (picturesOf.get(msg)?.length || 0), 0);
@@ -671,6 +789,8 @@ export function buildChatPrompt(db, chatId, {
         messages,
         charName,
         userName,
+        // the preset's settings as this build read them (generate joins a continue on the joiner)
+        settings,
         // what nothing in this build's vocabulary answers, for a reader of the prompt (the inspector)
         unanswered: (text) => unansweredMacros(text, macros.env),
         lore: { timedState: lore.timedState, notes: lore.notes, dryRun: loreDryRun, outletsWritten: [...macros.env.outletsRead] },

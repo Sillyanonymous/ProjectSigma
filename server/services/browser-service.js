@@ -11,6 +11,7 @@ import { resolvesToLoopback, readJsonCapped, PROVIDER_RELAY_MAX_BYTES } from '..
 import { killTree } from '../lib/kill-tree.js';
 import { assertSlugId } from '../lib/ext-contract.js';
 import { httpError } from '../lib/http-error.js';
+import { closeSignal } from '../lib/request-guard.js';
 
 export const CF_CHALLENGE_RE = /just a moment|checking your browser|attention required|access restricted|verifying you are human/i;
 
@@ -329,16 +330,16 @@ function armManagedReaper() {
     _managedReaper.unref?.();
 }
 
+const MANAGED_ADMIN_ONLY = 'The managed browser is for admins only on a shared server. Use endpoint mode with a browser you run.';
+
 /**
  * Lazily start (or reuse) the managed browser and return its CDP endpoint.
  * @param {Object} req
  * @param {boolean} [force] - bypass the failure cooldown; a button press means try again
  */
 export async function getManagedEndpoint(req, force = false) {
-    // one process and cookie jar for the whole server, so owner-only when shared; endpoint mode is per user
-    if (config.multiUser && !req?.user?.admin) {
-        throw httpError(403, 'The managed browser is owner-only on a shared server. Use endpoint mode with a browser you run.');
-    }
+    // one process and cookie jar for the whole server, so admin-only when shared; endpoint mode is per user
+    if (config.multiUser && !req?.user?.admin) throw httpError(403, MANAGED_ADMIN_ONLY);
     // signalCode too: an OOM-killed or crashed browser keeps exitCode null and would be
     // reported alive forever, wedging every request on a dead endpoint.
     if (_managed && _managed.proc.exitCode === null && _managed.proc.signalCode === null) {
@@ -435,13 +436,13 @@ export async function resolveBrowserEndpoint(req, force = false) {
     const { endpoint, managed } = req.body ?? {};
     if (managed) return getManagedEndpoint(req, force);
     if (config.multiUser && !req?.user?.admin) {
-        // the managed browser listens on this loopback with the owner's sessions; a non-owner naming it skips the gate
+        // the managed browser listens on this loopback with the admins' sessions; anyone else naming it skips the gate
         let host = '';
         try { host = new URL(cdpHttpBase(endpoint)).hostname; } catch { /* the connect reports a bad endpoint */ }
         if (host && await resolvesToLoopback(host)) {
-            throw httpError(403, 'A browser on this server\'s own machine is the owner\'s. Use a browser you run, at an address this server reaches on your network.');
+            throw httpError(403, 'A browser on this server\'s own machine is for admins only. Use a browser you run, at an address this server reaches on your network.');
         }
-        // endpoint mode is the one browser surface a non-owner drives on a shared server; say so once
+        // endpoint mode is the one browser surface a non-admin drives on a shared server; say so once
         if (req?.userHandle && !_endpointUseLogged.has(req.userHandle)) {
             _endpointUseLogged.add(req.userHandle);
             console.warn(`[provider-services][${req.userHandle}] drives a browser endpoint of their own`);
@@ -548,9 +549,9 @@ function managedRunning() {
     return !!(_managed && _managed.proc.exitCode === null && _managed.proc.signalCode === null);
 }
 
-function refuseNonOwner(req, res) {
+function refuseNonAdmin(req, res) {
     if (!config.multiUser || req.user?.admin) return false;
-    res.status(403).json({ ok: false, error: 'The managed browser is owner-only on a shared server. Use endpoint mode with a browser you run.' });
+    res.status(403).json({ ok: false, error: MANAGED_ADMIN_ONLY });
     return true;
 }
 
@@ -587,13 +588,13 @@ export function registerBrowserRoutes(router) {
     });
 
     router.post('/browser/managed/stop', async (req, res) => {
-        if (refuseNonOwner(req, res)) return;
+        if (refuseNonAdmin(req, res)) return;
         await stopManagedBrowser();
         res.json({ ok: true });
     });
 
     router.get('/browser/managed/status', (req, res) => {
-        if (refuseNonOwner(req, res)) return;
+        if (refuseNonAdmin(req, res)) return;
         const running = managedRunning();
         res.json({
             running,
@@ -734,13 +735,12 @@ export function registerBrowserRoutes(router) {
 
         // a reader who leaves during the warm-up is not answered; the warm-up itself completes,
         // since the next request will ride the parked page
-        let gone = false;
-        res.on('close', () => { if (!res.writableEnded) gone = true; });
+        const gone = closeSignal(res);
         let endpoint = null;
         try {
             endpoint = await resolveBrowserEndpoint(req);
             const warm = await getWarmPage(endpoint, consumer);
-            if (gone) return;
+            if (gone.aborted) return;
             const out = await warm.page.evaluate(`(async () => {
                 const h = ${JSON.stringify({ Accept: 'application/json', ...(headers || {}) })};
                 const init = { credentials: 'include', headers: h, method: ${JSON.stringify(method)} };

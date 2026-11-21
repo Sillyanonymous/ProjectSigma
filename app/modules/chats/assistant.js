@@ -4,7 +4,7 @@ import CoreAPI from '../core-api.js';
 import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
 import { mountChatWindow, syncRangeFill, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import { propKey, stripBlocks, diffSideBySideHtml, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -313,7 +313,7 @@ function proposalCardHtml(p, { inGroup = false, seq } = {}) {
         ? ''
         : (p.change.op === 'hide'
             ? `<div class="cas-prop-note">${p.change.hidden ? 'Stops being sent to the model; stays readable here.' : 'Sent to the model again.'}</div>`
-            : (hasDiff && showDiff ? diffSideBySideHtml(p.before, p.after) : ''));
+            : (hasDiff && showDiff ? CoreAPI.diffSplitView(p.before, p.after).html : ''));
     // creating a book is said before the entry; a grouped parent says it once instead
     const newBook = p.createsBook && !inGroup ? createsBookHtml(p.createsBook) : '';
     const flags = p.change.op === 'create' && p.change.constant === true

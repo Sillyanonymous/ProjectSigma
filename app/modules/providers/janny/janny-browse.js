@@ -120,7 +120,7 @@ async function searchJanny(opts = {}) {
 
 function isCharPossibleMatchObj(h) {
     if (view.isHitInLibrary(h)) return false;
-    return view.isCharPossibleMatch(h.name || '', h.creatorUsername || '');
+    return view.isHitPossibleMatch(h);
 }
 
 // ========================================
@@ -137,7 +137,7 @@ function createJannyCard(hit) {
     const slug = slugify(name);
     const creatorName = hit.creatorUsername || '';
     const inLibrary = view.isHitInLibrary(hit);
-    const possibleTier = inLibrary ? null : view.getPossibleMatchTier(hit.name || '', creatorName);
+    const possibleTier = inLibrary ? null : view.possibleMatchTierFor(hit);
 
     const badges = [];
     const importing = view.importingBadge(hit);
@@ -153,7 +153,7 @@ function createJannyCard(hit) {
     const cardClass = libraryCardClass(inLibrary, possibleTier);
 
     return `
-        <div class="${cardClass}" data-janny-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)} data-slug="${escapeHtml(slug)}" ${desc ? `title="${escapeHtml(desc)}"` : ''}>
+        <div class="${cardClass}" data-janny-id="${escapeHtml(charId)}"${view.linkKeyAttr(hit)}${view.matchAttr(hit)} data-slug="${escapeHtml(slug)}" ${desc ? `title="${escapeHtml(desc)}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low" onerror="this.dataset.failed='1';this.src='/img/no-portrait.png'">
                 ${badges.length > 0 ? `<div class="browse-feature-badges">${badges.join('')}</div>` : ''}
@@ -408,10 +408,7 @@ function openPreviewModal(hit) {
     if (examplesSection && examplesEl) { examplesSection.hidden = false; examplesEl.innerHTML = skeletonLines(3); }
 
     // Import button state, kept in step with the library while the preview is open
-    const restampImport = () => {
-        const inLibraryNow = view.isHitInLibrary(hit);
-        view.stampImportButton(document.getElementById('jannyImportBtn'), { inLibrary: inLibraryNow, possibleMatch: !inLibraryNow && view.isCharPossibleMatch(hit.name || '', hit.creatorUsername || '') });
-    };
+    const restampImport = () => view.stampPreviewImport(document.getElementById('jannyImportBtn'), hit);
     restampImport();
     view.trackPreview(restampImport, hit);
 
@@ -586,9 +583,10 @@ async function importCharacter(charData) {
                 data: fallbackData,
                 probe: {
                     name: charName, creator: charCreator, fullPath: identifier, providerId: 'jannyai', externalId: charId,
-                    description: fallbackData.personality || fallbackData.description || '',
+                    description: fallbackData.personality || '',
                     first_mes: fallbackData.firstMessage || '',
                     scenario: fallbackData.scenario || '',
+                    creator_notes: fallbackData.description || '',
                 },
                 dialog: { name: charName, creator: charCreator, fullPath: identifier, avatarUrl: charData.avatar ? `${JANNY_IMAGE_BASE}${charData.avatar}` : '/img/no-portrait.png' },
             };
@@ -942,7 +940,7 @@ class JannyBrowseView extends BrowseView {
     }
 
     hitMatchName(hit) {
-        return { name: hit.name || '', creator: hit.creatorUsername || '' };
+        return { name: hit.name || '', creator: hit.creatorUsername || '', text: hit.description || '' };
     }
 
     hitLinkKey(hit) {

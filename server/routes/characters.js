@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { queryCharacters, getCharacter, getRelatedCharacters, patchCharacter, setCharacterFlags, deleteCharacter, deleteCharacters, DELETE_MAX, reportAvatarChange, buildExportCard, tallyCharacters } from '../db/characters-store.js';
+import { queryCharacters, getCharacter, relatedCharacterSteps, patchCharacter, setCharacterFlags, deleteCharacter, deleteCharacters, DELETE_MAX, reportAvatarChange, buildExportCard, tallyCharacters } from '../db/characters-store.js';
 import { writeCardChunks, stripCardChunks, isPng } from '../lib/png-card.js';
 import { importCharacterBuffer, replaceResolution } from '../importer/card-import.js';
 import { importCardFile, amendedCardProblem, newStage, claimStage, dropStage, finishStage } from '../importer/card-file.js';
@@ -10,9 +10,10 @@ import { writeFileAtomic } from '../lib/atomic-write.js';
 import { invalidateAvatarThumbs } from './thumbs.js';
 import { NS_RE } from '../lib/provider-namespaces.js';
 import { characterQueryOpts, characterSetFrom } from '../lib/character-query.js';
-import { scanDuplicates, matchCharacter, matchNamesForHint } from '../db/duplicates-store.js';
+import { scanDuplicates, matchCharacterSteps, matchNamesForHintSteps } from '../db/duplicates-store.js';
 import { requireArchiveType, skipIfGone } from '../lib/request-guard.js';
-import { boolOf, pageOf, PAGE_DEFAULT, PAGE_MAX, PROBE_MAX_KEYS, IDS_MAX, FIELDS_APPLY_MAX } from '../lib/query-params.js';
+import { runSteps, runRequestSteps } from '../lib/steps.js';
+import { boolOf, pageOf, PAGE_DEFAULT, PAGE_MAX, PROBE_MAX_KEYS, HINT_TEXT_MAX, IDS_MAX, FIELDS_APPLY_MAX } from '../lib/query-params.js';
 import { safeFileName } from '../lib/stored-file.js';
 import { listMedia, galleryDirFor } from '../db/media-store.js';
 import { charxExportAssets, writeCharx } from '../lib/charx.js';
@@ -41,26 +42,39 @@ charactersRouter.get('/', skipIfGone, (req, res) => {
     }
 });
 
-// in-library match probe for browse views, graded by the duplicate rule so the badge and the import warning agree
-charactersRouter.post('/match', (req, res) => {
+// the browse hint: each remote card's namesakes and how likely it is here, by the rule the import warning uses
+charactersRouter.post('/match', async (req, res) => {
     const candidates = req.body?.candidates;
     if (!Array.isArray(candidates) || candidates.length === 0) {
         return res.status(400).json({ error: 'candidates array required' });
     }
     if (candidates.length > PROBE_MAX_KEYS) return res.status(400).json({ error: `max ${PROBE_MAX_KEYS} candidates per probe` });
-    res.json(matchNamesForHint(req.db, candidates.map(c => c?.name)));
+    const { gone, value } = await runRequestSteps(req, res, matchNamesForHintSteps(req.db, candidates.map(c => ({
+        name: typeof c?.name === 'string' ? c.name : '',
+        creator: typeof c?.creator === 'string' ? c.creator : '',
+        text: typeof c?.text === 'string' ? c.text.slice(0, HINT_TEXT_MAX) : '',
+        // the listing the hit is: its site's link providers and its key there
+        providers: Array.isArray(c?.providers) ? c.providers.filter(x => typeof x === 'string' && x && x.length <= 64).slice(0, 8) : [],
+        key: typeof c?.key === 'string' && c.key.length <= 512 ? c.key : '',
+    }))));
+    if (gone) return;
+    if (!value) return res.status(503).json({ error: 'the library closed' });
+    res.json(value);
 });
 
 // the duplicate scan and the pre-import match answer ids and scores, never rows; one scan per library
 charactersRouter.get('/duplicates', async (req, res) => {
     res.json(await scanDuplicates(req.db));
 });
-charactersRouter.post('/duplicates/match', (req, res) => {
+charactersRouter.post('/duplicates/match', async (req, res) => {
     const probe = req.body;
     if (!probe || typeof probe !== 'object' || Array.isArray(probe)) return res.status(400).json({ error: 'a probe object is required' });
     const named = String(probe.name || probe.definition?.name || '').trim();
     if (!named && !probe.fullPath && !probe.full_path && !probe.externalId) return res.status(400).json({ error: 'a probe needs a name, a fullPath or an externalId' });
-    res.json({ matches: matchCharacter(req.db, probe) });
+    const { gone, value } = await runRequestSteps(req, res, matchCharacterSteps(req.db, probe));
+    if (gone) return;
+    if (!value) return res.status(503).json({ error: 'the library closed' });
+    res.json({ matches: value });
 });
 
 // card PNG import; ?name= is a display hint only, never an identity
@@ -191,15 +205,17 @@ charactersRouter.get('/:id', (req, res) => {
 });
 
 // related scoring lives in the store (shared rare words and folded tags on one scale); clients render what comes back
-charactersRouter.get('/:id/related', (req, res) => {
+charactersRouter.get('/:id/related', async (req, res) => {
     const { limit } = pageOf(req.query, { def: 20, max: 100, cursor: false });
     const flags = {};
     for (const [param, key] of [['tags', 'useTags'], ['creator', 'useCreator'], ['content', 'useContent']]) {
         flags[key] = boolOf(req.query[param], param) ?? true;
     }
-    const result = getRelatedCharacters(req.db, req.params.id, { limit, ...flags });
-    if (!result) return res.status(404).json({ error: 'character not found' });
-    res.json(result);
+    // a reader who leaves the tab or the details closes the request, and the lookup stops at its next step
+    const { gone, value } = await runRequestSteps(req, res, relatedCharacterSteps(req.db, req.params.id, { limit, ...flags }));
+    if (gone) return;
+    if (!value) return res.status(404).json({ error: 'character not found' });
+    res.json(value);
 });
 
 charactersRouter.patch('/:id', (req, res) => {
@@ -295,7 +311,7 @@ charactersRouter.post('/flags', (req, res) => {
 });
 
 // bulk PATCH /:id writes, at most FIELDS_APPLY_MAX a request, each its own transaction; a failure is reported, not fatal
-charactersRouter.post('/fields-apply', (req, res) => {
+charactersRouter.post('/fields-apply', async (req, res) => {
     const { updates } = req.body || {};
     if (!Array.isArray(updates) || !updates.length) {
         return res.status(400).json({ error: 'updates array required: [{id, fields, fav?}]' });
@@ -304,25 +320,30 @@ charactersRouter.post('/fields-apply', (req, res) => {
     const db = req.db;
     const affected = [];
     const failed = [];
-    for (const u of updates) {
-        const id = String(u?.id || '');
-        if (!id) { failed.push({ id: null, error: 'missing id' }); continue; }
-        if (u.fields !== undefined && (typeof u.fields !== 'object' || Array.isArray(u.fields) || u.fields === null)) {
-            failed.push({ id, error: 'fields must be an object of dot-path updates' });
-            continue;
-        }
-        try {
-            const bool = (v) => (typeof v === 'boolean' ? v : undefined);
-            const out = patchCharacter(db, id, { fields: u.fields || {}, fav: bool(u.fav), mediaLocalized: bool(u.mediaLocalized), loreDismissed: bool(u.loreDismissed) });
-            if (out) affected.push(id);
-            else failed.push({ id, error: 'character not found' });
-        } catch (err) {
-            // a refusal is its row's answer; a server fault is logged, and the row still answers
-            if (!Number.isInteger(err?.statusCode)) console.error(`[characters][${req.userHandle}] bulk PATCH ${id} failed:`, err);
-            else if (err.refusedField) console.warn(`[characters][${req.userHandle}] bulk PATCH ${id} refused: ${err.message}`);
-            failed.push({ id, error: err.message });
+    // paced a slice at a time and never stopped: each update lands whole in its own transaction
+    function* applyAll() {
+        for (const u of updates) {
+            const id = String(u?.id || '');
+            if (!id) { failed.push({ id: null, error: 'missing id' }); continue; }
+            if (u.fields !== undefined && (typeof u.fields !== 'object' || Array.isArray(u.fields) || u.fields === null)) {
+                failed.push({ id, error: 'fields must be an object of dot-path updates' });
+                continue;
+            }
+            try {
+                const bool = (v) => (typeof v === 'boolean' ? v : undefined);
+                const out = patchCharacter(db, id, { fields: u.fields || {}, fav: bool(u.fav), mediaLocalized: bool(u.mediaLocalized), loreDismissed: bool(u.loreDismissed) }, { answer: false });
+                if (out) affected.push(id);
+                else failed.push({ id, error: 'character not found' });
+            } catch (err) {
+                // a refusal is its row's answer; a server fault is logged, and the row still answers
+                if (!Number.isInteger(err?.statusCode)) console.error(`[characters][${req.userHandle}] bulk PATCH ${id} failed:`, err);
+                else if (err.refusedField) console.warn(`[characters][${req.userHandle}] bulk PATCH ${id} refused: ${err.message}`);
+                failed.push({ id, error: err.message });
+            }
+            yield;
         }
     }
+    await runSteps(applyAll());
     res.json({ ok: true, touched: affected.length, affected, failed });
 });
 

@@ -709,7 +709,8 @@ export function buildAssistantPrompt(db, chatId, {
     const scan = runLoreScan(db, chatRow, { dryRun: true, names });
     // the books in force, as the scan composed them
     const worlds = scan.worlds;
-    const visible = scan.visible;
+    // the excerpt is text for a reader shown no picture: a message of pictures alone stays out, and out of the edits' reach
+    const visible = scan.visible.filter(r => !scan.picturesAlone.has(r.seq));
     const fired = scan.lore;
     const firingKeys = new Set(loreInPrompt(db, chatId, fired).inPrompt.keys());
 

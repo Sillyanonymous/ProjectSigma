@@ -23,7 +23,7 @@ guide is one page that opens in any browser: online at that link, in the app und
   and colours, and a Tags Manager that renames, merges and cleans up tags across the whole library. Select one character
   or every character in the current view and tag, favorite, export or delete them in one go. Find duplicates, and ask an
   AI connection to recommend characters from your own library.
-- <img src="docs/assets/icons/magnifying-glass.svg" width="16" height="16" alt=""> [Search that understands cards](https://sillyanonymous.github.io/ProjectSigma/guide.html#search-and-filters). Press `\` anywhere for
+- <img src="docs/assets/icons/magnifying-glass.svg" width="16" height="16" alt=""> [Search that understands cards](https://sillyanonymous.github.io/ProjectSigma/guide.html#search-and-filters). Press the key under <kbd>Esc</kbd> anywhere for
   Search everything, one box over your characters, chats, messages, lorebook entries and settings. In the library,
   search names, tags, creators, notes or card text; narrow with prefixes such as `creator:`, `fav:yes` or `chub:no`; and build Advanced Filters from more than twenty
   fields (token count, last chat, linked lorebook, alternate greetings and more), saved as presets.
@@ -33,8 +33,8 @@ guide is one page that opens in any browser: online at that link, in the app und
 - <img src="docs/assets/icons/comments.svg" width="16" height="16" alt=""> [Chats that run here](https://sillyanonymous.github.io/ProjectSigma/guide.html#chats). A full conversation screen: streaming replies, alternates you swipe
   through, continue, regenerate, "write my next message", branching a chat from any message, hidden messages, thinking
   shown in a fold, and export to JSONL. Attach pictures to a message when the model sees them, and keep a gallery for
-  each chat beside its character's. Around the conversation sit a prompt manager (it imports SillyTavern chat-completion presets),
-  a prompt inspector that shows exactly what is sent, an Author's note, chat backgrounds, and an out-of-character
+  each chat beside its character's. Around the conversation sit a prompt manager (it imports SillyTavern chat-completion presets and builds
+  them the way SillyTavern does), regex scripts, a header you arrange yourself, a prompt inspector that shows exactly what is sent, an Author's note, chat backgrounds, and an out-of-character
   assistant that can propose lorebook and message edits for you to review. See also
   [chat windows](https://sillyanonymous.github.io/ProjectSigma/guide.html#conversation-tools).
 - <img src="docs/assets/icons/plug.svg" width="16" height="16" alt=""> [Your own AI connection](https://sillyanonymous.github.io/ProjectSigma/guide.html#connections). Any endpoint that speaks the OpenAI-compatible chat API, local

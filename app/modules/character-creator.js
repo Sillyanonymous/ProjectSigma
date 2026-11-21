@@ -24,10 +24,6 @@ let importSourceName = '';
 let carried = null;
 let creatorTagsArray = [];
 let tagAiBusy = false;
-// the server's suggestions for the typed text, the last answer this form asked for
-let tagAutocompleteList = [];
-let tagAutocompleteSeq = 0;
-let tagAutocompleteTimer = 0;
 let saveAsTarget = null;
 // Import/Save-As picker search debounce.
 let importSearchTimer = 0;
@@ -78,7 +74,7 @@ function createModal() {
                         <div id="creatorTagSuggestions" class="creator-tag-suggestions hidden"></div>
                         <div class="creator-tag-input-row">
                             <input type="search" id="creatorTagInput" class="glass-input tag-input" placeholder="Add tag..." autocomplete="one-time-code">
-                            <div id="creatorTagAutocomplete" class="tag-autocomplete hidden"></div>
+                            <div id="creatorTagAutocomplete" class="tag-autocomplete is-below"></div>
                         </div>
                     </div>
                 </div>
@@ -501,12 +497,12 @@ function attachEvents() {
     const tagInput = document.getElementById('creatorTagInput');
     tagInput?.addEventListener('keydown', handleTagKeydown);
     // each keystroke asks the server, so a typing burst asks once
-    tagInput?.addEventListener('input', () => { clearTimeout(tagAutocompleteTimer); tagAutocompleteTimer = setTimeout(handleTagAutocomplete, 150); });
-    tagInput?.addEventListener('focus', handleTagAutocomplete);
+    tagInput?.addEventListener('input', CoreAPI.debounce(showCreatorTagSuggestions, 150));
+    tagInput?.addEventListener('focus', showCreatorTagSuggestions);
     document.getElementById('creatorTagAiBtn')?.addEventListener('click', suggestTags);
     document.addEventListener('click', (e) => {
         if (!e.target.closest('#creatorTagInput') && !e.target.closest('#creatorTagAutocomplete')) {
-            document.getElementById('creatorTagAutocomplete')?.classList.add('hidden');
+            document.getElementById('creatorTagAutocomplete')?.classList.remove('visible');
         }
     });
 }
@@ -621,6 +617,7 @@ function renderCreatorTags() {
 }
 
 function handleTagKeydown(e) {
+    if (CoreAPI.tagAutocompleteKeydown(e, document.getElementById('creatorTagAutocomplete'))) return;
     if (e.key === 'Enter') {
         e.preventDefault();
         const val = e.target.value.trim();
@@ -629,44 +626,25 @@ function handleTagKeydown(e) {
             renderCreatorTags();
         }
         e.target.value = '';
-        document.getElementById('creatorTagAutocomplete')?.classList.add('hidden');
+        document.getElementById('creatorTagAutocomplete')?.classList.remove('visible');
     }
 }
 
-// the server's suggestions for the typed text; a late answer for text typed over is dropped
-async function handleTagAutocomplete() {
+// the app's tag suggestions under the field; a pick joins the form's tags
+function showCreatorTagSuggestions() {
     const input = document.getElementById('creatorTagInput');
     const dropdown = document.getElementById('creatorTagAutocomplete');
     if (!input || !dropdown) return;
-
-    const q = input.value.trim().toLowerCase();
-    if (!q) { dropdown.classList.add('hidden'); return; }
-
-    const mine = ++tagAutocompleteSeq;
-    const named = await CoreAPI.suggestTags(q, { limit: 10 + creatorTagsArray.length });
-    if (mine !== tagAutocompleteSeq) return;
-    tagAutocompleteList = named;
-    const matches = tagAutocompleteList
-        .filter(t => t.toLowerCase().includes(q) && !creatorTagsArray.includes(t))
-        .slice(0, 10);
-
-    if (!matches.length) { dropdown.classList.add('hidden'); return; }
-
-    dropdown.innerHTML = matches.map(t =>
-        `<div class="tag-autocomplete-item">${CoreAPI.escapeHtml(t)}</div>`
-    ).join('');
-    dropdown.classList.remove('hidden');
-
-    dropdown.querySelectorAll('.tag-autocomplete-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const tag = item.textContent;
+    return CoreAPI.showTagAutocomplete(input.value, {
+        dropdown, exclude: creatorTagsArray, allowCreate: false,
+        onPick: (tag) => {
             if (!creatorTagsArray.includes(tag)) {
                 creatorTagsArray.push(tag);
                 renderCreatorTags();
             }
             input.value = '';
-            dropdown.classList.add('hidden');
-        });
+            dropdown.classList.remove('visible');
+        },
     });
 }
 

@@ -27,6 +27,7 @@ import { assistantRouter } from './routes/assistant.js';
 import { creatorRouter } from './routes/creator.js';
 import { personasRouter } from './routes/personas.js';
 import { presetsRouter } from './routes/presets.js';
+import { regexRouter } from './routes/regex.js';
 import { bundleRouter } from './routes/bundle.js';
 import { sweepStalePacks } from './lib/zip.js';
 import { tagsRouter } from './routes/tags.js';
@@ -39,6 +40,8 @@ import { tagRunsRouter } from './routes/tag-runs.js';
 import { jobsRouter } from './routes/jobs.js';
 import { mediaJobsRouter } from './routes/media-jobs.js';
 import { startBackupScheduler } from './lib/backup-scheduler.js';
+import { startLibraryPreload } from './lib/library-preload.js';
+import { startFingerprintRefresh } from './lib/fingerprint-refresh.js';
 import { startStageSweeper } from './importer/card-file.js';
 import { sweepAllGreetings } from './lib/greeting-sweep.js';
 import { LlmError, httpStatusFor } from './llm/errors.js';
@@ -183,6 +186,7 @@ export async function createApp() {
     app.use('/api/creator', creatorRouter);
     app.use('/api/personas', personasRouter);
     app.use('/api/presets', presetsRouter);
+    app.use('/api/regex', regexRouter);
     app.use('/api/bundle', bundleRouter);
     app.use('/api/tags', tagsRouter);
     app.use('/api/tag-runs', tagRunsRouter);
@@ -291,6 +295,9 @@ export async function createApp() {
         });
     }
 
+    // the server's regex engine, for the page's screen pass; a root keeps a dot folder in the install path servable
+    app.get('/regex/engine.js', (req, res) => res.type('application/javascript').sendFile('engine.js', { root: path.join(config.projectRoot, 'server', 'lib', 'regex') }));
+
     const appDir = path.join(config.projectRoot, 'app');
     if (fs.existsSync(appDir)) {
         app.get('/', (req, res) => res.redirect('/library.html'));
@@ -325,6 +332,8 @@ if (isCli) {
         sweepStalePacks();
         sweepAllGreetings({ serverDb, log: console.log });
         startJobSchedules();
+        startLibraryPreload();
+        startFingerprintRefresh();
     });
     attachFeed(server);
 }

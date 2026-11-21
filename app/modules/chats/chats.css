@@ -136,62 +136,6 @@
     border-color: var(--cl-error-bright);
 }
 
-.no-chats {
-    text-align: center;
-    padding: 60px var(--space-xl);
-    color: var(--text-secondary);
-}
-
-.no-chats i {
-    font-size: var(--font-4xl);
-    margin-bottom: var(--space-lg);
-    opacity: 0.5;
-}
-
-.no-chats p {
-    margin: 0;
-}
-
-/* --- The two segmented toggles (view lens, layout), the Online tab's view-toggle vocabulary --- */
-
-.chats-seg {
-    display: flex;
-    gap: var(--space-2xs);
-    padding: var(--space-2xs);
-    background: var(--cl-shade-30);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-}
-
-.chats-seg.hidden {
-    display: none;
-}
-
-.chats-seg-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-sm) var(--space-md);
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    font-size: var(--font-md);
-    cursor: pointer;
-    transition: background var(--dur-base) ease, color var(--dur-base) ease;
-}
-
-.chats-seg-btn:hover {
-    color: var(--text-primary);
-    background: var(--cl-ghost-mid);
-}
-
-.chats-seg-btn.active {
-    background: var(--accent);
-    color: var(--accent-text);
-    box-shadow: 0 2px 8px var(--accent-glow);
-}
-
 /* ========================================
    Chats View Grid
    ======================================== */
@@ -908,36 +852,6 @@ html:not(.cl-mobile) .chat-group-item:focus-within .chat-card-meta-slot > .chat-
 }
 .chat-group-item-preview { -webkit-line-clamp: 1; line-clamp: 1; }
 
-/* a child of the card grid: span every column or it sits in the first track; min-height centres it in the view */
-.chats-empty {
-    grid-column: 1 / -1;
-    min-height: min(60vh, 520px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px var(--space-xl);
-    text-align: center;
-    color: var(--text-secondary);
-}
-
-.chats-empty i {
-    font-size: 4rem;
-    margin-bottom: var(--space-xl);
-    opacity: 0.3;
-}
-
-.chats-empty h3 {
-    color: var(--text-primary);
-    margin-bottom: var(--space-sm-md);
-    border: none;
-}
-
-.chats-empty p {
-    font-size: var(--font-base);
-    max-width: 400px;
-}
-
 /* Loading state */
 .chats-view .chats-loading {
     display: flex;
@@ -1034,10 +948,11 @@ html:not(.cl-mobile) .chat-group-item:focus-within .chat-card-meta-slot > .chat-
     min-width: 0;
 }
 
-/* ONE rule for every cluster button; a panel keeps only its active colour (per-panel styling drifted into three buttons) */
+/* ONE rule for every cluster button and the icon grid's cells; a panel keeps only its active colour (per-panel styling drifted) */
 /* the inline-flex outranks the global .hidden, so host-toggled buttons need the counter-rule at this scope */
 .chat-conv-header-right button.hidden { display: none; }
-.chat-conv-header-right button {
+.chat-conv-header-right button,
+.chat-conv-icon-cell {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1054,32 +969,114 @@ html:not(.cl-mobile) .chat-group-item:focus-within .chat-card-meta-slot > .chat-
     transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
 }
 
-.chat-conv-header-right button:hover {
+.chat-conv-header-right button:hover,
+.chat-conv-icon-cell:hover {
     color: var(--text-primary);
     background: rgba(var(--accent-rgb), 0.12);
 }
 
-/* The open panel's button stays lit, whichever panel it belongs to (openChatWindow sets it). */
-.chat-conv-header-right button.is-panel-open {
+/* lit: the open panel's button, More over a collapsed open one, a group while its list is open, the grid's current icon */
+.chat-conv-header-right button.is-panel-open,
+.chat-conv-header-right button.is-current,
+.chat-conv-header-right button[aria-expanded="true"],
+.chat-conv-icon-cell.is-current {
     color: var(--accent);
     background: rgba(var(--accent-rgb), 0.16);
 }
 
-/* a lorebook the engine cant see: a dot, since the active state owns the colour; it says something is here, not wrong */
-.chat-conv-header-right button.has-embedded-lore {
-    position: relative;
-}
-.chat-conv-header-right button.has-embedded-lore::after {
-    content: '';
+/* the reader's arrangement: a hidden opener and one filed in a group leave the row, kept for their listeners and marks */
+.chat-conv-header-right button.is-arranged-out,
+.chat-conv-header-right button.is-filed { display: none; }
+
+/* a group: its icon, and a corner mark (the toolbar sign for a slot holding more); the dots keep the top corner */
+.chat-conv-header-right button.chat-conv-group { position: relative; }
+.chat-conv-group-mark {
     position: absolute;
-    top: 3px;
     right: 3px;
-    width: 7px;
-    height: 7px;
-    border-radius: var(--radius-circle);
-    background: var(--cl-warning);
+    bottom: 3px;
+    width: 5px;
+    height: 5px;
+    background: currentColor;
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
     pointer-events: none;
 }
+
+/* dragging an opener: the slot is an upright accent bar inside the node it falls before (or after, at the end) */
+.chat-conv-header-right .is-drop-before,
+.chat-conv-header-right .is-drop-after { position: relative; }
+.chat-conv-header-right .is-drop-before::before,
+.chat-conv-header-right .is-drop-after::before {
+    content: '';
+    position: absolute;
+    top: var(--space-xs);
+    bottom: var(--space-xs);
+    width: var(--space-2xs);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    pointer-events: none;
+}
+.chat-conv-header-right .is-drop-before::before { left: 0; }
+.chat-conv-header-right .is-drop-after::before { right: 0; }
+/* resting on a group's middle files the opener in it */
+.chat-conv-header-right button.is-drop-into {
+    background: var(--cl-accent-tint);
+    color: var(--accent);
+    outline: 1px dashed var(--accent);
+    outline-offset: -1px;
+}
+/* the node being dragged, as the prompt manager's dragged row */
+.chat-conv-header-right .is-dragging,
+.chat-conv-group-menu .is-dragging { opacity: 0.45; }
+.chat-conv-drag-ghost {
+    position: fixed;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cl-chat-bar-h);
+    height: var(--cl-chat-bar-h);
+    border-radius: var(--radius-md);
+    background: var(--cl-sheet-bg);
+    color: var(--accent);
+    font-size: var(--font-md);
+    box-shadow: var(--cl-shadow-xl);
+    pointer-events: none;
+}
+html.cl-header-dragging body,
+html.cl-header-dragging .chat-conv-header-right button { cursor: grabbing; }
+
+/* a group's list: the context menu's look; a row takes the vertical slot bar, a divider a grab area */
+.chat-conv-group-menu .cl-context-menu-item { position: relative; }
+.chat-conv-group-menu .is-drop-before::before,
+.chat-conv-group-menu .is-drop-after::before {
+    content: '';
+    position: absolute;
+    left: var(--space-xs);
+    right: var(--space-xs);
+    height: var(--space-2xs);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    pointer-events: none;
+}
+.chat-conv-group-menu .is-drop-before::before { top: 0; }
+.chat-conv-group-menu .is-drop-after::before { bottom: 0; }
+.chat-conv-group-menu .chat-conv-group-sep {
+    position: relative;
+    box-sizing: content-box;
+    padding: var(--space-2xs) 0;
+    margin: var(--space-2xs) 0;
+    background-clip: content-box;
+    cursor: grab;
+}
+
+/* a group's icon grid: its cells ride the cluster button rule above, only the focus ring is theirs (the menu's display yields) */
+.cl-context-menu.chat-conv-icon-grid.visible {
+    display: grid;
+    grid-template-columns: repeat(8, var(--cl-chat-bar-h));
+    gap: var(--space-2xs);
+    min-width: 0;
+}
+.chat-conv-icon-cell:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 /* the name opens the character, so a hover-only underline says so while the resting header stays quiet */
 .chat-conv-title {
@@ -1122,6 +1119,12 @@ html:not(.cl-mobile) .chat-group-item:focus-within .chat-card-meta-slot > .chat-
     -webkit-backdrop-filter: blur(var(--cl-chat-backdrop-blur));
     pointer-events: none;
     overflow: hidden;
+}
+
+/* Firefox redraws this full-pane blur under every frame of a window drag, so the gesture pauses it */
+html.fw-gesture .chat-conv-backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* layer 1b, the wallpaper: a pseudo-element so its opacity and filter never dim the flat colour; no attribute, nothing painted */
@@ -1708,6 +1711,10 @@ html.cl-overlay-scrollbars:not(.cl-mobile) .chat-conv-messages {
 .chat-conv-msg-text font[color] :is(em, i, u),
 .chat-conv-msg-text font[color] .cl-quote { color: inherit; }
 
+/* an authored block wider than its row scrolls inside itself; an authored min-width is inline, so only an important one beats it */
+.chat-conv-msg-text > .cl-island-wide { max-width: 100%; min-width: 0 !important; overflow-x: auto; }
+.chat-conv-msg-text > table.cl-island-wide { display: block; width: max-content; }
+
 /* The one colour change that crosses hue, so it takes the slowest rung on the ladder. */
 .chat-conv-msg-text a {
     color: var(--accent-muted);
@@ -2196,13 +2203,16 @@ html.cl-no-ambient .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swip
 }
 .chat-conv-msg.gen-error { border-color: rgba(var(--cl-error-rgb), 0.4); }
 
-/* header icons grouped by hairlines (people | media | reading | prompt | settings) so the row is learnable */
+/* header icons grouped by hairlines the reader places; the line centred in a box wide enough to grab, the old footprint kept */
 .chat-conv-head-sep {
-    width: 1px;
+    width: calc(1px + 2 * var(--space-2xs));
     height: 16px;
-    background: var(--cl-ghost-mid);
+    background: linear-gradient(var(--cl-ghost-mid), var(--cl-ghost-mid)) center / 1px 100% no-repeat;
     flex-shrink: 0;
-    margin: 0 var(--space-2xs);
+}
+.chat-conv-header-right .chat-conv-head-sep:hover {
+    background-image: linear-gradient(var(--cl-ghost-heavy), var(--cl-ghost-heavy));
+    cursor: grab;
 }
 
 
@@ -2392,8 +2402,10 @@ html.cl-no-ambient .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swip
 .chat-conv-options-menu .dropdown-item[disabled] { opacity: var(--op-disabled); pointer-events: none; }
 
 /* a switch row reads label then state, the toggle at the far edge to keep the action rows' rhythm */
-.dropdown-item.is-toggle { align-items: center; }
-.dropdown-item.is-toggle > span { flex: 1; }
+.dropdown-item.is-toggle,
+.mobile-sheet-item.is-toggle { align-items: center; }
+.dropdown-item.is-toggle > span,
+.mobile-sheet-item.is-toggle > span { flex: 1; }
 
 .chat-conv-opt-state {
     margin-left: auto;
@@ -2462,12 +2474,18 @@ html.cl-no-ambient .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swip
 .chat-conv-header-right button.is-marked,
 .chat-conv-opt-btn.is-marked,
 .chat-conv-win-tile.is-working,
+.chat-conv-header-right button.is-waiting,
+.chat-conv-opt-btn.is-waiting,
+.chat-conv-win-tile.is-waiting,
 .chat-conv-win-tile.is-marked { position: relative; }
 .chat-conv-header-right button.is-working::after,
 .ccs-opener.is-working::after,
 .chat-conv-header-right button.is-marked::after,
 .chat-conv-opt-btn.is-marked::after,
 .chat-conv-win-tile.is-working::after,
+.chat-conv-header-right button.is-waiting::after,
+.chat-conv-opt-btn.is-waiting::after,
+.chat-conv-win-tile.is-waiting::after,
 .chat-conv-win-tile.is-marked::after {
     content: '';
     position: absolute;
@@ -2481,7 +2499,26 @@ html.cl-no-ambient .chat-conv-msg.streaming.is-live-format:has(> .chat-conv-swip
 }
 .chat-conv-header-right button.is-working::after,
 .ccs-opener.is-working::after,
-.chat-conv-win-tile.is-working::after { animation: cl-working-dot 1.2s ease-in-out infinite; }
+.chat-conv-win-tile.is-working::after,
+.cl-context-menu-item.is-working::after { animation: cl-working-dot 1.2s ease-in-out infinite; }
+/* a source waiting for an answer wears the same dot in the warning tone */
+.chat-conv-header-right button.is-waiting::after,
+.chat-conv-opt-btn.is-waiting::after,
+.chat-conv-win-tile.is-waiting::after { background: var(--cl-warning); }
+/* a menu row (More's list, a group's) wears its opener's dot after its label */
+.cl-context-menu-item.is-marked::after,
+.cl-context-menu-item.is-working::after,
+.cl-context-menu-item.is-waiting::after {
+    content: '';
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    margin-left: auto;
+    border-radius: var(--radius-circle);
+    background: var(--accent);
+    pointer-events: none;
+}
+.cl-context-menu-item.is-waiting::after { background: var(--cl-warning); }
 @keyframes cl-working-dot {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.4; transform: scale(0.7); }
@@ -2951,6 +2988,9 @@ html.cl-chat-open.cl-mobile .app-container {
 }
 
 .cl-cwin-input:focus { outline: none; border-color: var(--accent); }
+/* a field holding code (a pattern, a template) keeps the box and takes the monospace face; one that does not parse says so */
+.cl-cwin-input.is-code { font-family: var(--font-stack-mono); }
+.cl-cwin-input.is-invalid { border-color: var(--cl-error); }
 
 /* the family's converted selects: the container takes the layout slot, the trigger fills it, chrome stays OFF the select */
 .cl-cwin .custom-select-container,
@@ -3163,6 +3203,7 @@ html.cl-mobile .cl-range {
 
 html.cl-mobile .cl-cwin-btn-text {
     min-height: var(--touch-target-slim);
+    min-width: var(--touch-target-slim);
     touch-action: manipulation;
 }
 
@@ -3280,6 +3321,28 @@ html.cl-mobile .cl-cwin-input-row > textarea {
 /* a switched-off row dims whole; a panel whose toggle must stay bright keeps a local child rule (cpm-off) */
 .cl-cwin-row.is-off { opacity: var(--op-disabled); }
 
+/* @canonical cl-cwin-act */
+/* a window row's icon verb: no plate, quiet at rest, the accent on hover (Connections, personas, the prompt manager, lore, Regex) */
+.cl-cwin-act {
+    background: none;
+    border: 0;
+    padding: var(--space-2xs);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--font-2xs);
+    opacity: 0.4;
+    flex-shrink: 0;
+    transition: opacity var(--dur-chat) ease, color var(--dur-chat) ease;
+}
+
+.cl-cwin-act:hover { opacity: 0.8; color: var(--accent); }
+
+html.cl-mobile .cl-cwin-act {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+    opacity: 0.8;
+}
+
 /* @canonical cl-cwin-tag */
 .cl-cwin-tag {
     flex-shrink: 0;
@@ -3292,6 +3355,97 @@ html.cl-mobile .cl-cwin-input-row > textarea {
     color: var(--text-secondary);
 }
 .cl-cwin-tag.is-accent { background: rgba(var(--accent-rgb), 0.2); color: var(--accent); }
+.cl-cwin-tag.is-warn { background: color-mix(in srgb, var(--cl-warning) 20%, transparent); color: var(--cl-warning); }
+
+/* @canonical cl-cwin-picks */
+/* labelled ticks in a window's form: the Regex editor's Runs on, a prompt block's Fires on, the lore entry editor's ticks */
+.cl-cwin-picks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-sm);
+}
+
+.cl-cwin-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+html.cl-mobile .cl-cwin-pick {
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
+}
+
+/* @canonical cl-cwin-offer */
+/* something a window offers and waits on an answer for (a card's own lorebook, a preset's scripts): a warning-tinted band */
+.cl-cwin-offer {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+    padding: var(--space-sm) var(--space-sm-md);
+    border: 1px solid color-mix(in srgb, var(--cl-warning) 34%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--cl-warning) 8%, var(--cl-veil-1));
+}
+
+.cl-cwin-offer-glyph {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: var(--font-md);
+    color: var(--cl-warning);
+}
+
+.cl-cwin-offer-text { flex: 1; min-width: 0; }
+
+.cl-cwin-offer-title {
+    margin: 0 0 var(--space-2xs);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cl-cwin-offer-body {
+    margin: 0;
+    font-size: var(--font-2xs);
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+/* under the text: a side column narrow enough for Import left the second action dangling as debris */
+.cl-cwin-offer-acts {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
+}
+
+/* Leaving it embedded is a real answer, so it is a real button, just not the one being
+   offered: quiet until approached. */
+.cl-cwin-offer-dismiss {
+    padding: var(--space-xs) var(--space-xs);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-muted);
+    font-size: var(--font-2xs);
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
+}
+
+.cl-cwin-offer-dismiss:hover {
+    color: var(--text-secondary);
+    background: var(--cl-veil-2);
+}
+
+/* the quiet answer still has to be tappable: 18px of text is not a target */
+html.cl-mobile .cl-cwin-offer-dismiss {
+    min-height: var(--touch-target-slim);
+    padding-inline: var(--space-sm);
+}
 
 /* @canonical cl-cwin-inforce */
 /* first in a window holding a per-chat choice: what is in force in this chat, and whose choice it is */
@@ -3420,14 +3574,6 @@ html.cl-mobile .cl-cwin-tiles {
 
 /* the host pads its shell (the canon body has none), so an extension gets a padded box to render into */
 .cxw-body { padding: var(--space-md); }
-/* One hairline between the first-party openers and the extension ones. */
-.chat-conv-header-right .cxw-sep {
-    width: 1px;
-    height: var(--space-lg);
-    margin: 0 var(--space-2xs);
-    background: var(--cl-elev-hairline);
-    flex-shrink: 0;
-}
 .cxw-error {
     display: flex;
     align-items: center;
@@ -3537,6 +3683,10 @@ html.cl-mobile .chat-conv-msg-actions [data-act="regenerate"] { display: none; }
 
 /* expanded actions is desktop-only, so its switch doesnt sit in the phone's sheet looking functional */
 html.cl-mobile [data-opt="display:chatExpandActions"] { display: none; }
+
+/* the sheet row tints every icon in the accent, which would paint an off switch as on: the state glyph keeps its own */
+html.cl-mobile .mobile-sheet-item .chat-conv-opt-state { color: var(--text-muted); }
+html.cl-mobile .mobile-sheet-item .chat-conv-opt-state.is-on { color: var(--accent); }
 
 /* The chips give back what they can too: same size, less air. */
 html.cl-mobile .chat-conv-msg-chip { padding: 0 var(--space-2xs); }
@@ -3952,11 +4102,7 @@ html.cl-mobile .chat-layout-cards .chat-card-preview {
 html.cl-mobile .chat-card-footer { padding: var(--space-xs-sm) var(--space-sm-md); font-size: var(--font-2xs); }
 html.cl-mobile .chat-card-meta { gap: var(--space-sm); }
 
-/* Chats empty/loading states */
-html.cl-mobile .chats-empty { padding: 40px var(--space-lg); }
-html.cl-mobile .chats-empty i { font-size: 2.5rem; }
-html.cl-mobile .chats-empty h3 { font-size: var(--font-base); }
-html.cl-mobile .chats-empty p { font-size: var(--font-md); }
+/* Chats loading state */
 html.cl-mobile .chats-view .chats-loading { padding: 40px; font-size: var(--font-base); }
 
 /* ========================================
@@ -4074,6 +4220,20 @@ html.cl-mobile .chats-view .chats-loading { padding: 40px; font-size: var(--font
 .cl-cwin-ext-name { flex: 0 1 auto; }
 .cl-cwin-ext-owner { flex: 0 1000 auto; color: var(--text-faint); font-size: var(--font-xs); }
 .cl-cwin-ext-scopes { display: flex; align-items: center; gap: var(--space-md); flex-shrink: 0; }
+/* the conversation header's rows: a group's members indented under it, a divider a slim row with its remove */
+.cl-cwin-head-row.is-member,
+.cl-cwin-head-divider.is-member { padding-left: var(--space-md); }
+.cl-cwin-block.cl-cwin-head-divider {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-2xs) 0;
+    color: var(--text-faint);
+    font-size: var(--font-xs);
+}
+.cl-cwin-head-divider .cl-cwin-field-label { display: inline-flex; align-items: center; gap: var(--space-xs); }
+.cl-cwin-head-foot { display: flex; justify-content: flex-end; margin-top: var(--space-xs); }
 .cl-cwin-ext-scope {
     display: inline-flex;
     align-items: center;

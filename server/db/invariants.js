@@ -6,9 +6,10 @@ import { parseStDate, deleteChatMessage } from './chats-store.js';
 import { TAG_RUN_KEEP } from './tag-runs-store.js';
 import { PROFILE_POINTERS } from './llm-profiles-store.js';
 import { cardContentHash } from '../lib/card-hash.js';
+import { cardFingerprint } from '../lib/duplicate-match.js';
 import { missingSearchTerms } from './card-text-search.js';
 import { PROVIDER_NAMESPACES } from '../lib/provider-namespaces.js';
-import { CHAT_COUNTER_TRIGGERS, CHAT_LAST_MES_SQL, CHAR_CHAT_TRIGGERS, CHAR_CHAT_COUNT_SQL, CHAR_LAST_CHAT_SQL, TAG_COUNT_TRIGGERS } from './database.js';
+import { CHAT_COUNTER_TRIGGERS, CHAT_LAST_MES_SQL, CHAR_CHAT_TRIGGERS, CHAR_CHAT_COUNT_SQL, CHAR_LAST_CHAT_SQL, TAG_COUNT_TRIGGERS, FINGERPRINT_TRIGGERS } from './database.js';
 
 // every ordered relation: (table, carrier column); the global list has no carrier
 const BINDING_TABLES = [
@@ -27,6 +28,7 @@ const SCHEMA_TRIGGERS = [
     ...CHAT_COUNTER_TRIGGERS,
     ...CHAR_CHAT_TRIGGERS,
     ...TAG_COUNT_TRIGGERS,
+    ...FINGERPRINT_TRIGGERS,
 ];
 
 const tableSql = (db, name) => db.prepare("SELECT sql FROM sqlite_master WHERE name = ?").get(name)?.sql || '';
@@ -185,6 +187,26 @@ export const INVARIANTS = [
           const out = [];
           for (const r of db.prepare('SELECT id, name, content_hash, card FROM characters').iterate()) {
               if (r.content_hash !== cardContentHash(JSON.parse(r.card))) out.push(`char "${r.name}": content_hash drifted from its card`);
+          }
+          return out;
+      } },
+    // the duplicate rule finds a card by its fingerprint alone: one missing hides it from every duplicate check, a stale one misjudges it
+    { name: 'fingerprints', title: 'characters: every card has its fingerprint, or waits on the queue for it', currentSchema: true,
+      run: (db) => {
+          const out = [];
+          const same = (a, b) => (a ?? null) === (b ?? null);
+          for (const r of db.prepare(`SELECT c.id, c.name, c.card, f.char_id AS fid, f.name_key, f.name_key2, f.creator_key, f.sig, f.sig_mask, f.band0, f.band1, f.band2, f.band3,
+                  EXISTS (SELECT 1 FROM fingerprints_pending p WHERE p.rid = c.rowid) AS queued
+                  FROM characters c LEFT JOIN character_fingerprints f ON f.char_id = c.id`).iterate()) {
+              if (r.queued) continue;
+              if (!r.fid) { out.push(`char "${r.name}": no fingerprint, and not waiting for one`); continue; }
+              const f = cardFingerprint(JSON.parse(r.card).data || {});
+              const sig = f.mask ? f.sig : null;
+              const bands = f.bands || [null, null, null, null];
+              if (r.name_key !== f.nameKey || !same(r.name_key2, f.nameKey2) || !same(r.creator_key, f.creatorKey || null) || r.sig_mask !== f.mask
+                  || !(sig ? r.sig && Buffer.compare(r.sig, sig) === 0 : r.sig == null) || [r.band0, r.band1, r.band2, r.band3].some((b, k) => !same(b, bands[k]))) {
+                  out.push(`char "${r.name}": fingerprint drifted from its card`);
+              }
           }
           return out;
       } },

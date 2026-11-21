@@ -289,13 +289,16 @@ function isPostPossibleMatch(post) {
     return !!postPossibleTier(post)?.show;
 }
 
+// a post's creator: its Writer tag, else its uploader's name once known (the name arrives after the card paints)
+function bbCreatorOf(writer, uploaderId) {
+    return writer || (uploaderId != null && uploaderId !== '' ? bbUploaderNames.get(String(uploaderId)) || '' : '');
+}
+
 function postPossibleTier(post) {
     if (view.isHitInLibrary(post)) return null;
-    // creator = Writer tag, else the uploader name; with neither, a name-only match would flag half the catalog, so no badge
-    const creator = getBotbooruWriterTag(post)
-        || (post.uploader_id != null ? bbUploaderNames.get(String(post.uploader_id)) : '') || '';
-    if (!creator) return null;
-    return view.getPossibleMatchTier(post.character_name || '', creator);
+    // with no creator a name-only match would flag half the catalog, so no badge
+    if (!bbCreatorOf(getBotbooruWriterTag(post), post.uploader_id)) return null;
+    return view.possibleMatchTierFor(post);
 }
 
 function buildBbLookup(targetMap, posts) {
@@ -316,8 +319,8 @@ class BotbooruBrowseView extends BrowseView {
     }
 
     hitMatchName(post) {
-        const creator = getBotbooruWriterTag(post) || (post.uploader_id != null ? bbUploaderNames.get(String(post.uploader_id)) : '') || '';
-        return { name: post.character_name || '', creator };
+        const creator = bbCreatorOf(getBotbooruWriterTag(post), post.uploader_id);
+        return { name: post.character_name || '', creator, text: post.creator_notes_excerpt || '' };
     }
 
     hitLinkKey(post) {
@@ -463,7 +466,7 @@ class BotbooruBrowseView extends BrowseView {
 
     renderFilterBar() {
         return `
-            <!-- Mode Toggle (reuses the canonical browse-view-toggle styling) -->
+            <!-- Mode Toggle -->
             ${renderViewToggle('botbooru-view', [
                 { value: 'browse', icon: 'fa-compass', label: 'Browse', title: 'Browse all characters', active: true },
                 { value: 'following', icon: 'fa-users', label: 'Following', title: 'New from followed uploaders (requires login)' },
@@ -970,9 +973,8 @@ class BotbooruBrowseView extends BrowseView {
     // same policy as postPossibleTier: no creator signal, no badge
     _cardPossibleTier(card, name) {
         const el = card.querySelector('.browse-card-creator-link');
-        const creator = el?.dataset.writer
-            || (el?.dataset.uploaderId ? (bbUploaderNames.get(String(el.dataset.uploaderId)) || '') : '');
-        return creator ? this.getPossibleMatchTier(name, creator) : { show: false };
+        const creator = bbCreatorOf(el?.dataset.writer, el?.dataset.uploaderId);
+        return creator ? this.getPossibleMatchTier(name, creator, '', this.listingFor(card.dataset.linkKey)) : { show: false };
     }
 
     deactivate() {
@@ -2503,7 +2505,7 @@ function createBotbooruCard(post) {
     const tooltip = escapeHtml(post.tagline || post.creator_notes_excerpt || '');
 
     return `
-        <div class="${cardClass}" data-post-id="${escapeHtml(id)}"${view.linkKeyAttr(post)} ${tooltip ? `title="${tooltip}"` : ''}>
+        <div class="${cardClass}" data-post-id="${escapeHtml(id)}"${view.linkKeyAttr(post)}${view.matchAttr(post)} ${tooltip ? `title="${tooltip}"` : ''}>
             <div class="browse-card-image">
                 <img data-src="${escapeHtml(avatarUrl)}" src="${IMG_PLACEHOLDER}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="low">
                 ${isNsfl ? '<span class="browse-nsfw-badge botbooru-nsfl-badge">NSFL</span>' : isNsfw ? '<span class="browse-nsfw-badge">NSFW</span>' : ''}
@@ -2898,22 +2900,29 @@ async function toggleBotbooruCharFavorite() {
 async function downloadBotbooruCharacter() {
     const post = bbSelectedPost;
     if (!post) return;
-    const detail = bbSelectedDetail; // set by the preview fetch; may be null on failure
-    const characterName = detail?.character_name || post.character_name || `botbooru_${post.id}`;
-    const characterCreator = getBotbooruWriterTag(detail || post) || detail?.uploader_name || '';
     await view.importFromPreview({
         button: document.getElementById('botbooruDownloadBtn'), hit: post, provider: 'botbooru', id: String(post.id), data: post, label: 'BotbooruDownload',
         closePreview: closeBotbooruCharPreview,
-        probe: {
-            name: characterName,
-            creator: characterCreator,
-            fullPath: String(post.id),
-            description: detail?.description || post.description_excerpt || '',
-            first_mes: detail?.first_mes || '',
-            personality: detail?.personality || '',
-            scenario: detail?.scenario || '',
+        prepare: async () => {
+            // an Import clicked before the preview's fetch lands reads the detail itself: the duplicate check compares definitions
+            const detail = (bbSelectedPost === post && bbSelectedDetail) || await fetchBotbooruPost(post.id);
+            const characterName = detail?.character_name || post.character_name || `botbooru_${post.id}`;
+            const characterCreator = getBotbooruWriterTag(detail || post) || detail?.uploader_name || '';
+            return {
+                // the post's excerpt is the description cut short, so it is never sent as one: without the detail, no text is compared
+                probe: {
+                    name: characterName,
+                    creator: characterCreator,
+                    fullPath: String(post.id),
+                    description: detail?.description || '',
+                    first_mes: detail?.first_mes || '',
+                    personality: detail?.personality || '',
+                    scenario: detail?.scenario || '',
+                    creator_notes: detail?.creator_notes || '',
+                },
+                dialog: { name: characterName, creator: characterCreator, fullPath: String(post.id), avatarUrl: post.filename ? getBotbooruPreviewUrl(post.filename, post.card_image_revision) : null },
+            };
         },
-        dialog: { name: characterName, creator: characterCreator, fullPath: String(post.id), avatarUrl: post.filename ? getBotbooruPreviewUrl(post.filename, post.card_image_revision) : null },
     });
 }
 
