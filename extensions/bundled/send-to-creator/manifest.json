@@ -1,0 +1,12 @@
+{
+    "id": "send-to-creator",
+    "name": "Send to Creator",
+    "version": "1.0.0",
+    "author": "Project Σ",
+    "description": "Send to Creator in a character's menu opens the character creator with that character's fields, tags, greetings and picture already in it, to make a new character from them. Ships off; switch it on to use it.",
+    "requires": { "api": "2.10" },
+    "defaultOff": true,
+    "contributes": ["character.action"],
+    "lazy": { "actions": [{ "slot": "character", "id": "send", "label": "Send to Creator", "icon": "fa-plus-circle" }] },
+    "client": "client/index.js"
+}

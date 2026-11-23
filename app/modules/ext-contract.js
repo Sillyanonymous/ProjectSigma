@@ -15,6 +15,7 @@ export const COMMAND_TYPES = freeze({
     'character.export': { args: "({ ids: string[] } | { filter: string }) & { format?: 'png' | 'charx' | 'links' | 'bundle'; worlds?: boolean; signal?: AbortSignal; onProgress?: (done: number) => void }", answers: '{ exported: string[]; skipped: string[]; skippedCount?: number; bytes?: number } | { count: number; skippedCount: number; bytes?: number }' },
     'character.import': { args: "({ file: File | Blob } | { url: string } | { provider: string; id: string; data?: unknown } | { stage: { stageId: string; card: Record<string, unknown>; name?: string } }) & { onExisting?: 'copy' | { replace: string } | null; options?: Record<string, unknown> }", answers: 'ImportResult' },
     'character.create': { args: '{ card: CardInput | CardData; image?: ArrayBuffer | ArrayBufferView | Blob }', answers: '{ id: string; name: string }' },
+    'creator.open': { args: '{ id?: string }', answers: 'boolean' },
     'character.snapshot': { args: '{ id: string; label?: string; char?: Readonly<Character> }', answers: '{ snapshot: number; label: string }' },
     'library.search': { args: '{ query: string }', answers: 'true' },
     'library.filter': { args: '{ tag: string } | { creator: string } | { playlist: string | null }', answers: 'true' },

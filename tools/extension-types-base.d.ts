@@ -24,7 +24,7 @@ export interface ClientExtension {
 /** What init is handed: api 2, the part promised not to break casually. */
 export interface ExtensionContext {
     /** The host's extension api, '<major>.<minor>': the minor counts the batches of doors added within the major. */
-    readonly apiVersion: '2.9';
+    readonly apiVersion: '2.10';
     /** Your row in the server's inventory: its reading of your manifest.json. */
     readonly manifest: ManifestRow;
     /** The facade the app's own modules use, every function it exports; not typed here. What you register through onViewEnter, onViewExit, onCharactersDeleted, storeWatch or onJob answers its removal and is undone when you are switched off; a notifications section from registerNotificationSection answers its node and is taken out then too, or sooner by removeNotificationSection(id); its id is yours alone, held under your extension's name, so it never replaces the app's section or another extension's. */

@@ -893,18 +893,18 @@ async function renderImportList(query, isSaveAs = false) {
 }
 
 async function importCharacterFromLibrary(charId) {
-    if (!charId) return;
+    if (!charId) return false;
     // an import overwrites the whole form, so a filled one is asked about first, as a close is
     if (isDirty() && !(await showUnsavedConfirm({
         title: 'Replace the draft?',
         message: 'Importing replaces every field of the form, its tags, greetings and picture. Discard the unsaved draft?',
         confirmLabel: 'Replace',
-    }))) return;
+    }))) return false;
 
     const char = await CoreAPI.ensureCharacterById(charId);
     if (!char) {
         CoreAPI.showToast('Character not found', 'error');
-        return;
+        return false;
     }
 
     await CoreAPI.hydrateCharacter(char);
@@ -967,7 +967,7 @@ async function importCharacterFromLibrary(charId) {
     importSourceName = char.name || '';
     const reading = await readCarried(charId, char.name || '');
     // a later import or a reset while this read was out owns the form now
-    if (importSourceId !== charId) return;
+    if (importSourceId !== charId) return false;
     carried = reading;
     studioMod?.resetStudioSubject();
     if (pictureFailed) {
@@ -975,6 +975,16 @@ async function importCharacterFromLibrary(charId) {
     } else {
         CoreAPI.showToast(`Imported "${char.name}" fields`, 'success', 2000);
     }
+    return true;
+}
+
+/** creator.open: the creator opened, a library character's fields imported into it when an id is given; answers whether they were. */
+async function openCreatorFrom({ id } = {}) {
+    if (id !== undefined && (typeof id !== 'string' || !id)) throw new Error('creator.open: id must be a character id');
+    // an open creator keeps its draft: the import asks before replacing it, where a fresh open would wipe it
+    const modal = document.getElementById('creatorModal');
+    if (!modal || modal.classList.contains('hidden')) openModal();
+    return id === undefined ? true : importCharacterFromLibrary(id);
 }
 
 // ========================================
@@ -1852,6 +1862,7 @@ function buildCharacterCard() {
 
 function init() {
     defineCommand('character.create', createCharacterFrom, { title: 'Create a character' });
+    defineCommand('creator.open', openCreatorFrom, { title: 'Open the character creator' });
 
     // The global Escape handler and the mobile back-button stack both read this
     // registry, so no per-overlay Escape listeners or manual stack entries are needed.

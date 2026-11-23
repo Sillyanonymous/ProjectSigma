@@ -9,6 +9,7 @@ import { readJsonFile } from '../lib/json-file.js';
 import { PROVIDER_NAMESPACES } from '../lib/provider-namespaces.js';
 import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS, stWorldInfo } from './st-layout.js';
 import { expandSuppliedGreeting } from '../llm/prompt.js';
+import { oneLineName } from '../db/characters-store.js';
 
 // the ST personas whose library row kept its own picture, as the migration's run records them
 export const PERSONA_PICTURES_KEY = 'st-migration-persona-pictures';
@@ -80,7 +81,11 @@ function expectedFromSource(source) {
 
     delete data.tags;
     data.extensions = ext;
-    return { data, tags, fav, updateLocked, providerNs, world, versionUid, galleryId, clUid };
+    // the stored form drops a provider's data.avatar and puts the name on one line; the gallery folder is still found by the source's name
+    const sourceName = data.name;
+    delete data.avatar;
+    oneLineName({ data });
+    return { data, sourceName, tags, fav, updateLocked, providerNs, world, versionUid, galleryId, clUid };
 }
 
 /**
@@ -208,7 +213,7 @@ export function verifyStMigration(userDir, db, paths, { files = null, mediaBytes
             const rows = db.prepare('SELECT content_hash, size FROM media WHERE char_id = ?').all(charId);
             const hashes = new Set(rows.map(r => r.content_hash).filter(Boolean));
             const sizes = new Set(rows.map(r => r.size));
-            const name = expected.data.name;
+            const name = expected.sourceName;
             const candidates = [];
             if (expected.galleryId) {
                 const cl = String(name || '').replace(/[<>:"/\\|?*]/g, '_').trim();
