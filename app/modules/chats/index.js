@@ -1,7 +1,8 @@
 import * as CoreAPI from '../core-api.js';
 // chat text is third-party (a card's first_mes, model output): previews go through the browse gate, never raw
-import { BROWSE_PURIFY_CONFIG, CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
+import { BROWSE_PURIFY_CONFIG, CHAT_MESSAGE_PURIFY_CONFIG } from '../providers/provider-utils.js';
 import { STORED_TEXT } from './window.js';
+import { takeStyles, scopeMessageHtml } from './message-styles.js';
 // A sibling INSIDE this feature folder, not a cross-module reach: the conversation owns
 // the panel's lifecycle and hands it the chat it should read.
 import LorePanel from './lore-panel.js';
@@ -11,6 +12,7 @@ import SwipeCombiner from './swipe-combiner-panel.js';
 import BackgroundPanel from './background-panel.js';
 import SettingsPanel from './settings-panel.js';
 import PersonasPanel from './personas-panel.js';
+import { personaFaceUrl, followPersonaPictures, notePersonaRead } from '../personas.js';
 import CardTextsPanel from './card-texts-panel.js';
 import RegexPanel from './regex-panel.js';
 import Assistant from './assistant.js';
@@ -18,7 +20,7 @@ import ExtensionWindows from './extension-windows.js';
 import HeaderLayout from './header-layout.js';
 import { EXT_ACTION_EVENT, actionsFor as extActionsFor, hasActions as extHasActions, runAction as extRunAction, chatCardContext, getActions as extGetActions, actionShows as extActionShows } from '../extension-host.js';
 import { hasHook, runFilter, runFilterAsync, runActions, watchHooks, fireEvent } from '../ext-registry.js';
-import { registerFeedPatcher } from '../feed.js';
+import { registerFeedPatcher, movesChatPick } from '../feed.js';
 import Keymap from '../keymap.js';
 import { createLivePainter, createLiveReveal, repaintLive, readerState, restoreReaderState, scrollPin, createPictureTray, picturesHtml, openPictures, wirePictureInputs, attachToChat, followPictureRemovals } from '../ai-panel.js';
 import { readinessOf, seesPictures } from '../connection-editor.js';
@@ -425,16 +427,29 @@ async function convFollowPersona() {
     const shownOf = () => `${_convPersonaName}\u0000${_convPersonaAvatarId}\u0000${JSON.stringify(_convPersonaPronouns)}`;
     const was = shownOf();
     await convSyncPersonaName();
-    if (_convChatId !== chatId || !_convMessages.length || shownOf() === was) return;
+    if (_convChatId !== chatId) return;
+    // a replaced picture moves the face's stamp before any follow runs, so it is measured against the rows as drawn
+    const face = personaFaceUrl(_convPersonaAvatarId, 192);
+    const faceMoved = _convPersonaFace !== null && face !== _convPersonaFace;
+    _convPersonaFace = face;
+    if (!_convMessages.length || (shownOf() === was && !faceMoved)) return;
     convRebuildRows();
 }
 
 // a persona, connection or preset written elsewhere (null on a reconnect) re-resolves the open conversation's; a delete may free this chat's own
 async function patchConvSubjectFromFeed(records) {
+    // a picture changed elsewhere restamps the persona's faces, the conversation open or not
+    followPersonaPictures(records);
     if (!isConversationOpen()) return;
     if (!records || records.some(r => r.entity === 'persona')) await convFollowPersona();
     if (!records || records.some(r => r.entity === 'llmProfile')) await syncConvProfiles();
     if (!records || records.some(r => r.entity === 'preset')) await convSyncPreset();
+}
+
+// this tab's own persona writes from any door (Settings > Chat, the palette) move the turns as another tab's do
+async function patchConvOwnPersonaFromFeed(records) {
+    if (!isConversationOpen()) return;
+    if (records.some(r => movesChatPick(r, { entity: 'persona', setting: 'activePersonaId', chatId: _convChatId, chatField: 'personaId' }))) await convFollowPersona();
 }
 
 // settings another tab changed, after the shell's re-read, and only what moved since applied
@@ -1538,6 +1553,8 @@ let _convUserName = null;
 let _convPersonaName = null;
 // the resolved persona's id, so a follow sees the persona move even when two share a name and no picture
 let _convPersonaId = null;
+// the persona face url the rows were drawn with: a picture replaced since (the stamp moved) is a move to rebuild for
+let _convPersonaFace = null;
 // the resolved persona's id when it has a picture, so the user-side avatar can be addressed
 let _convPersonaAvatarId = null;
 // the resolved persona's pronoun forms, which the greeting row answers as every build does; null shows it as stored
@@ -1882,6 +1899,7 @@ async function openConversation(chat) {
         // the rows paint once, through the chat's scripts, rather than as stored and then again
         await regexReady;
         if (_convChatId !== chat.id) return;
+        _convPersonaFace = personaFaceUrl(_convPersonaAvatarId, 192);
         renderConversation(_convMessages);
         convResetPin();
         // not awaited: the history is on screen, and the media pass and the budget seed paint when they land
@@ -2022,6 +2040,7 @@ function closeConversation() {
     _convRowCache = new Map();
     _convMediaMap = null;
     _convRegex = null;
+    _convPersonaFace = null;
     _convEmbeddedLore = null;
     _convPersonaId = null;
     _convPersonaAvatarId = null;
@@ -3358,7 +3377,9 @@ function convRenderText(text, charName, { regex = null, localize = false, ...opt
     let shown = regex ? convScreenText(text, regex) : text;
     if (localize) shown = convLocalizeText(shown);
     // shown as stored, as the model reads it: a sent turn was expanded at send, a reply is the model's own
-    return CoreAPI.safePurify(CoreAPI.formatChatText(shown, charName, { ...opts, ...STORED_TEXT, hideForeign: true }), CHAT_PURIFY_CONFIG);
+    const { html, css } = takeStyles(CoreAPI.formatChatText(shown, charName, { ...opts, ...STORED_TEXT, hideForeign: true }));
+    // a <style> is kept to its message as a sheet of its own, never through the sanitizer or back into the HTML
+    return scopeMessageHtml(CoreAPI.safePurify(html, CHAT_MESSAGE_PURIFY_CONFIG), css, { live: !!opts.streaming });
 }
 
 // row 0 is the one row every build expands again, so a greeting stored with pronoun macros shows the words it sends
@@ -3396,9 +3417,9 @@ async function convLoadRegex(chatId) {
     return convRegexShape() !== was;
 }
 
-// what the rows' pass depends on, so a re-read that changed nothing on screen rebuilds nothing
+// what the rows' pass depends on; the names reach a row only through a screen script
 function convRegexShape() {
-    return _convRegex ? JSON.stringify([_convRegex.screen, _convRegex.bundle.names]) : '';
+    return _convRegex?.screen.length ? JSON.stringify([_convRegex.screen, _convRegex.bundle.names]) : '';
 }
 
 // a row's depth on screen: its place from the end among the rows the prompt also counts (the engine's rule), newest 0
@@ -3594,7 +3615,7 @@ function convRenderHooked(html, entry, charName) {
         chatId: _convChatId, charId: _convChar?.id ?? null, seq: entry.seq, messageId: entry.id ?? null, message: Object.freeze({ ...entry.raw }),
         format: (text) => convRenderText(String(text ?? ''), charName, { localize: true }),
     }));
-    return out === html ? html : CoreAPI.safePurify(out, CHAT_PURIFY_CONFIG);
+    return out === html ? html : CoreAPI.safePurify(out, CHAT_MESSAGE_PURIFY_CONFIG);
 }
 
 // the active alternate IS the display: swipes[swipe_id] past one, else mes; clamped, a swipe_id can outlive its array
@@ -3665,6 +3686,7 @@ async function convSyncPersonaName() {
     try {
         const r = await CoreAPI.apiRequest(`/personas/resolve?chatId=${encodeURIComponent(_convChatId)}`, 'GET');
         const persona = r.ok ? (await r.json())?.persona : null;
+        if (persona) notePersonaRead([persona]);
         _convPersonaName = r.ok ? (persona?.name || null) : globalName;
         _convPersonaId = persona?.id ?? null;
         // the id only ADDRESSES the picture; the stored column is a presence marker no caller can set
@@ -3716,7 +3738,7 @@ function convAvatarInnerHtml(isUser) {
     if (isUser) {
         // built from the persona ID, never the stored column, so no authored string reaches an src
         return _convPersonaAvatarId
-            ? `<img class="chat-conv-msg-avatar" src="${CoreAPI.thumbUrl('persona', _convPersonaAvatarId, 192)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+            ? `<img class="chat-conv-msg-avatar" src="${personaFaceUrl(_convPersonaAvatarId, 192)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
             : '<i class="fa-solid fa-user chat-conv-msg-avatar-glyph"></i>';
     }
     const url = (_convChar && CoreAPI.getCharacterAvatarSmallThumbUrl(_convChar.id)) || '/img/no-portrait.png';
@@ -5224,7 +5246,9 @@ function initConversation() {
     // an assistant apply makes the transcript stale: re-read in full, since a batch delete renumbers every later seq
     document.addEventListener('cl-assistant-edited-chat', (e) => {
         if (!isConversationOpen() || e.detail?.chatId !== _convChatId) return;
-        void convRereadOrOwe();
+        if (e.detail.messages !== false) void convRereadOrOwe();
+        // the chat's own texts and note moved: the options mark and This chat's card follow
+        if (e.detail.notes) void convFollowChatMeta();
     });
 
     document.addEventListener('keydown', convOnKeydown);
@@ -5651,6 +5675,7 @@ function init() {
     registerFeedPatcher(['persona', 'llmProfile', 'preset'], patchConvSubjectFromFeed);
     // this tab's own connection writes (the settings modal, the Connections window) move the sight and the budget too
     registerFeedPatcher('llmProfile', () => (isConversationOpen() ? syncConvProfiles() : undefined), { own: true });
+    registerFeedPatcher(['persona', 'setting', 'chat'], patchConvOwnPersonaFromFeed, { own: true });
     registerFeedPatcher('setting', patchConvSettingsFromFeed);
     // the screen's regex pass follows writes from anywhere, this tab's card editor and preset switch among them
     registerFeedPatcher(['regexScript', 'regexConsent', 'persona', 'preset', 'character', 'chat', 'setting'], patchConvRegexFromFeed, { own: 'both' });

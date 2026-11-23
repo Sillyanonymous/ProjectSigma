@@ -507,11 +507,6 @@ export function adoptCharacterInBrowseLookups(char) {
     }, 600);
 }
 
-/** Mark the shared In-Library base stale without rebuilding (lazy rebuild on next use). */
-export function invalidateBrowseLookupBase() {
-    invalidateSharedBaseLookup();
-}
-
 export function refreshActiveBrowseBadges() {
     getActiveView()?.refreshInLibraryBadges();
 }
@@ -575,7 +570,6 @@ export default {
     initProviderSelector,
     rebuildAllBrowseLookups,
     adoptCharacterInBrowseLookups,
-    invalidateBrowseLookupBase,
     refreshActiveBrowseBadges,
     getPreviewModalIds,
     closeActivePreviewModal,

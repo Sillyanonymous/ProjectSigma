@@ -5916,10 +5916,11 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
    ================================================ */
 
 .cl-modal-content.char-duplicates-modal-content {
-    max-width: 98vw;
-    max-height: min(calc(95vh * var(--modal-scale, 1)), 97vh);
-    width: 98vw;
-    min-width: calc(1200px * var(--modal-scale, 1));
+    /* percent of the overlay, never vw: UI Scale zooms the page, and vw ignores the zoom */
+    max-width: 98%;
+    max-height: min(calc(95vh * var(--modal-scale, 1)), 97%);
+    width: 98%;
+    min-width: min(calc(1200px * var(--modal-scale, 1)), 98%);
 }
 
 .char-duplicates-modal-content .cl-modal-body {
@@ -6944,7 +6945,7 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
 @media (max-width: 1250px) {
     html:not(.cl-mobile) .char-duplicates-modal-content {
         min-width: unset;
-        width: 98vw;
+        width: 98%;
     }
 
     html:not(.cl-mobile) .char-dup-comparison {

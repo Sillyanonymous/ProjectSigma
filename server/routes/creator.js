@@ -3,7 +3,7 @@ import {
     listSessions, getSession, createSession, patchSession, deleteSession,
     appendMessage, patchMessage, truncateFrom, deleteMessage,
 } from '../db/studio-store.js';
-import { buildCreatorPrompt, buildTagsPrompt, parseTagList, normalizeDraft, DEFAULT_CREATOR_ROLE, DRAFT_FIELDS, TAG_VOCAB_MAX } from '../llm/creator.js';
+import { buildCreatorPrompt, buildTagsPrompt, parseTagList, normalizeDraft, DEFAULT_CREATOR_ROLE, DRAFT_FIELDS, TAG_VOCAB_MAX, STUDIO_WORDS } from '../llm/creator.js';
 import { listTagCounts } from '../db/tags-store.js';
 import { checkCardProposal, applyCardProposals, mergeOverrides, selfAnchorsFromApplied, laterAnchorsForReply } from '../llm/assistant-edits.js';
 import { chat, chatStream } from '../llm/service.js';
@@ -15,7 +15,7 @@ import { namedProfileId } from '../db/llm-profiles-store.js';
 import { characterExists } from '../db/characters-store.js';
 import { runHook } from '../db/hook-seat.js';
 import { intOf } from '../lib/query-params.js';
-import { sessionLookup, transcriptHandlers, proposalExtra, sessionPictures } from '../lib/session-routes.js';
+import { sessionLookup, transcriptHandlers, proposalExtra, sessionPictures, modelTranscript } from '../lib/session-routes.js';
 import { closeSignal } from '../lib/request-guard.js';
 
 // The creator studio over an unsaved draft: every request posts it, and the apply is computed here and handed back
@@ -70,23 +70,26 @@ function priorUnapplied(session, seq) {
 
 /** The session's turns for the builder, the last reply carrying the judge's verdict on what is unapplied. */
 function transcriptFor(session, draft) {
-    const msgs = session.messages;
-    let last = -1;
-    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant') { last = i; break; }
-    return msgs.map((m, i) => {
-        if (i !== last || !m.extra?.proposals?.length) return { role: m.role, content: m.content, extra: m.extra };
-        const applied = m.extra.applied || {};
-        const self = selfAnchorsFromApplied(applied);
-        const prior = priorUnapplied(session, i);
-        const judged = {};
-        for (const p of m.extra.proposals) {
-            if (p.invalid || applied[p.id]) continue;
-            try {
-                const v = checkCardProposal(m.extra.context || null, draft, p, self, prior);
-                judged[p.id] = { status: v.status, ...(v.reason ? { reason: v.reason } : {}), ...(v.via ? { via: v.via } : {}) };
-            } catch { /* the note goes without a verdict for this one */ }
-        }
-        return { role: m.role, content: m.content, extra: { ...m.extra, judged } };
+    // one verdict over the posted draft, for the last reply's note and a Try again alike
+    const judgeNow = (p, { snapshot, self, later, seq }) => {
+        const v = checkCardProposal(snapshot, draft, p, self, priorUnapplied(session, seq), later);
+        return { status: v.status, ...(v.reason ? { reason: v.reason } : {}), ...(v.via ? { via: v.via } : {}) };
+    };
+    return modelTranscript(session.messages, {
+        words: STUDIO_WORDS,
+        judge: judgeNow,
+        lastReply: (m, i) => {
+            const applied = m.extra.applied || {};
+            const self = selfAnchorsFromApplied(applied);
+            const judged = {};
+            for (const p of m.extra.proposals) {
+                if (p.invalid || applied[p.id]) continue;
+                try {
+                    judged[p.id] = judgeNow(p, { snapshot: m.extra.context || null, self, seq: i });
+                } catch { /* the note goes without a verdict for this one */ }
+            }
+            return { ...m.extra, judged };
+        },
     });
 }
 

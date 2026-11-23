@@ -22,7 +22,7 @@ const execFileP = promisify(execFile);
 // 2 to 60 characters: the id rides the store document key `ext-<id>`, whose grammar stops at 64
 export const EXT_ID_RE = /^[a-z0-9][a-z0-9-]{1,59}$/;
 // the extension api both halves speak, '<major>.<minor>': the minor moves with each batch of new doors, the major on a break
-export const SERVER_EXT_API_VERSION = '2.8';
+export const SERVER_EXT_API_VERSION = '2.9';
 
 /**
  * An api version as [major, minor]: a whole number from 1 is that major's .0, a 'major.minor' string

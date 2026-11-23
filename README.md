@@ -35,7 +35,8 @@ guide is one page that opens in any browser: online at that link, in the app und
   shown in a fold, and export to JSONL. Attach pictures to a message when the model sees them, and keep a gallery for
   each chat beside its character's. Around the conversation sit a prompt manager (it imports SillyTavern chat-completion presets and builds
   them the way SillyTavern does), regex scripts, a header you arrange yourself, a prompt inspector that shows exactly what is sent, an Author's note, chat backgrounds, and an out-of-character
-  assistant that can propose lorebook and message edits for you to review. See also
+  assistant that knows your persona and the Author's note and can propose lorebook, message, card, note and persona
+  edits for you to review. See also
   [chat windows](https://sillyanonymous.github.io/ProjectSigma/guide.html#conversation-tools).
 - <img src="docs/assets/icons/plug.svg" width="16" height="16" alt=""> [Your own AI connection](https://sillyanonymous.github.io/ProjectSigma/guide.html#connections). Any endpoint that speaks the OpenAI-compatible chat API, local
   or hosted, plus Anthropic's API through a bundled extension. Keys stay on the server and are never sent back to the

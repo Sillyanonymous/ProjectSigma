@@ -1,9 +1,23 @@
 import { emitChange } from './changes.js';
+import { settingValue } from './settings-store.js';
 // Relational snapshot storage with the module's doc-shaped API composed on read.
 // One row per snapshot; the single pre-restore backup slot is the snap_id -1 sentinel.
 
 const BACKUP_ID = -1;
+/** The source an automatic snapshot carries: an identical newest one is not stored again, and old ones are trimmed. */
 const AUTO_BACKUP = 'auto_backup';
+/** The chat assistant's snapshot before it writes a card: automatic like AUTO_BACKUP, under a cap of its own. */
+export const ASSISTANT_BACKUP = 'assistant';
+// each automatic source and the setting that caps it; 0 keeps every one
+const AUTO_CAPS = { [AUTO_BACKUP]: 'maxAutoBackups', [ASSISTANT_BACKUP]: 'maxAssistantBackups' };
+
+/** How many snapshots of an automatic source a character keeps (0 = all); 0 for any other source. */
+export function autoBackupCap(db, source) {
+    const key = AUTO_CAPS[source];
+    if (!key) return 0;
+    const n = Number(settingValue(db, key, 10));
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
 
 // a snapshot id leaves the database, so its handed out once per character and never reused
 function nextSnapId(db, charId) {
@@ -42,12 +56,16 @@ export function composeCharVersionsDoc(db, charId) {
     };
 }
 
-/** Append one snapshot under the next id; an auto snapshot identical to the newest isnt stored again, and autos past keepAutoBackups go. */
-export function addCharSnapshot(db, charId, { label, source = 'local', charName = null, data }, { keepAutoBackups = 0 } = {}) {
+/**
+ * Append one snapshot under the next id; an automatic one identical to its source's newest isnt stored again, and its source's oldest past keepAutoBackups go.
+ * @param {{keepAutoBackups?: number}} [opts] the cap on this snapshot's automatic source, 0 keeping all; its setting when not given (autoBackupCap)
+ */
+export function addCharSnapshot(db, charId, { label, source = 'local', charName = null, data }, { keepAutoBackups = autoBackupCap(db, source) } = {}) {
     return db.transaction(() => {
         const json = JSON.stringify(data ?? {});
-        if (source === AUTO_BACKUP) {
-            const latest = db.prepare(`SELECT snap_id, data FROM versions WHERE char_id = ? AND snap_id >= 0 AND source = ? ORDER BY created_at DESC, snap_id DESC LIMIT 1`).get(charId, AUTO_BACKUP);
+        const automatic = source in AUTO_CAPS;
+        if (automatic) {
+            const latest = db.prepare(`SELECT snap_id, data FROM versions WHERE char_id = ? AND snap_id >= 0 AND source = ? ORDER BY created_at DESC, snap_id DESC LIMIT 1`).get(charId, source);
             if (latest && latest.data === json) return latest.snap_id;
         }
         const next = nextSnapId(db, charId);
@@ -55,11 +73,11 @@ export function addCharSnapshot(db, charId, { label, source = 'local', charName 
             INSERT INTO versions (char_id, snap_id, label, source, created_at, char_name, data)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(charId, next, label ?? null, source, Date.now(), charName, json);
-        if (source === AUTO_BACKUP && keepAutoBackups > 0) {
+        if (automatic && keepAutoBackups > 0) {
             db.prepare(`
                 DELETE FROM versions WHERE char_id = ? AND source = ? AND snap_id >= 0 AND snap_id NOT IN (
                     SELECT snap_id FROM versions WHERE char_id = ? AND source = ? AND snap_id >= 0 ORDER BY created_at DESC, snap_id DESC LIMIT ?)
-            `).run(charId, AUTO_BACKUP, charId, AUTO_BACKUP, keepAutoBackups);
+            `).run(charId, source, charId, source, keepAutoBackups);
         }
         emitChange(db, { entity: 'version', op: 'updated', ids: [charId] });
         return next;

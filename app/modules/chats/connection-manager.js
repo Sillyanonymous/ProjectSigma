@@ -3,7 +3,7 @@
 import CoreAPI from '../core-api.js';
 import { mountChatWindow, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 import { mountConnectionEditor, readinessOf } from '../connection-editor.js';
-import { registerFeedPatcher } from '../feed.js';
+import { registerFeedPatcher, movesChatPick } from '../feed.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -353,9 +353,7 @@ function togglePanel() {
 
 // another tab's connection write, default pick (a setting naming chatProfileId) or this chat's own pick: an open panel re-reads
 async function patchProfilesFromFeed(records) {
-    const moves = (r) => r.all || r.entity === 'llmProfile'
-        || (r.entity === 'setting' && (r.ids || []).includes('chatProfileId'))
-        || (r.entity === 'chat' && (r.ids || []).includes(_chatId) && (!r.fields || r.fields.includes('profileId')));
+    const moves = (r) => movesChatPick(r, { entity: 'llmProfile', setting: 'chatProfileId', chatId: _chatId, chatField: 'profileId' });
     if (records && !records.some(moves)) return;
     if (!panelOpen) return;
     const editing = _editingId;

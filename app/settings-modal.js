@@ -366,6 +366,7 @@ function setupSettingsModal() {
     // Version History
     const autoSnapshotOnEditCheckbox = document.getElementById('settingsAutoSnapshotOnEdit');
     const maxAutoBackupsInput = document.getElementById('settingsMaxAutoBackups');
+    const maxAssistantBackupsInput = document.getElementById('settingsMaxAssistantBackups');
     const backupFrequencySelect = document.getElementById('settingsBackupFrequency');
     const backupKeepInput = document.getElementById('settingsBackupKeep');
     const backupWindowStartSelect = document.getElementById('settingsBackupWindowStart');
@@ -842,7 +843,7 @@ function setupSettingsModal() {
         return result;
     }
 
-    // The two count fields, clamped to the markup's range: 0 is unlimited for Version History, never
+    // The count fields, clamped to the markup's range: 0 is unlimited for Version History, never
     // a backup keep (it would prune every backup).
     function readHistoryCountsFromUI() {
         const count = (id, min, max, key) => {
@@ -851,6 +852,7 @@ function setupSettingsModal() {
         };
         return {
             maxAutoBackups: count('settingsMaxAutoBackups', 0, 100, 'maxAutoBackups'),
+            maxAssistantBackups: count('settingsMaxAssistantBackups', 0, 100, 'maxAssistantBackups'),
             backupKeep: count('settingsBackupKeep', 1, 50, 'backupKeep'),
         };
     }
@@ -1772,6 +1774,9 @@ function setupSettingsModal() {
         }
         if (maxAutoBackupsInput) {
             maxAutoBackupsInput.value = getSetting('maxAutoBackups') ?? 10;
+        }
+        if (maxAssistantBackupsInput) {
+            maxAssistantBackupsInput.value = getSetting('maxAssistantBackups') ?? 10;
         }
 
         // Library Backup: controls from settings, the STATUS asked fresh, since sizes and counts age the

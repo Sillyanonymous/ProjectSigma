@@ -545,20 +545,10 @@ export function openPanel(ctx) {
     load();
 }
 
-// The house's discard confirm over typing not saved yet; true when nothing is held or the reader lets it go.
+// true when nothing is held or the reader lets it go
 async function confirmDiscard() {
     if (!isDirty()) return true;
-    try {
-        return !!(await CoreAPI.showConfirm({
-            title: 'Discard unsaved edits?',
-            message: `You have unsaved changes to ${_chatName ? `the card texts of ${_chatName}` : 'this chat\'s card texts'}. Discard them?`,
-            confirmLabel: 'Discard',
-            cancelLabel: 'Keep Editing',
-            danger: true,
-        }));
-    } catch {
-        return false;
-    }
+    return CoreAPI.confirmDiscardEdits(_chatName ? `the card texts of ${_chatName}` : 'this chat\'s card texts');
 }
 
 // resolves whether it closed (unsaved typing asks first); never rejects, exclusive mode calls it bare

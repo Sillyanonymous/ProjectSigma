@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { composeCharVersionsDoc, deleteCharVersions, addCharSnapshot, renameCharSnapshot, deleteCharSnapshot, setCharBackup } from '../db/versions-store.js';
 import { characterExists } from '../db/characters-store.js';
-import { settingValue } from '../db/settings-store.js';
 
 export const versionsRouter = Router();
 
@@ -23,8 +22,7 @@ versionsRouter.post('/char/:charId/snapshots', (req, res) => {
     if (typeof source !== 'string' || !source) return res.status(400).json({ error: 'source must be a string' });
     const db = req.db;
     if (!characterExists(db, req.params.charId)) return res.status(404).json({ error: 'character not found' });
-    const keep = Number(settingValue(db, 'maxAutoBackups', 10));
-    const id = addCharSnapshot(db, req.params.charId, { label, source, charName, data }, { keepAutoBackups: Number.isFinite(keep) && keep > 0 ? Math.floor(keep) : 0 });
+    const id = addCharSnapshot(db, req.params.charId, { label, source, charName, data });
     res.json({ id });
 });
 

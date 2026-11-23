@@ -12,7 +12,7 @@ const esc = (s) => CoreAPI.escapeHtml(s);
 export const propKey = (seq, id) => `${seq}:${id}`;
 
 /** Drop the fenced proposal blocks (rendered as cards) from the prose by line walk; an unclosed block runs to the end. */
-export function stripBlocks(text, fences = ['cl-lore-edits', 'cl-chat-edits', 'cl-card-edits', 'cl-read']) {
+export function stripBlocks(text, fences = ['cl-lore-edits', 'cl-chat-edits', 'cl-card-edits', 'cl-note-edits', 'cl-persona-edits', 'cl-read']) {
     const out = [];
     let inBlock = false;
     for (const line of String(text ?? '').split(/\r?\n/)) {
@@ -864,22 +864,38 @@ export function createReviewState() {
     return state;
 }
 
+/** The verdicts a Try again answers: the judge refused the change as written (yellow and red cards). */
+const RETRY_STATUSES = new Set(['ambiguous', 'blind', 'gone', 'invalid', 'failed']);
+
+/** Whether a card offers Try again: refused as written, not set aside, and its kind of edit still on. */
+export const canRetry = (p, rejected, engineOn = true) => RETRY_STATUSES.has(p.status || 'ready') && !rejected && engineOn;
+
+/** The reader turn a Try again posts: each change as its card names it, with its status line; the model gets the full reason apart. */
+export function retryAskText(items) {
+    if (items.length === 1) return `Try this change again: ${items[0].label} (${items[0].status.toLowerCase()}).`;
+    return `Try these changes again:\n${items.map(it => `- ${it.label} (${it.status.toLowerCase()})`).join('\n')}`;
+}
+
 /**
  * The per-card verbs; a stale card keeps its diff toggle, a set-aside one offers only restore.
- * @param {{ id: string, status: string, rejected: boolean, hasDiff: boolean, showDiff: boolean, editable: boolean, editOpen: boolean, applyTitle?: string, extra?: string }} o
+ * @param {{ id: string, status: string, rejected: boolean, hasDiff: boolean, showDiff: boolean, editable: boolean, editOpen: boolean, applyTitle?: string, retry?: boolean }} o retry: offer Try again (canRetry)
  */
-export function reviewActsHtml({ id, status, rejected, hasDiff, showDiff, editable, editOpen, applyTitle = 'Apply this change now', extra = '' }) {
+export function reviewActsHtml({ id, status, rejected, hasDiff, showDiff, editable, editOpen, applyTitle = 'Apply this change now', retry = false }) {
     const diffBtn = hasDiff && !rejected
         ? `<button type="button" class="cas-prop-act${showDiff ? ' is-on' : ''}" data-cas-act="toggle-diff" data-prop-id="${esc(id)}"
                title="${showDiff ? 'Hide the changes' : 'Show the changes side by side'}"><i class="fa-solid fa-code-compare"></i></button>`
         : '';
-    // the panel's own verb rides in front on every branch; a caller decides when it exists
-    if (status !== 'ready') return `${extra}${diffBtn}`;
+    const retryBtn = retry
+        ? `<button type="button" class="cas-prop-act" data-cas-act="retry-one" data-prop-id="${esc(id)}" aria-label="Try again"
+               title="Try again: ask for this change once more, told why it could not be applied"><i class="fa-solid fa-rotate-right"></i></button>`
+        : '';
+    // Try again answers a refusal, so it rides only the branch of a card the judge refused
+    if (status !== 'ready') return `${retryBtn}${diffBtn}`;
     if (rejected) {
-        return `${extra}<button type="button" class="cas-prop-act" data-cas-act="restore-one" data-prop-id="${esc(id)}"
+        return `<button type="button" class="cas-prop-act" data-cas-act="restore-one" data-prop-id="${esc(id)}"
                    title="Bring this change back"><i class="fa-solid fa-rotate-left"></i></button>`;
     }
-    return `${extra}${diffBtn}${editable ? `<button type="button" class="cas-prop-act${editOpen ? ' is-on' : ''}" data-cas-act="edit-prop" data-prop-id="${esc(id)}"
+    return `${diffBtn}${editable ? `<button type="button" class="cas-prop-act${editOpen ? ' is-on' : ''}" data-cas-act="edit-prop" data-prop-id="${esc(id)}"
                    title="Touch up the text before applying"><i class="fa-solid fa-pen"></i></button>` : ''}
                <button type="button" class="cas-prop-act is-good" data-cas-act="apply-one" data-prop-id="${esc(id)}"
                    title="${esc(applyTitle)}"><i class="fa-solid fa-check"></i></button>
@@ -925,12 +941,19 @@ export const reviewEditedFlagHtml = () => '<span class="cas-prop-flag" title="Yo
 /** The approximate flag: a replace the judge placed on a quote a little off the text (`where` names the message or field). */
 export const reviewApproximateFlagHtml = (p, status, rejected, where) => (p.approximate && status === 'ready' && !rejected ? `<span class="cas-prop-flag" title="The quoted passage differs slightly from the ${where}; the diff shows the exact text that will be replaced.">matched approximately</span>` : '');
 
-/** The footer verb: what is ticked and still live gets applied. */
-const applyFooterHtml = (seq) => `<div class="cas-props-actions">
-                <button type="button" class="cl-cwin-btn-text is-primary" data-cas-act="apply" data-seq="${seq}">
+/** The footer's primary verb: what is ticked and still live gets applied. */
+const applyButtonHtml = (seq) => `<button type="button" class="cl-cwin-btn-text is-primary" data-cas-act="apply" data-seq="${seq}">
                     <i class="fa-solid fa-check"></i> Apply Selected
-                </button>
-            </div>`;
+                </button>`;
+
+/** The footer: Try All Again when two or more cards can retry, before Apply Selected while any card is live. */
+const reviewFooterHtml = (seq, live, retryable) => (live || retryable > 1 ? `<div class="cas-props-actions">
+                ${retryable > 1 ? `<button type="button" class="cl-cwin-btn-text" data-cas-act="retry-all" data-seq="${seq}"
+                    title="Ask once more for every change here that could not be applied, told why each failed">
+                    <i class="fa-solid fa-rotate-right"></i> Try All Again
+                </button>` : ''}
+                ${live ? applyButtonHtml(seq) : ''}
+            </div>` : '');
 
 /** The reply carried proposals but its verdicts could not be read: an honest row with a retry, never silence. */
 export const reviewFailedHtml = (seq) => `<div class="cas-props" data-seq="${seq}">
@@ -948,8 +971,8 @@ export const reviewNudgeHtml = (seq, text) => `<div class="cas-props" data-seq="
                  </button>
                </div>`;
 
-/** The block that holds a reply's cards: the head with the live count, the parse errors, the cards, the footer. */
-export function reviewBlockHtml({ seq, icon, title = 'Proposed changes', live, errors = [], canFix, units }) {
+/** The block that holds a reply's cards: the head with the live count, the parse errors, the cards, the footer (retryable: its cards canRetry passes). */
+export function reviewBlockHtml({ seq, icon, title = 'Proposed changes', live, errors = [], canFix, units, retryable = 0 }) {
     return `
     <div class="cas-props" data-seq="${seq}">
         <div class="cas-props-card">
@@ -966,12 +989,12 @@ export function reviewBlockHtml({ seq, icon, title = 'Proposed changes', live, e
                </button>`
         : ''}
             ${units}
-            ${live ? applyFooterHtml(seq) : ''}
+            ${reviewFooterHtml(seq, live, retryable)}
         </div>
     </div>`;
 }
 
-/** Syncs the count and Apply footer surgically (a re-render re-ticks unticked boxes); node insert/remove since .cas-props-actions sets display. */
+/** Syncs the count and Apply Selected surgically (a re-render re-ticks unticked boxes); node insert/remove since .cas-props-actions sets display. */
 export function syncReviewChrome(seq, live, { scope = '' } = {}) {
     const card = document.querySelector(`${scope}.cas-props[data-seq="${seq}"] .cas-props-card`);
     if (!card) return;
@@ -979,9 +1002,16 @@ export function syncReviewChrome(seq, live, { scope = '' } = {}) {
     if (count && !live) count.remove();
     else if (count) count.textContent = `${live} pending`;
     else if (live) card.querySelector('.cas-props-title')?.insertAdjacentHTML('afterend', `<span class="cas-props-count">${live} pending</span>`);
+    // Try All Again stands on its own: setting aside the last live card takes only Apply Selected
     const foot = card.querySelector('.cas-props-actions');
-    if (foot && !live) foot.remove();
-    else if (!foot && live) card.insertAdjacentHTML('beforeend', applyFooterHtml(seq));
+    const apply = foot?.querySelector('[data-cas-act="apply"]');
+    if (apply && !live) {
+        apply.remove();
+        if (!foot.querySelector('button')) foot.remove();
+    } else if (!apply && live) {
+        if (foot) foot.insertAdjacentHTML('beforeend', applyButtonHtml(seq));
+        else card.insertAdjacentHTML('beforeend', reviewFooterHtml(seq, live, 0));
+    }
 }
 
 /** The id alone addresses nothing: its message's container scopes every card lookup. */
@@ -1001,6 +1031,118 @@ export function repaintReviewCard(seq, id, render, { scope = '', carryPick = tru
     const pick = fresh?.querySelector('.cas-prop-pick');
     if (carryPick && pick && !pick.disabled && typeof picked === 'boolean') pick.checked = picked;
     if (fresh && after) after(fresh);
+}
+
+/**
+ * Hold a repaint during a press inside root until its click lands: a card swapped mid-press loses the click.
+ * @returns {(fn: Function) => void} run fn now, or after the press in progress
+ */
+export function createPressGuard(root) {
+    let pressed = false;
+    let owed = null;
+    let fallback = null;
+    const release = () => {
+        clearTimeout(fallback);
+        pressed = false;
+        if (!owed) return;
+        const fn = owed;
+        owed = null;
+        setTimeout(fn, 0);
+    };
+    root?.addEventListener('pointerdown', () => { pressed = true; }, true);
+    // the click ends a press; a press that never clicks (a drag, a scroll) ends a moment after it lifts
+    root?.addEventListener('click', release, true);
+    root?.addEventListener('pointerup', () => { clearTimeout(fallback); fallback = setTimeout(release, 600); }, true);
+    root?.addEventListener('pointercancel', release, true);
+    return (fn) => { if (pressed) owed = fn; else fn(); };
+}
+
+// ========================================
+// FIELD CHANGES: the studio's draft, the assistant's card, notes and persona
+// ========================================
+
+const FIELD_OP_LABEL = { set: 'Write', replace: 'Replace text', tags: 'Tags', greeting: 'Greeting' };
+
+/** The override key a field change's touch-up edits: a replace's replacement, everything else its content. */
+export const fieldEditKey = (p) => (p.change.op === 'replace' ? 'with' : 'content');
+
+/** What a field change is called: the tags, a greeting by number, else its field as labelOf names it. */
+function fieldTargetName(c, labelOf) {
+    if (c.op === 'tags') return 'Tags';
+    if (c.op === 'greeting') return c.index === 'new' ? 'New greeting' : `Greeting ${c.index}`;
+    return typeof c.field === 'string' ? labelOf(c.field) : 'A field';
+}
+
+/** A field change as its card heads it, op then target, for the asks that name it. */
+export const fieldCardLabel = (p, labelOf) => (p.change.op === 'tags' || p.change.op === 'greeting'
+    ? fieldTargetName(p.change, labelOf) : `${FIELD_OP_LABEL[p.change.op] || 'Change'}, ${fieldTargetName(p.change, labelOf)}`);
+
+const tagPills = (list) => ((list || []).length ? list.map(t => `<span>${esc(t)}</span>`).join('') : '<em>none</em>');
+
+// what applying reaches beyond the diff, said only on a live card: another chat's view of the card or persona, a chat made its own
+function fieldReachHtml(p) {
+    const lines = [];
+    const name = esc(p.reach?.name || '');
+    if (p.reach?.kind === 'card') {
+        lines.push(`<div class="cas-prop-new is-reach"><i class="fa-solid fa-id-card"></i><span>Changes <b>${name}</b>'s card, which every chat with ${name} reads. Saved to Version History first.</span></div>`);
+    } else if (p.reach?.kind === 'persona') {
+        lines.push(`<div class="cas-prop-new is-reach"><i class="fa-solid fa-masks-theater"></i><span>Changes the persona <b>${name}</b> in every chat that uses it, not only this one.</span></div>`);
+    }
+    if (p.reach?.kind === 'card' && (p.change.op === 'greeting' || p.change.field === 'first_mes')) {
+        lines.push('<div class="cas-prop-note">Opens new chats; this chat\'s first message stays as it is.</div>');
+    }
+    if (p.makesOwn) {
+        lines.push(p.change.field === 'authors_note'
+            ? '<div class="cas-prop-note">Gives this chat a note of its own; the default stays as it is.</div>'
+            : '<div class="cas-prop-note">Gives this chat its own, which its story reads instead of the card\'s; the card is untouched.</div>');
+    }
+    return lines.join('\n        ');
+}
+
+/**
+ * The review card for one field change, on either panel.
+ * @param {object} p the proposal with its verdict
+ * @param {{ pk: string, review: object, statusText: string, labelOf: (key: string) => string, applyTitle: string, flagDrift?: boolean, engineOn?: boolean }} o review is createReviewState's; flagDrift says a target changed since it was read; engineOn gates Try again
+ */
+export function fieldProposalCardHtml(p, { pk, review, statusText, labelOf, applyTitle, flagDrift = false, engineOn = true }) {
+    const status = p.status || 'ready';
+    const judged = status !== 'applied' && ('before' in p || 'after' in p);
+    const showDiff = review.openDiffs.has(pk);
+    const isTags = p.change.op === 'tags';
+    const hasDiff = judged && !isTags && 'after' in p && String(p.before ?? '') !== String(p.after ?? '');
+    const rejected = review.rejected.has(pk);
+    const live = status === 'ready' && !rejected;
+    const tagsHtml = isTags && judged && !rejected && JSON.stringify(p.before) !== JSON.stringify(p.after)
+        ? `<div class="cas-prop-fields"><div class="cas-prop-field">
+            <span class="cas-prop-field-k">Tags</span>
+            <span class="cas-prop-field-v is-del">${tagPills(p.before)}</span>
+            <i class="fa-solid fa-arrow-right"></i>
+            <span class="cas-prop-field-v is-add">${tagPills(p.after)}</span>
+          </div></div>`
+        : '';
+    // a field written from empty gets a one-line preview, so it can be triaged without opening the diff
+    const preview = judged && !isTags && !String(p.before ?? '').trim() && p.after
+        ? `<div class="cas-prop-preview">${esc(String(p.after).slice(0, 140))}${String(p.after).length > 140 ? '…' : ''}</div>` : '';
+    const head = [
+        p.merged ? `<span class="cas-prop-merged" title="The reply wrote this field in ${p.merged} pieces; they were assembled into one change so nothing overwrites the rest">assembled from ${p.merged}</span>` : '',
+        p.via ? '<span class="cas-prop-merged" title="This change quotes an earlier change that was never applied; the two are placed together as one edit">with an earlier change</span>' : '',
+        flagDrift && p.changed && live ? '<span class="cas-prop-flag" title="Changed since the assistant read it; the comparison is against what it holds now">changed since</span>' : '',
+        review.edits.has(pk) ? reviewEditedFlagHtml() : '',
+        reviewApproximateFlagHtml(p, status, rejected, 'field'),
+    ].filter(Boolean).join('\n            ');
+    return reviewCardHtml({
+        id: p.id, op: p.change.op, opLabel: FIELD_OP_LABEL[p.change.op] || p.change.op, name: fieldTargetName(p.change, labelOf), status,
+        statusText, rejected, head,
+        acts: reviewActsHtml({
+            id: p.id, status, rejected, hasDiff, showDiff, editable: typeof p.change[fieldEditKey(p)] === 'string',
+            editOpen: review.openEdits.has(pk), applyTitle, retry: canRetry(p, rejected, engineOn),
+        }),
+        before: [tagsHtml, preview].filter(Boolean).join('\n        '),
+        edit: reviewEditBoxHtml({ id: p.id, open: review.openEdits.has(pk) && status === 'ready', rejected, value: review.edits.get(pk) ?? String(p.change[fieldEditKey(p)] ?? '') }),
+        after: live ? fieldReachHtml(p) : '',
+        why: p.why, reason: p.reason,
+        body: hasDiff && showDiff ? CoreAPI.diffSplitView(p.before, p.after).html : '',
+    });
 }
 
 // ========================================

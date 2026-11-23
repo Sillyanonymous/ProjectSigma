@@ -92,6 +92,21 @@
 .cas-entry-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .cas-entry-size { color: var(--text-muted); }
 
+/* the context view's Sources rows: the switch row of the form, a label that gives way first, its detail on a second line */
+.cas-source-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cas-source-label small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-faint);
+    font-size: var(--font-3xs);
+}
+/* off: the label and readout quiet down, the switch stays bright to turn it back on */
+.cas-source.is-quiet .cas-source-label,
+.cas-source.is-quiet .cl-cwin-readout { color: var(--text-muted); }
+/* an extension's name is its author's: one with no spaces breaks rather than widening the view */
+.cas-source .cl-cwin-hint { overflow-wrap: anywhere; }
+
 .cas-entry-tag {
     font-size: var(--font-4xs);
     border: 1px solid var(--glass-border);
@@ -548,6 +563,13 @@
     color: var(--cl-success-pale);
     font-size: var(--font-4xs);
 }
+/* what an apply reaches beyond this chat: the card every chat reads, a shared persona */
+.cas-prop-new.is-reach {
+    background: rgba(var(--cl-warning-rgb), 0.1);
+    color: var(--cl-warning-pale, var(--cl-warning));
+}
+/* a name with no spaces breaks inside the card rather than pushing it wide */
+.cas-prop-new.is-reach > span { min-width: 0; overflow-wrap: anywhere; }
 
 .cas-prop-flag {
     font-size: var(--font-4xs);
@@ -612,7 +634,9 @@
 .cas-prop-field-v.is-add { background: rgba(var(--cl-success-rgb), 0.15); }
 .cas-prop-field-v.is-del { background: rgba(var(--cl-error-rgb), 0.15); }
 
-.cas-props-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm); }
+/* A narrow panel stacks the two verbs rather than breaking each label over two lines. */
+.cas-props-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-sm); }
+.cas-props-actions > .cl-cwin-btn-text { white-space: nowrap; }
 
 /* Per-item verbs: one click on one thing. */
 .cas-prop-acts { display: inline-flex; gap: var(--space-2xs); margin-left: auto; }

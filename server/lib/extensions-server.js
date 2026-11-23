@@ -14,7 +14,7 @@ import { addProjection, addRuleField, addSortKey, readyLibrary, dropExtensionQue
 import { config } from '../config.js';
 import { listExtensions, extensionDir, extensionDataDir, extensionUserDir, extensionEnabledFor, sweepInstallStages, segmentOk, SERVER_EXT_API_VERSION } from './extensions.js';
 import { writeFileAtomic } from './atomic-write.js';
-import { addHook, addMacro, addPromptBlock, addListener, dropExtensionHooks, ExtensionRefusal, extensionReport } from './ext-hooks.js';
+import { addHook, addMacro, addPromptBlock, addAssistantSource, addListener, dropExtensionHooks, ExtensionRefusal, extensionReport } from './ext-hooks.js';
 import { llmDoor } from './ext-llm.js';
 import { runJob, addSchedule, listExtensionJobs, dropExtensionJobs } from './ext-jobs.js';
 import { stageCardBody } from '../importer/card-file.js';
@@ -288,6 +288,8 @@ export function buildServerCtx(row, stores, mount = { open: true }) {
             visible: (msg) => promptVisible(msg),
             fence: fencedText,
         }),
+        // a context source the chat assistant can be given, with its switch in the assistant's context view
+        assistant: Object.freeze({ addSource: (spec) => addAssistantSource(row, spec) }),
         // the account's own models: chat(db, { messages, profileId or profileSetting, chatId, model, params },
         // { signal }) and stream(...), for the accounts that switched this extension on
         llm: llmDoor(row, setting),

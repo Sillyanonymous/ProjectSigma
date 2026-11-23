@@ -194,9 +194,9 @@ export function countMatches(script, text, { macros = (t) => t } = {}) {
  * A text through one pass: each script the pass takes whose placements name `where`, over the last one's result.
  * @param {string} text
  * @param {object[]} scripts in order, each in SillyTavern's shape (`alterSaved` is Σ's: a text script that changes what is saved)
- * @param {{ pass: string, where: number, textWhere?: number, depth?: number, macros?: Function, charName?: string, onScript?: Function, edited?: boolean }} ctx textWhere: where a read pass's text scripts act when not where (a narrator's line in the prompt)
+ * @param {{ pass: string, where: number, textWhere?: number, depth?: number, macros?: Function, charName?: string, onScript?: Function, edited?: boolean, run?: Function }} ctx textWhere: where a read pass's text scripts act when not where (a narrator's line in the prompt); run: runScript's stand-in (the server's guard)
  */
-export function applyPass(text, scripts, { pass, where, textWhere = where, depth, macros, charName, onScript, edited = false } = {}) {
+export function applyPass(text, scripts, { pass, where, textWhere = where, depth, macros, charName, onScript, edited = false, run = runScript } = {}) {
     if (typeof text !== 'string' || !text || !Array.isArray(scripts) || !scripts.length) return typeof text === 'string' ? text : '';
     const named = (s, at) => Array.isArray(s?.placement) && s.placement.includes(at);
     let out = text;
@@ -204,7 +204,7 @@ export function applyPass(text, scripts, { pass, where, textWhere = where, depth
     const each = (s, withDepth, sender, at = where) => {
         if (!named(s, at) || (withDepth && !inDepth(s, depth))) return;
         if (onScript) onScript(s);
-        out = runScript(s, out, { macros, charName: sender ? charName : undefined });
+        out = run(s, out, { macros, charName: sender ? charName : undefined });
     };
     const takes = (s) => takesPass(s, pass, { edited });
     switch (pass) {

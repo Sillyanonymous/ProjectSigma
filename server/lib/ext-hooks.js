@@ -23,6 +23,8 @@ const _filters = new Map();
 const _macros = new Map();
 // "<owner>/<id>" -> { owner, row, id, role, position, depth, order, text }, in registration order
 const _blocks = new Map();
+// owner/id -> an assistant context source (ctx.assistant.addSource)
+const _sources = new Map();
 // [{ owner, row, fn }] in registration order
 const _listeners = [];
 // connection kind -> { owner, row, kind, meta, source }, registered through ctx.llm.registerAdapter
@@ -96,6 +98,7 @@ export function serverHookRegistrations(owner) {
     for (const name of own(_filters)) out.push({ kind: 'server filter', id: name });
     for (const [name, m] of _macros) if (m.owner === owner) out.push({ kind: 'server macro', id: name });
     for (const b of _blocks.values()) if (b.owner === owner) out.push({ kind: 'server prompt block', id: b.id });
+    for (const src of _sources.values()) if (src.owner === owner) out.push({ kind: 'server assistant source', id: src.id });
     for (const a of _adapters.values()) if (a.owner === owner) out.push({ kind: 'server connection kind', id: a.kind });
     if (_listeners.some(l => l.owner === owner)) out.push({ kind: 'server events', id: LISTENER });
     return out;
@@ -173,7 +176,7 @@ function frozenRecord(rec) {
 function syncSeats() {
     setCommitGuard(_guards.size ? runGuards : null);
     setHookRunner(_filters.size ? runFilters : null);
-    setRegistryRunner(_macros.size || _blocks.size || _adapters.size ? runRegistries : null);
+    setRegistryRunner(_macros.size || _blocks.size || _adapters.size || _sources.size ? runRegistries : null);
     if (_listeners.length && !_unsubscribe) _unsubscribe = subscribeChanges(deliverToListeners);
     else if (!_listeners.length && _unsubscribe) { _unsubscribe(); _unsubscribe = null; }
 }
@@ -529,6 +532,57 @@ function collectBlocks(info) {
 }
 
 // ========================================
+// ASSISTANT SOURCES
+// ========================================
+
+const SOURCE_LABEL_MAX = 60;
+
+/**
+ * Register a context source for the chat assistant (ctx.assistant.addSource): read(facts) answers its text when the reader has it on.
+ * @returns {Function} the removal
+ */
+export function addAssistantSource(row, spec) {
+    if (!isPlainObject(spec)) throw new Error('assistant.addSource needs a spec object');
+    const id = String(spec.id || '');
+    assertSlugId('assistant.addSource', id);
+    const label = typeof spec.label === 'string' ? spec.label.replace(/\s+/g, ' ').trim() : '';
+    if (!label || label.length > SOURCE_LABEL_MAX) throw new Error(`assistant.addSource: label is one line of text, at most ${SOURCE_LABEL_MAX} characters`);
+    if (spec.defaultOn !== undefined && typeof spec.defaultOn !== 'boolean') throw new Error('assistant.addSource: defaultOn is true or false');
+    if (typeof spec.read !== 'function') throw new Error('assistant.addSource: read() is required');
+    const key = `${row.id}/${id}`;
+    if (_sources.has(key)) throw new Error(`assistant.addSource: "${id}" is already registered by ${row.id}`);
+    const src = { owner: row.id, row, id, label, defaultOn: spec.defaultOn === true, read: spec.read };
+    _sources.set(key, src);
+    syncSeats();
+    return () => {
+        if (_sources.get(key) !== src) return;
+        _sources.delete(key);
+        syncSeats();
+    };
+}
+
+// the account's enabled sources, each read only when the builder asks (a source switched off is never called)
+function collectSources(info) {
+    const out = [];
+    for (const { entry: src, user, facts } of enabledEntries(_sources.values(), info)) {
+        const name = `assistant source ${src.id}`;
+        out.push(Object.freeze({
+            id: `ext:${src.owner}/${src.id}`, label: src.label, defaultOn: src.defaultOn, owner: src.owner, ownerName: src.row?.name || src.owner,
+            read: () => {
+                const t = timedCall(src, user, name, `${name} failed; it shares nothing`, () => src.read(facts()));
+                if (!t.ok) return { failed: true };
+                if (isText(t.value)) { recordCall(src.owner, user, name, t.ms); return { text: String(t.value) }; }
+                const e = new Error(refusedPromise(t.value) ? 'answered a promise; a source answers its text synchronously' : 'answered something other than text');
+                recordCall(src.owner, user, name, t.ms, { error: e });
+                console.error(`[ext:${src.owner}] ${name} ${e.message}; it shares nothing`);
+                return { failed: true };
+            },
+        }));
+    }
+    return out;
+}
+
+// ========================================
 // CONNECTION KINDS
 // ========================================
 
@@ -623,6 +677,7 @@ function runRegistries(name, info) {
     if (name === 'macros') return collectMacros(info);
     if (name === 'prompt.blocks') return collectBlocks(info);
     if (name === 'llm.adapters') return collectAdapters(info);
+    if (name === 'assistant.sources') return collectSources(info);
     return null;
 }
 
@@ -720,6 +775,7 @@ export function dropExtensionHooks(owner) {
     for (let i = _listeners.length - 1; i >= 0; i--) if (_listeners[i].owner === owner) _listeners.splice(i, 1);
     for (const [name, m] of [..._macros]) if (m.owner === owner) _macros.delete(name);
     for (const [key, b] of [..._blocks]) if (b.owner === owner) _blocks.delete(key);
+    for (const [key, src] of [..._sources]) if (src.owner === owner) _sources.delete(key);
     for (const [kind, a] of [..._adapters]) if (a.owner === owner) _adapters.delete(kind);
     _stats.delete(owner);
     syncSeats();

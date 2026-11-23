@@ -46,17 +46,41 @@ export const BROWSE_PURIFY_CONFIG = {
     ALLOW_DATA_ATTR: false
 };
 
+// a preset's cards: inline SVG without script, foreignObject, image or animation; their CSS is scoped in the chats module
+const CHAT_SVG_TAGS = [
+    'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'defs', 'lineargradient', 'radialgradient',
+    'stop', 'clippath', 'mask', 'pattern', 'symbol', 'use', 'marker', 'text', 'tspan', 'filter', 'fegaussianblur', 'feoffset',
+    'femerge', 'femergenode', 'fecolormatrix', 'feblend', 'feflood', 'fecomposite', 'fedropshadow',
+];
+const CHAT_SVG_ATTRS = [
+    'viewbox', 'xmlns', 'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
+    'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-opacity', 'opacity', 'd', 'cx', 'cy', 'r', 'rx', 'ry',
+    'x', 'y', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'offset', 'stop-color', 'stop-opacity', 'gradientunits',
+    'gradienttransform', 'spreadmethod', 'fx', 'fy', 'fr', 'clip-path', 'clippathunits', 'clip-rule', 'mask', 'maskunits',
+    'maskcontentunits', 'filter', 'filterunits', 'primitiveunits', 'stddeviation', 'dx', 'dy', 'in', 'in2', 'result', 'mode',
+    'operator', 'values', 'flood-color', 'flood-opacity', 'k1', 'k2', 'k3', 'k4', 'patternunits', 'patterncontentunits',
+    'patterntransform', 'preserveaspectratio', 'marker-start', 'marker-mid', 'marker-end', 'markerwidth', 'markerheight',
+    'markerunits', 'refx', 'refy', 'orient', 'text-anchor', 'dominant-baseline', 'font-family', 'font-size', 'font-weight',
+    'letter-spacing', 'pathlength', 'vector-effect', 'xlink:href',
+];
 // the gate for chat message bodies (first_mes and replies are untrusted); never widen it without re-reading formatChatText
 export const CHAT_PURIFY_CONFIG = {
     ALLOWED_TAGS: [
         ...BROWSE_PURIFY_CONFIG.ALLOWED_TAGS,
-        'q', 'mark', 'sub', 'sup', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'small'
+        'q', 'mark', 'sub', 'sup', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'small',
+        'section', 'article', 'aside', 'header', 'footer', 'nav', 'main', 'figure', 'figcaption', 'time', 'caption', 'tfoot',
+        ...CHAT_SVG_TAGS,
     ],
-    ALLOWED_ATTR: [...BROWSE_PURIFY_CONFIG.ALLOWED_ATTR],
-    ALLOW_DATA_ATTR: false
+    ALLOWED_ATTR: [...BROWSE_PURIFY_CONFIG.ALLOWED_ATTR, 'id', 'role', ...CHAT_SVG_ATTRS],
+    // the app's own controls are found by their data-* attributes, so a body never carries one as written
+    ALLOW_DATA_ATTR: false,
+    // every id becomes user-content-<id>, so none can shadow a page global (window.<id>)
+    SANITIZE_NAMED_PROPS: true,
 };
+// the chat transcript's: data-* kept for a preset's cards, renamed data-user-* by the chats module before the page sees it
+export const CHAT_MESSAGE_PURIFY_CONFIG = { ...CHAT_PURIFY_CONFIG, ALLOW_DATA_ATTR: true };
 // frozen with their lists, so safePurify reads each once
-for (const config of [BROWSE_PURIFY_CONFIG, CHAT_PURIFY_CONFIG]) {
+for (const config of [BROWSE_PURIFY_CONFIG, CHAT_PURIFY_CONFIG, CHAT_MESSAGE_PURIFY_CONFIG]) {
     for (const list of Object.values(config)) if (Array.isArray(list)) Object.freeze(list);
     Object.freeze(config);
 }

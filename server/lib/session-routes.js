@@ -1,7 +1,8 @@
 // What the assistant's and the studio's session routes share: the lookup, stored proposals, the message handlers
 
 import { intOf } from './query-params.js';
-import { parseProposals } from '../llm/assistant-edits.js';
+import { parseProposals, withheldContent, selfAnchorsFromApplied, laterAnchorsForReply } from '../llm/assistant-edits.js';
+import { changeLabel } from '../llm/assistant.js';
 import { scopedPictures, storedPictures } from '../db/picture-refs.js';
 import { profileRow, maxImagesOf } from '../db/llm-profiles-store.js';
 import { profileSees } from '../llm/service.js';
@@ -32,9 +33,85 @@ export function sessionLookup(getSession) {
 }
 
 /** A reply's parsed proposals as its stored extra carries them, each key only when it has something. */
-export function proposalExtra(content) {
-    const { proposals, errors } = parseProposals(content);
+export function proposalExtra(content, surface = undefined) {
+    const { proposals, errors } = parseProposals(content, surface);
     return { ...(proposals.length ? { proposals } : {}), ...(errors.length ? { proposalErrors: errors } : {}) };
+}
+
+// a Try again names its reply by stamp (a seq is a position) and the changes by id; null when the body names none
+function retryOf(session, raw) {
+    if (raw == null) return null;
+    // no cap of its own: every id must be one of the reply's changes, which bounds the list
+    if (typeof raw !== 'object' || !Number.isInteger(raw.at) || !Array.isArray(raw.ids) || !raw.ids.length || !raw.ids.every(id => typeof id === 'string')) {
+        return { status: 400, error: 'retry is { at: the reply\'s stamp, ids: its change ids }' };
+    }
+    const reply = session.messages.find(m => m.role === 'assistant' && m.at === raw.at);
+    if (!reply) return { status: 409, error: 'that reply changed since it was shown' };
+    // the ids came from the reply as shown: one missing from it now means it was edited since
+    const list = reply.extra?.proposals || [];
+    const ids = [...new Set(raw.ids)];
+    const at = ids.map(id => list.findIndex(p => p.id === id));
+    if (at.some(n => n < 0)) return { status: 409, error: 'that reply changed since it was shown' };
+    // the changes as the panel showed them, aligned with ids: an edit elsewhere can reuse an id for another change
+    if (raw.shown != null) {
+        if (!Array.isArray(raw.shown) || raw.shown.length !== raw.ids.length) return { status: 400, error: 'retry.shown lists one change per id' };
+        if (raw.ids.some((id, i) => JSON.stringify(list.find(p => p.id === id).change) !== JSON.stringify(raw.shown[i]))) {
+            return { status: 409, error: 'that reply changed since it was shown' };
+        }
+    }
+    // the changes copied as shown, so an edit of the reply afterwards (new ids) cant swap what was asked
+    return { at: raw.at, ids, changes: at.map(n => ({ n, proposal: list[n] })) };
+}
+
+/**
+ * A session's turns for a build: the last reply judged by the route, earlier unapplied changes left out, a pending Try again filled in.
+ * @param {object} o surface and words: withheldContent's; judge: (p, { snapshot, self, later }) -> a Try again change's verdict, plus any quote; lastReply: (m, i) -> the last reply's extra
+ */
+export function modelTranscript(messages, { surface, words, judge, lastReply }) {
+    let last = -1;
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') { last = i; break; }
+    const retry = pendingRetry(messages);
+    return messages.map((m, i) => {
+        const turn = { role: m.role, content: m.content, extra: m.extra };
+        if (retry?.turn === i) return { ...turn, extra: { ...m.extra, retryItems: retryItems(messages, retry, judge) } };
+        if (m.role !== 'assistant' || !m.extra?.proposals?.length) return turn;
+        return i === last ? { ...turn, extra: lastReply(m, i) } : { ...turn, content: withheldContent(m.content, m.extra, surface, words) };
+    });
+}
+
+// each change a Try again names, as written, and where it stands now through the route's judge
+function retryItems(messages, { seq, reply, changes }, judge) {
+    const list = reply.extra?.proposals || [];
+    const applied = reply.extra?.applied || {};
+    const ctx = { snapshot: reply.extra?.context || null, self: selfAnchorsFromApplied(applied), later: laterAnchorsForReply(messages, seq), seq };
+    return changes.map(({ n, proposal: p }) => {
+        const item = { label: changeLabel(p, n), change: p.change };
+        // applied only while the reply still holds this very change under its id
+        const same = JSON.stringify(list.find(x => x.id === p.id)?.change) === JSON.stringify(p.change);
+        if (same && applied[p.id]?.status === 'applied') return { ...item, status: 'applied' };
+        try {
+            return { ...item, ...judge(p, ctx) };
+        } catch {
+            return { ...item, status: 'unknown', reason: 'the app could not judge it just now' };
+        }
+    });
+}
+
+/**
+ * The Try again the next reply answers: the last reader turn, data turns aside, when it carries one and its reply still stands.
+ * @returns {{turn: number, seq: number, reply: object, changes: Array<{n: number, proposal: object}>}|null} seq: where the reply sits now
+ */
+function pendingRetry(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role !== 'user' || m.extra?.data) continue;
+        const retry = m.extra?.retry;
+        // a patch merges extra unchecked, so a stored shape this never wrote is no retry
+        if (!retry || !Array.isArray(retry.changes)) return null;
+        const seq = messages.findIndex(r => r.role === 'assistant' && r.at === retry.at);
+        return seq < 0 ? null : { turn: i, seq, reply: messages[seq], changes: retry.changes.filter(c => Number.isInteger(c?.n) && c.proposal?.change) };
+    }
+    return null;
 }
 
 /**
@@ -52,7 +129,7 @@ export function sessionPictures(db, scope, transcript, profileId) {
  * The transcript-message handlers over a store's verbs, for a router's own /sessions/:sid/messages paths.
  * @param {Function} opts.pictureScope (db, session) -> the scope a reader turn's pictures are held to (picture-refs.js)
  */
-export function transcriptHandlers({ sessionOr404, appendMessage, patchMessage, deleteMessage, truncateFrom, pictureScope }) {
+export function transcriptHandlers({ sessionOr404, appendMessage, patchMessage, deleteMessage, truncateFrom, pictureScope, proposals = undefined }) {
     return {
         /** Append ONE message; a client never sends a transcript, so a stale one cant overwrite history. */
         append(req, res) {
@@ -65,8 +142,12 @@ export function transcriptHandlers({ sessionOr404, appendMessage, patchMessage, 
             if (role !== 'user' && req.body?.pictures != null) return res.status(400).json({ error: 'only a reader turn carries pictures' });
             const pictures = role === 'user' ? scopedPictures(req.db, pictureScope(req.db, session), req.body?.pictures) : [];
             if (!content.trim() && !pictures.length) return res.status(400).json({ error: 'content or pictures required' });
+            if (role !== 'user' && req.body?.retry != null) return res.status(400).json({ error: 'only a reader turn carries a retry' });
+            const retry = role === 'user' ? retryOf(session, req.body?.retry) : null;
+            if (retry?.error) return res.status(retry.status).json({ error: retry.error });
             // parsed here too, so a reply that arrives any other way still carries its proposals
-            const extra = role === 'assistant' ? proposalExtra(content) : (pictures.length ? { pictures } : {});
+            const extra = role === 'assistant' ? proposalExtra(content, proposals)
+                : { ...(pictures.length ? { pictures } : {}), ...(retry ? { retry } : {}) };
             const stored = appendMessage(req.db, session.id, { role, content, ...(Object.keys(extra).length ? { extra } : {}) });
             if (!stored) return res.status(409).json({ error: 'the session changed underneath this write' });
             return res.json(stored);
@@ -82,7 +163,7 @@ export function transcriptHandlers({ sessionOr404, appendMessage, patchMessage, 
                 patch.content = req.body.content;
                 // re-parse on edit, or the card offers to apply text that isnt on screen anymore
                 if (session.messages[seq]?.role === 'assistant') {
-                    const parsed = parseProposals(patch.content);
+                    const parsed = parseProposals(patch.content, proposals);
                     patch.extra = {
                         proposals: parsed.proposals.length ? parsed.proposals : undefined,
                         proposalErrors: parsed.errors.length ? parsed.errors : undefined,

@@ -860,6 +860,49 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </div>
     </details>
 
+    <details class="op" id="op-post--api-characters-id-link-match">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/characters/{id}/link-match</span>
+            <span class="summary-text">A provider site's search hits (max 500) ranked against this character by the duplicate check's rule, for linking it to a listing: each hit is read as a card with its name, its creator and its public text as creator notes, its listing title a name of it too, and scored as Find Duplicates scores a pair. A hit is confident, sure enough to link without asking, when its name or listing title is the character's exact name (version and edit suffixes folded) and either both carry the same real creator, or one side has no real creator (none, or a placeholder such as anonymous) and the hit's text is word for word the character's creator notes, description or first message over its length. Ranked confident first, then by score, then in the order sent</span>
+        </summary>
+        <div class="op-body">
+
+
+
+            <div class="sect"><span class="sect-label">Parameters</span><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>id</code></td>
+            <td class="dim">path</td>
+            <td>string</td>
+            <td>character uuid</td>
+        </tr></tbody></table></div>
+            <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">application/json</code><div><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>hits</code> <span class="req">required</span></td>
+            <td>array&lt;object&gt;</td>
+            <td></td>
+        </tr></tbody></table></div></div>
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>every hit once, best first</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>no hits, more than the maximum, or not an array</td>
+        </tr><tr>
+            <td><span class="code code-4xx">404</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>not found</td>
+        </tr><tr>
+            <td><span class="code code-5xx">503</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>the library closed while the ranking ran</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
     <details class="op" id="op-put--api-characters-id-avatar">
         <summary>
             <span class="method m-put">PUT</span>
@@ -3468,6 +3511,11 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>pictures</code></td>
             <td>array&lt;object&gt;</td>
             <td>a reader turn's pictures, in order: { kind, id } of the chat's character (its portrait or a gallery image) or the chat's own pictures, each held to it; stored on the turn with its name and size</td>
+        </tr>
+        <tr>
+            <td><code>retry</code></td>
+            <td>object</td>
+            <td>a Try again on a reader turn: the reply by its stamp (at) and the changes of it to try again (ids). While it is the last reader turn, the model is sent each change as written and where it stands now</td>
         </tr></tbody></table></div></div>
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
@@ -3476,7 +3524,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>a bad role, neither content nor pictures, pictures on a reply, or a picture the session may not show</td>
+            <td>a bad role, neither content nor pictures, pictures on a reply, a picture the session may not show, or a retry on a reply</td>
         </tr><tr>
             <td><span class="code code-4xx">404</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -3484,7 +3532,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </tr><tr>
             <td><span class="code code-4xx">409</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>session changed underneath the write</td>
+            <td>session changed underneath the write, or a retry naming a reply, or a change of it, that changed since it was shown</td>
         </tr><tr>
             <td><span class="code code-5xx">500</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -3621,7 +3669,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/assistant/sessions/{sid}/generate</span>
-            <span class="summary-text">Stream the assistant's next reply as normalized SSE (chunk/row/done/error), storing it server-side before the done event. When a shown roleplay message carries alternate drafts (swipes), the excerpt marks it and a cl-read directive is taught; a reply may then end with a cl-read block naming message seqs, and the route answers it once (depth cap 1): the request turn and a quarantined data turn carrying those drafts are stored and emitted as row events, then the model is called again and the follow-up is the reply the done event carries. Only seqs inside the shown excerpt are served; others get an honest refusal line. The prompt is assembled here: an out-of-character system prompt, then the story material (card, lorebooks, recent messages) as user-role DATA inside a fence sized past any fence run in the content, then the session transcript. Story text is never system text, because a card is a stranger's file. Editable things carry an ANCHOR (8 hex of sha256 over the exact content shown) and the reply is stored with a context snapshot naming what was shown in full; the apply path validates against that snapshot and never against a fresh build, or a model naming its own target would authorise a blind rewrite. Capability directives are only present for engines the assistantLoreEdits / assistantChatEdits settings turn on, and the assistantSystemPrompt setting replaces the ROLE description only: the quarantine note and the directives are always appended, so a custom prompt cannot switch either off. Interrupt semantics match /chats/{id}/generate, including chatKeepInterrupted</span>
+            <span class="summary-text">Stream the assistant's next reply as normalized SSE (chunk/row/done/error), storing it server-side before the done event. When a shown roleplay message carries alternate drafts (swipes), the excerpt marks it and a cl-read directive is taught; a reply may then end with a cl-read block naming message seqs, and the route answers it once (depth cap 1): the request turn and a quarantined data turn carrying those drafts are stored and emitted as row events, then the model is called again and the follow-up is the reply the done event carries. Only seqs inside the shown excerpt are served; others get an honest refusal line. The prompt is assembled here: an out-of-character system prompt, then the story material (card, the context sources switched on in assistantContextSources, lorebooks, recent messages) as user-role DATA inside a fence sized past any fence run in the content, then the session transcript. Story text is never system text, because a card is a stranger's file. Editable things carry an ANCHOR (8 hex of sha256 over the exact content shown) and the reply is stored with a context snapshot naming what was shown in full; the apply path validates against that snapshot and never against a fresh build, or a model naming its own target would authorise a blind rewrite. Capability directives are only present for engines the assistantLoreEdits / assistantChatEdits / assistantCardEdits / assistantNotesEdits / assistantPersonaEdits settings turn on, and the assistantSystemPrompt setting replaces the ROLE description only: the quarantine note, the rule that the reader's character is theirs alone and the directives are always appended, so a custom prompt cannot switch any of them off. Interrupt semantics match /chats/{id}/generate, including chatKeepInterrupted</span>
         </summary>
         <div class="op-body">
 
@@ -3669,7 +3717,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-get">GET</span>
             <span class="path">/api/assistant/sessions/{sid}/proposals/{seq}</span>
-            <span class="summary-text">The proposed edits in one reply, each judged against the world as it is NOW and carrying the before/after text a review card diffs. status is ready | applied | superseded (an applied proposal from this reply already made or overrode this change; judged via the anchors our own applies produced, so a batch never reads its own writes as the target drifting) | blind (it was never shown that content in full) | gone | ambiguous (the find text is not unique) | invalid. A target changed by anything OUTSIDE the reply stays READY with changed: true: the diff renders against the current text and the reviewer decides. Recomputed per request, never stored: a card reporting &quot;ready&quot; because it was ready when it was written is exactly what the anchors exist to prevent. An already-applied proposal is not re-judged, since applying it is what changed the content. A lore verdict that read its entry carries title (the entry name as it is NOW; a blind verdict reads nothing and carries none) and, on an update, fields (each non-content key the set moves, with before and after as the write will land them); an applied lore proposal carries title too, read live, else as the write recorded it. A lore edit whose world/uid was not shown resolves on its anchor (resolved on the verdict), because the anchor is proof-of-read; one whose world/uid WAS shown but whose anchor belongs to a different shown entry is ambiguous, refused naming both, since nothing can tell which half the model got wrong. A chat replace is placed exact, then with quotes, dashes and whitespace folded, then (approximate: true on the verdict) with markup tags read as spaces and on the best word window (at least 80% of the words on both sides, the find's first and last words at the edges, one window only); the after is always the exact live span replaced. A find nowhere in the named message but in exactly one other message of the shown excerpt is judged and applied there (resolved: {seq}); one that sits in a non-active draft says which</span>
+            <span class="summary-text">The proposed edits in one reply, each judged against the world as it is NOW and carrying the before/after text a review card diffs. status is ready | applied | superseded (an applied proposal from this reply already made or overrode this change; judged via the anchors our own applies produced, so a batch never reads its own writes as the target drifting) | blind (it was never shown that content in full) | gone | ambiguous (the find text is not unique) | invalid | off (a card, notes or persona change from a reply written while that kind of edit was switched off). A card, notes or persona verdict carries label (the field as the material named it), reach ({ kind: card | persona, name }: the write reaches every chat with the character, or every chat using the persona) and makesOwn (a notes field this chat does not yet hold of its own). A target changed by anything OUTSIDE the reply stays READY with changed: true: the diff renders against the current text and the reviewer decides. Recomputed per request, never stored: a card reporting &quot;ready&quot; because it was ready when it was written is exactly what the anchors exist to prevent. An already-applied proposal is not re-judged, since applying it is what changed the content. A lore verdict that read its entry carries title (the entry name as it is NOW; a blind verdict reads nothing and carries none) and, on an update, fields (each non-content key the set moves, with before and after as the write will land them); an applied lore proposal carries title too, read live, else as the write recorded it. A lore edit whose world/uid was not shown resolves on its anchor (resolved on the verdict), because the anchor is proof-of-read; one whose world/uid WAS shown but whose anchor belongs to a different shown entry is ambiguous, refused naming both, since nothing can tell which half the model got wrong. A chat replace is placed exact, then with quotes, dashes and whitespace folded, then (approximate: true on the verdict) with markup tags read as spaces and on the best word window (at least 80% of the words on both sides, the find's first and last words at the edges, one window only); the after is always the exact live span replaced. A find nowhere in the named message but in exactly one other message of the shown excerpt is judged and applied there (resolved: {seq}); one that sits in a non-active draft says which</span>
         </summary>
         <div class="op-body">
 
@@ -3713,7 +3761,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/assistant/sessions/{sid}/apply</span>
-            <span class="summary-text">Apply chosen proposals from one reply. The ONLY write in this feature, and always explicit. Every proposal is re-checked immediately before its own write, so a batch where two of five went stale reports exactly that instead of failing whole or succeeding as a lie. Order is fixed and load-bearing: in-place changes first, then deletes, and message deletes DESCENDING, because a message address is its position and deleting one renumbers everything after it. Results are recorded on the message, and touched says what the client must refresh (world names, and whether the chat moved)</span>
+            <span class="summary-text">Apply chosen proposals from one reply. The ONLY write in this feature, and always explicit. Every proposal is re-checked immediately before its own write, so a batch where two of five went stale reports exactly that instead of failing whole or succeeding as a lie. Order is fixed and load-bearing: in-place changes first, then deletes, and message deletes DESCENDING, because a message address is its position and deleting one renumbers everything after it. Card, notes and persona changes land as one write each: the card with a version snapshot of it as it stood taken first, in the same transaction; the persona that was shown, whichever one the chat points at now. Results are recorded on the message, and touched says what the client must refresh (world names, whether the messages moved, the character whose card moved, the persona that moved, whether the chat's note or own texts moved)</span>
         </summary>
         <div class="op-body">
 
@@ -4240,6 +4288,11 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><code>pictures</code></td>
             <td>array&lt;object&gt;</td>
             <td>a reader turn's pictures, in order: { kind, id } of the session's character, when it has one (its portrait or a gallery image), or the session's own pictures, each held to it; stored on the turn with its name and size</td>
+        </tr>
+        <tr>
+            <td><code>retry</code></td>
+            <td>object</td>
+            <td>a Try again on a reader turn: the reply by its stamp (at) and the changes of it to try again (ids). While it is the last reader turn, the model is sent each change as written and where it stands now</td>
         </tr></tbody></table></div></div>
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
@@ -4248,7 +4301,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>a bad role, neither content nor pictures, pictures on a reply, or a picture the session may not show</td>
+            <td>a bad role, neither content nor pictures, pictures on a reply, a picture the session may not show, or a retry on a reply</td>
         </tr><tr>
             <td><span class="code code-4xx">404</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -4256,7 +4309,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </tr><tr>
             <td><span class="code code-4xx">409</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>session changed underneath the write</td>
+            <td>session changed underneath the write, or a retry naming a reply, or a change of it, that changed since it was shown</td>
         </tr><tr>
             <td><span class="code code-5xx">500</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -6946,7 +6999,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/versions/char/{charId}/snapshots</span>
-            <span class="summary-text">Add one snapshot under the next id, never one a deleted snapshot of the character held. An auto_backup identical to the newest auto_backup is not stored again (its id answers), and past the maxAutoBackups setting (0 keeps all) the oldest auto_backups go in the same write</span>
+            <span class="summary-text">Add one snapshot under the next id, never one a deleted snapshot of the character held. An automatic snapshot (auto_backup, or assistant: the Chat Assistant's own before it writes a card) identical to the newest of its source is not stored again (its id answers), and past its source's cap (maxAutoBackups for auto_backup, maxAssistantBackups for assistant; 0 keeps all) that source's oldest go in the same write</span>
         </summary>
         <div class="op-body">
 
@@ -6968,7 +7021,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <tr>
             <td><code>source</code></td>
             <td>string</td>
-            <td>'local' (default), 'auto_backup', 'remote' or another source name</td>
+            <td>'local' (default), 'auto_backup', 'assistant', 'remote' or another source name</td>
         </tr>
         <tr>
             <td><code>charName</code></td>

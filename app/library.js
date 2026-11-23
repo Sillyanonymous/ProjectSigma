@@ -1064,6 +1064,11 @@ const DEFAULT_SETTINGS = {
     // Both edit engines OFF until asked for: a capability the reader hasnt enabled is never told to the model.
     assistantLoreEdits: false,
     assistantChatEdits: false,
+    assistantCardEdits: false,
+    assistantNotesEdits: false,
+    assistantPersonaEdits: false,
+    // each context source's switch by id; a missing id reads the source's own default (the server's)
+    assistantContextSources: {},
     // OFF by default: this surface emits fenced blocks, and half a fence renders as broken markup until it closes.
     assistantStreaming: false,
     // 'chat' follows the chat's Format as it streams; 'on' and 'off' decide for this panel alone.
@@ -1200,6 +1205,7 @@ const DEFAULT_SETTINGS = {
     // Versions
     autoSnapshotOnEdit: true,
     maxAutoBackups: 10,
+    maxAssistantBackups: 10,
     // Whole-database backup, off by default: it writes a full copy to the user's disk, so it's opted into.
     backupFrequency: 'off',
     backupKeep: 5,
@@ -3508,7 +3514,7 @@ async function patchCharactersFromFeed(records) {
     // the ids whose character itself changed, not only an extension's data about it
     const rewritten = new Set();
     const pictured = new Set();
-    let created = false, all = false, tagged = false, listed = false;
+    let created = false, all = false, tagged = false, listed = false, rescored = false;
     for (const r of records) {
         // an extension's report about data no row carries and no sort or filter reads re-reads nothing
         if (r.extension && window.ExtensionHost?.extensionShapesRows?.(r.extension) === false) continue;
@@ -3524,6 +3530,8 @@ async function patchCharactersFromFeed(records) {
         if (!r.extension && !membership) ids.forEach(id => rewritten.add(id));
         if (fields.includes('tags')) tagged = true;
         if ((r.fields || []).includes('avatar')) ids.forEach(id => pictured.add(id));
+        // no field list is a whole write
+        if (!r.extension && (!r.fields || touchesBrowseScore(fields))) rescored = true;
     }
     for (const id of deleted) { updated.delete(id); rewritten.delete(id); }
     const detailsGone = !!activeChar && deleted.has(activeChar.id) && !modal.classList.contains('hidden');
@@ -3543,7 +3551,7 @@ async function patchCharactersFromFeed(records) {
     // a batch import elsewhere lands a card every second or two: the filter, total, lookups and grid
     // re-read once it settles
     if (created || tagged || deleted.size) scheduleTagFilterReread();
-    if (created || updated.size || all) scheduleFeedRequery({ created });
+    if (created || updated.size || all) scheduleFeedRequery({ created, rescored: rescored || all });
 }
 
 // Held rows after a write this tab didnt apply: re-read in place up to this many, past it
@@ -4556,6 +4564,25 @@ function showConfirm({
     });
 }
 
+/**
+ * The house's discard confirm over typing not saved yet; never rejects.
+ * @param {string} subject what the typing changes, as the sentence names it ("this chat's card texts")
+ * @returns {Promise<boolean>} true when the reader lets it go
+ */
+async function confirmDiscardEdits(subject) {
+    try {
+        return !!(await showConfirm({
+            title: 'Discard unsaved edits?',
+            message: `You have unsaved changes to ${subject}. Discard them?`,
+            confirmLabel: 'Discard',
+            cancelLabel: 'Keep Editing',
+            danger: true,
+        }));
+    } catch {
+        return false;
+    }
+}
+
 // @canonical run-verb
 // The footer verb of a running operation: Cancel (red on hover), Stopping... once pressed, a
 // neutral Close after; never the primary.
@@ -5201,23 +5228,29 @@ function scheduleTagFilterReread() {
     _tagFilterRereadTimer = setTimeout(() => { _tagFilterRereadTimer = null; refreshTagFilterFromServer(); }, 600);
 }
 
-// The feed's grid re-ask waits for a burst to settle: one grid query, one total and browse
-// re-probe on a create
+// the card fields the browse views' in-library score reads (the server's hint), a listing title among them (a link's pageName)
+const BROWSE_SCORED_FIELDS = ['name', 'creator', 'description', 'creator_notes', 'first_mes', 'pageName'];
+function touchesBrowseScore(fields) {
+    return fields.some(f => BROWSE_SCORED_FIELDS.some(k => f === k || f.endsWith(`.${k}`)));
+}
+
+// The feed's grid re-ask waits for a burst to settle; a create or a scored rewrite asks the browse views too
 let _feedRequeryTimer = null;
 let _feedRequeryCreated = false;
-function scheduleFeedRequery({ created = false } = {}) {
+let _feedRequeryRescored = false;
+function scheduleFeedRequery({ created = false, rescored = false } = {}) {
     _feedRequeryCreated = _feedRequeryCreated || created;
+    _feedRequeryRescored = _feedRequeryRescored || rescored;
     clearTimeout(_feedRequeryTimer);
     _feedRequeryTimer = setTimeout(() => {
         const wasCreated = _feedRequeryCreated;
+        const wasRescored = _feedRequeryRescored;
         _feedRequeryTimer = null;
         _feedRequeryCreated = false;
-        if (wasCreated) {
-            refreshLibraryTotal();
-            // a character created elsewhere may be one a browse view was told "no" about: the painted view
-            // asks again
-            window.ProviderRegistry?.rebuildAllBrowseLookups?.();
-        }
+        _feedRequeryRescored = false;
+        if (wasCreated) refreshLibraryTotal();
+        // a character created or renamed elsewhere may be one a browse view was answered about: the painted view asks again
+        if (wasCreated || wasRescored) window.ProviderRegistry?.rebuildAllBrowseLookups?.();
         requeryGrid();
     }, 600);
 }
@@ -7454,13 +7487,7 @@ function isCharModalDirty() {
 }
 
 function confirmDiscardCharModalEdits() {
-    return showConfirm({
-        title: 'Discard unsaved edits?',
-        message: `You have unsaved changes to ${getCharacterName(activeChar) || 'this character'}. Discard them?`,
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep Editing',
-        danger: true,
-    });
+    return confirmDiscardEdits(getCharacterName(activeChar) || 'this character');
 }
 
 // The notice a change elsewhere raises over the open details, in place of a repaint under the
@@ -14248,7 +14275,7 @@ const INLINE_HTML_RE = /<\/?(?:b|i|u|s|em|strong|del|mark|small|sub|sup|code|kbd
 
 // Block-level HTML islands: a BALANCED run from a block open tag to its close, lifted verbatim, the
 // sanitizer re-validating it; unbalanced stays literal.
-const BLOCK_HTML_RE = /<(div|details|table|blockquote|h[1-6]|ul|ol|dl|p|pre|center|figure|section|article|aside)(?=[\s>])/gi;
+const BLOCK_HTML_RE = /<(div|details|table|blockquote|h[1-6]|ul|ol|dl|p|pre|center|figure|section|article|aside|header|footer|nav|main|svg|style)(?=[\s>])/gi;
 const VOID_BLOCK_HTML_RE = /<hr\b[^<>]*\/?>/gi;
 
 // HTML's element names; a tag naming none of them is a model's or a preset's own marker (<internal_states>, <think>)
@@ -16690,6 +16717,9 @@ function openProviderLinkModal(char) {
     modal.classList.add('visible');
 }
 
+// the picker's latest search; an older one landing after it, or one for a card the details have left, paints nothing
+let _linkSearchId = 0;
+
 /**
  * Search all providers for characters matching name/creator.
  * Results are tagged with providerId so linkToSearchResult knows which provider to save with.
@@ -16704,6 +16734,9 @@ async function searchProvidersForLink(name, creator) {
     }
     
     resultsContainer.innerHTML = '<div class="provider-link-search-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching...</div>';
+    const searchId = ++_linkSearchId;
+    const forCharId = activeChar?.id || null;
+    const stale = () => searchId !== _linkSearchId || (activeChar?.id || null) !== forCharId;
     
     try {
         const registry = window.ProviderRegistry;
@@ -16728,6 +16761,7 @@ async function searchProvidersForLink(name, creator) {
         });
         
         const allProviderResults = await Promise.all(searchPromises);
+        if (stale()) return;
         let allResults = allProviderResults.flat();
         
         if (allResults.length === 0) {
@@ -16735,8 +16769,13 @@ async function searchProvidersForLink(name, creator) {
             return;
         }
         
-        if (activeChar) {
-            allResults = sortResultsByContentSimilarity(allResults, activeChar);
+        if (forCharId) {
+            try {
+                allResults = (await rankLinkHits(forCharId, allResults)).ordered;
+            } catch (err) {
+                debugLog('[LinkSearch] ranking failed, the hits shown unranked:', err.message);
+            }
+            if (stale()) return;
         }
         
         resultsContainer.innerHTML = allResults.map(result => {
@@ -16744,9 +16783,7 @@ async function searchProvidersForLink(name, creator) {
             const avatarUrl = provider?.getResultAvatarUrl?.(result) || result.avatarUrl || '';
             const rating = result.rating ? result.rating.toFixed(1) : '';
             const starCount = result.starCount || 0;
-            // Providers whose fullPath is a bare id have no author segment, so use the explicit creator field
-            // when supplied.
-            const creator = result.creator || (result.fullPath || '').split('/')[0];
+            const creator = linkHitCreator(result);
             
             const statsHtml = [
                 rating ? `<span><i class="fa-solid fa-star"></i> ${rating}</span>` : '',
@@ -17214,6 +17251,8 @@ on('providerLinkVersionsBtn', 'click', () => {
 
 let bulkAutoLinkAborted = false;
 let bulkAutoLinkIsScanning = false;
+// each scan's number: a Resume while a stopped loop still waits on the sites starts a new one, and the old one bows out
+let bulkAutoLinkRun = 0;
 let bulkAutoLinkResults = {
     confident: [],   // { char, bestMatch, selected: true }
     uncertain: [],   // { char, options: [], selectedOption: null }
@@ -17318,6 +17357,8 @@ async function openBulkAutoLinkModal() {
  * Run the bulk auto-link scan across ALL providers with supportsBulkLink
  */
 async function runBulkAutoLinkScan() {
+    const run = ++bulkAutoLinkRun;
+    const superseded = () => run !== bulkAutoLinkRun;
     bulkAutoLinkIsScanning = true;
     setRunVerb(document.getElementById('bulkAutoLinkCancelBtn'), 'running');
     bulkAutoLinkScanState.scanComplete = false;
@@ -17329,6 +17370,7 @@ async function runBulkAutoLinkScan() {
     const providers = registry ? registry.getAllProviders().filter(p => p.supportsBulkLink && !disabled.has(p.id)) : [];
 
     const unlinkedChars = await fetchUnlinkedCharacters();
+    if (superseded()) return;
     bulkAutoLinkScanState.lastUnlinkedCount = unlinkedChars.length;
 
     if (unlinkedChars.length === 0) {
@@ -17356,7 +17398,7 @@ async function runBulkAutoLinkScan() {
     document.getElementById('bulkAutoLinkNoMatchCount').textContent = bulkAutoLinkResults.nomatch.length;
     
     for (let i = 0; i < charsToScan.length; i++) {
-        if (bulkAutoLinkAborted) break;
+        if (bulkAutoLinkAborted || superseded()) break;
         
         const char = charsToScan[i];
         const charName = getCharacterName(char, 'Unknown');
@@ -17380,35 +17422,40 @@ async function runBulkAutoLinkScan() {
             }
         });
         const allProviderResults = await Promise.all(providerPromises);
+        // stopped while the sites answered: nothing more is asked, and a resume searches this character again
+        if (bulkAutoLinkAborted || superseded()) break;
         const searchResults = allProviderResults.flat();
-        
+
         bulkAutoLinkScanState.scannedIds.add(char.id);
         
         if (searchResults.length === 0) {
             bulkAutoLinkResults.nomatch.push({ char });
             document.getElementById('bulkAutoLinkNoMatchCount').textContent = bulkAutoLinkResults.nomatch.length;
         } else {
-            // Hydrate so content similarity has description/first_mes/personality
-            await hydrateCharacter(char);
+            // the server ranks the hits by the duplicate rule; unranked, a character waits for review and is never linked unasked
+            let ordered = searchResults, best = null;
+            try {
+                ({ ordered, best } = await rankLinkHits(char.id, searchResults));
+            } catch (err) {
+                showToast(`"${charName}" could not be ranked and waits in Needs Review: ${err.message}`, 'warning', 6000,
+                    { group: 'auto-link-unranked', item: charName, many: summarizeUnrankedLinks });
+            }
+            // a resume took over while this ranked: the new scan searches this character again
+            if (superseded()) { bulkAutoLinkScanState.scannedIds.delete(char.id); return; }
             
-            const sortedResults = sortResultsByContentSimilarity(searchResults, char);
-            
-            const confidentMatch = findConfidentMatch(char, sortedResults);
-            
-            if (confidentMatch) {
-                const confidentIdx = sortedResults.findIndex(r => r.fullPath === confidentMatch.fullPath);
+            if (best) {
                 bulkAutoLinkResults.confident.push({
                     char,
-                    bestMatch: confidentMatch,
-                    options: sortedResults.slice(0, 5), // Store top 5 sorted by content similarity
-                    selectedOption: confidentIdx >= 0 && confidentIdx < 5 ? confidentIdx : 0, // Pre-select the confident match
+                    bestMatch: best,
+                    options: ordered.slice(0, 5),
+                    selectedOption: ordered.indexOf(best),
                     selected: true
                 });
                 document.getElementById('bulkAutoLinkConfidentCount').textContent = bulkAutoLinkResults.confident.length;
             } else {
                 bulkAutoLinkResults.uncertain.push({
                     char,
-                    options: sortedResults.slice(0, 5), // Top 5 sorted by content similarity
+                    options: ordered.slice(0, 5),
                     selectedOption: null
                 });
                 document.getElementById('bulkAutoLinkUncertainCount').textContent = bulkAutoLinkResults.uncertain.length;
@@ -17421,6 +17468,8 @@ async function runBulkAutoLinkScan() {
         }
     }
     
+    // a newer scan owns the state and the view now
+    if (superseded()) return;
     bulkAutoLinkIsScanning = false;
     
     if (!bulkAutoLinkAborted) {
@@ -17436,199 +17485,40 @@ async function runBulkAutoLinkScan() {
     }
 }
 
-/**
- * Common/generic creators that shouldn't be trusted for matching
- */
-const GENERIC_CREATORS = new Set([
-    'anonymous', 'anon', 'unknown', 'user', 'admin', 'test', 
-    'guest', '', 'none', 'na', 'n/a', 'character'
-]);
+// the server ranks at most this many hits a request (PROBE_MAX_KEYS); any past it follow in the sites order
+const LINK_HITS_MAX = 500;
 
-/**
- * Sort search results by content similarity to a local character
- * Results with higher content similarity appear first
- * @param {Array} results - Search results from provider API
- * @param {Object} localChar - Local character to compare against
- * @returns {Array} - Results sorted by content similarity (descending)
- */
-function sortResultsByContentSimilarity(results, localChar) {
-    if (!localChar || !results || results.length === 0) return results;
-    
-    const charDescription = getCharField(localChar, 'description') || '';
-    const charCreatorNotes = getCharField(localChar, 'creator_notes') || '';
-    const charFirstMes = getCharField(localChar, 'first_mes') || '';
-    const charName = getCharacterName(localChar, '').toLowerCase().trim();
-    const charCreator = String(localChar.creator || localChar.data?.creator || '').toLowerCase().trim();
-    const charNameWords = charName.split(/\s+/).filter(w => w.length > 2);
-    
-    const localContent = `${charDescription} ${charCreatorNotes} ${charFirstMes}`.trim();
-    const hasLocalContent = localContent.length > 100;
-    
-    const scoredResults = results.map(result => {
-        const remoteName = (result.name || '').toLowerCase().trim();
-        // the explicit creator first: a provider whose fullPath is a bare id has no author segment to split
-        const remoteCreator = String(result.creator || (result.fullPath || '').split('/')[0]).toLowerCase().trim();
-        const remoteTagline = result.tagline || '';
-        const remoteDescription = result.description || result.tagline || '';
-        const remoteNameWords = remoteName.split(/\s+/).filter(w => w.length > 2);
-        
-        const remoteContent = `${remoteDescription} ${remoteTagline}`.trim();
-        
-        let score = 0;
-        let matchReasons = [];
-        
-        // Name matching
-        
-        // Exact name match gets biggest boost
-        if (remoteName === charName) {
-            score += 100;
-            matchReasons.push('exact name');
-        }
-        // Remote name STARTS with local name (e.g., "Ghost Exorcism Simulator" starts with "Ghost")
-        else if (remoteName.startsWith(charName + ' ') || remoteName.startsWith(charName + ':') || remoteName.startsWith(charName + ',')) {
-            score += 90;
-            matchReasons.push('name prefix');
-        }
-        // First word exact match (e.g., "Ghost" = first word of "Ghost Exorcism Simulator")
-        else if (remoteNameWords.length > 0 && charNameWords.length > 0 && remoteNameWords[0] === charNameWords[0]) {
-            score += 85;
-            matchReasons.push('first word');
-        }
-        // Local name is contained in remote name
-        else if (remoteName.includes(charName) && charName.length > 3) {
-            score += 75;
-            matchReasons.push('name in title');
-        }
-        // Any significant word from local name is in remote name
-        else if (charNameWords.length > 0 && charNameWords.some(w => remoteName.includes(w))) {
-            score += 60;
-            matchReasons.push('word match');
-        }
-        
-        // Creator matching
-        if (charCreator && remoteCreator === charCreator) {
-            score += 50;
-            matchReasons.push('creator');
-        }
-        
-        // Content similarity
-        if (hasLocalContent && remoteContent.length > 50) {
-            const descToDescSim = calculateTextSimilarity(charDescription, remoteDescription);
-            
-            // Compare description to tagline (often very useful)
-            const descToTaglineSim = calculateTextSimilarity(charDescription, remoteTagline);
-            
-            // Compare creator_notes to tagline (creators often put tagline in notes)
-            const notesToTaglineSim = charCreatorNotes ? calculateTextSimilarity(charCreatorNotes, remoteTagline) : 0;
-            
-            const notesToDescSim = charCreatorNotes ? calculateTextSimilarity(charCreatorNotes, remoteDescription) : 0;
-            
-            // Compare first_mes to description (can help identify unique characters)
-            const firstMesToDescSim = charFirstMes ? calculateTextSimilarity(charFirstMes, remoteDescription) : 0;
-            
-            const fullContentSim = calculateTextSimilarity(localContent, remoteContent);
-            
-            const bestContentMatch = Math.max(
-                descToDescSim, 
-                descToTaglineSim, 
-                notesToTaglineSim, 
-                notesToDescSim,
-                firstMesToDescSim,
-                fullContentSim
-            );
-            
-            // Content similarity is HUGE - up to 100 points for high match
-            // This helps when names don't match but content clearly does
-            if (bestContentMatch >= 0.5) {
-                score += bestContentMatch * 100; // 50-100 points for good content match
-                matchReasons.push(`${Math.round(bestContentMatch * 100)}% content`);
-            } else if (bestContentMatch >= 0.25) {
-                score += bestContentMatch * 60; // 15-30 points for partial content match
-                matchReasons.push(`${Math.round(bestContentMatch * 100)}% content`);
-            } else if (bestContentMatch > 0.1) {
-                score += bestContentMatch * 30; // Small boost for weak match
-            }
-        }
-        
-        // Keep original API order as tiebreaker (download count)
-        score += (results.length - results.indexOf(result)) * 0.01;
-        
-        return { result, score, matchReasons };
-    });
-    
-    scoredResults.sort((a, b) => b.score - a.score);
-    
-    if (scoredResults.length > 0 && scoredResults[0].score > 50) {
-        debugLog(`[BulkSearch] Top match: "${scoredResults[0].result.name}" (score: ${scoredResults[0].score.toFixed(1)}, reasons: ${scoredResults[0].matchReasons.join(', ')})`);
-    }
-    
-    return scoredResults.map(s => s.result);
+// a bulk-link result's creator: its own field, else the path's first segment (a bare-id path has none)
+function linkHitCreator(result) {
+    return String(result.creator || (result.fullPath || '').split('/')[0]);
 }
 
 /**
- * Calculate word set similarity (Jaccard index) between two texts
- * Wrapper for contentSimilarity used in auto-link matching
+ * Provider search hits ranked against one library card by the server's duplicate rule.
+ * @param {string} charId
+ * @param {Object[]} hits searchForBulkLink results
+ * @returns {Promise<{ ordered: Object[], best: Object|null }>} the hits best first; best is the one to link unasked
+ * @throws {Error} the server's refusal in its words; a caller shows the hits unranked, never confident
  */
-function calculateTextSimilarity(textA, textB) {
-    return contentSimilarity(textA, textB);
+async function rankLinkHits(charId, hits) {
+    const asked = hits.slice(0, LINK_HITS_MAX);
+    const answer = await readAnswer(await apiRequest(`/characters/${encodeURIComponent(charId)}/link-match`, 'POST', {
+        hits: asked.map(r => ({
+            name: String(r.name || ''),
+            creator: linkHitCreator(r),
+            text: String(r.description || r.tagline || ''),
+            ...(r.listingName ? { listingName: String(r.listingName) } : {}),
+        })),
+    }));
+    const ordered = [...answer.ranked.map(r => asked[r.index]), ...hits.slice(asked.length)];
+    return { ordered, best: answer.best === null ? null : asked[answer.best] };
 }
 
-/**
- * Find a confident match for a character
- * Uses name, creator, and content similarity for matching
- * Handles generic creators like "Anonymous" by requiring content match
- */
-function findConfidentMatch(char, searchResults) {
-    const charName = getCharacterName(char, '').toLowerCase().trim();
-    const charCreator = String(char.creator || char.data?.creator || '').toLowerCase().trim();
-    const charDescription = getCharField(char, 'description') || '';
-    
-    const isGenericCreator = GENERIC_CREATORS.has(charCreator);
-    
-    for (const result of searchResults) {
-        const remoteName = (result.name || '').toLowerCase().trim();
-        // the explicit creator first: a provider whose fullPath is a bare id has no author segment to split
-        const remoteCreator = String(result.creator || (result.fullPath || '').split('/')[0]).toLowerCase().trim();
-        const remoteTagline = result.tagline || '';
-        const remoteDescription = result.description || result.tagline || '';
-        
-        // Exact name match is always required
-        if (remoteName !== charName) continue;
-        
-        const contentSimilarity = calculateTextSimilarity(charDescription, remoteDescription);
-        const taglineSimilarity = calculateTextSimilarity(charDescription, remoteTagline);
-        const bestContentSimilarity = Math.max(contentSimilarity, taglineSimilarity);
-        
-        // Case 1: Generic creator (like "Anonymous") - require content match
-        if (isGenericCreator || GENERIC_CREATORS.has(remoteCreator)) {
-            if (bestContentSimilarity >= 0.4) {
-                debugLog(`[bulkAutoLink] Content match for "${charName}": ${(bestContentSimilarity * 100).toFixed(1)}% similarity`);
-                return result;
-            }
-            // Or if it's the top result with matching generic creator and high download count
-            if (remoteCreator === charCreator && searchResults.indexOf(result) === 0 && (result.downloadCount || result.starCount || 0) > 100) {
-                debugLog(`[bulkAutoLink] Top popular result match for "${charName}" by generic creator`);
-                return result;
-            }
-            continue;
-        }
-        
-        // Case 2: Specific creator - creator match is sufficient
-        if (charCreator && remoteCreator === charCreator) {
-            debugLog(`[bulkAutoLink] Creator match for "${charName}" by ${charCreator}`);
-            return result;
-        }
-        
-        // Case 3: No local creator but remote has one - use content + position
-        if (!charCreator && searchResults.indexOf(result) === 0) {
-            if (bestContentSimilarity >= 0.3) {
-                debugLog(`[bulkAutoLink] Top result with content match for "${charName}": ${(bestContentSimilarity * 100).toFixed(1)}%`);
-                return result;
-            }
-        }
-    }
-    
-    return null;
+// a scan's unranked characters in one line, as summarizeCardRefusals folds a batch's refusals
+function summarizeUnrankedLinks(names) {
+    const shown = names.slice(0, 3).map(n => `"${n}"`).join(', ');
+    const more = names.length > 3 ? ` and ${names.length - 3} more` : '';
+    return `${names.length} characters could not be ranked and wait in Needs Review: ${shown}${more}`;
 }
 
 /**
@@ -19984,89 +19874,6 @@ let duplicateModalState = {
 };
 
 /**
- * Calculate similarity between two strings (0-1)
- * Uses Levenshtein distance for fuzzy matching
- */
-function stringSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    
-    const s1 = str1.toLowerCase().trim();
-    const s2 = str2.toLowerCase().trim();
-    
-    if (s1 === s2) return 1;
-    if (!s1 || !s2) return 0;
-    
-    // Levenshtein distance for fuzzy matching
-    const len1 = s1.length;
-    const len2 = s2.length;
-    
-    // Quick exit for very different lengths
-    if (Math.abs(len1 - len2) > Math.max(len1, len2) * 0.5) return 0;
-    
-    const matrix = [];
-    for (let i = 0; i <= len1; i++) {
-        matrix[i] = [i];
-    }
-    for (let j = 0; j <= len2; j++) {
-        matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= len1; i++) {
-        for (let j = 1; j <= len2; j++) {
-            const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-            matrix[i][j] = Math.min(
-                matrix[i - 1][j] + 1,
-                matrix[i][j - 1] + 1,
-                matrix[i - 1][j - 1] + cost
-            );
-        }
-    }
-    
-    const distance = matrix[len1][len2];
-    const maxLen = Math.max(len1, len2);
-    return 1 - (distance / maxLen);
-}
-
-/**
- * Calculate content similarity for longer text fields
- * Uses word overlap / Jaccard similarity for better performance on long texts
- */
-function contentSimilarity(text1, text2) {
-    if (!text1 || !text2) return 0;
-    
-    const t1 = text1.toLowerCase().trim();
-    const t2 = text2.toLowerCase().trim();
-    
-    if (t1 === t2) return 1;
-    if (!t1 || !t2) return 0;
-    
-    // For very short texts, use string similarity
-    if (t1.length < 50 || t2.length < 50) {
-        return stringSimilarity(t1, t2);
-    }
-    
-    // Extract words (3+ chars) for comparison
-    const getWords = (text) => {
-        const words = text.match(/\b\w{3,}\b/g) || [];
-        return new Set(words.map(w => w.toLowerCase()));
-    };
-    
-    const words1 = getWords(t1);
-    const words2 = getWords(t2);
-    
-    if (words1.size === 0 || words2.size === 0) return 0;
-    
-    // Jaccard similarity: intersection / union
-    let intersection = 0;
-    for (const word of words1) {
-        if (words2.has(word)) intersection++;
-    }
-    
-    const union = words1.size + words2.size - intersection;
-    return union > 0 ? intersection / union : 0;
-}
-
-/**
  * Get character field value with fallbacks
  */
 function getCharField(char, field) {
@@ -20686,7 +20493,7 @@ async function renderDuplicateGroups(groups) {
                     <div class="char-dup-identical-notice">
                         <div class="identical-notice-header">
                             <i class="fa-solid fa-clone"></i>
-                            <strong>Content Identical</strong>: These are duplicate files with the same character data
+                            <span><strong>Content Identical</strong>: These are duplicate files with the same character data</span>
                         </div>
                         ${wsNote}
                         ${metaDiffs.length > 0 ? `<div class="meta-diffs">${metaDiffs.join('')}</div>` : ''}
@@ -23416,6 +23223,7 @@ window.createStoreDocument = createStoreDocument;
 window.showToast = showToast;
 window.summarizeImportActivity = summarizeImportActivity;
 window.showConfirm = showConfirm;
+window.confirmDiscardEdits = confirmDiscardEdits;
 window.setRunVerb = setRunVerb;
 window.openSettingsToSection = openSettingsToSection;
 window.savePresetPicker = savePresetPicker;
@@ -24062,12 +23870,8 @@ async function writeCardFieldsNow(charOrId, fieldUpdates, opts = {}) {
             _tokenEstimateCache.set(char.id, tok);
         }
 
-        // The Online In-Library lookup base is keyed on name+creator; a surgical write that
-        // changes either must invalidate it (other edit paths refresh via fetchCharacters).
-        const touchedNameOrCreator = Object.keys(fieldUpdates).some(
-            f => f === 'name' || f === 'creator' || f.endsWith('.name') || f.endsWith('.creator')
-        );
-        if (touchedNameOrCreator) window.ProviderRegistry?.invalidateBrowseLookupBase?.();
+        // a write the browse score reads asks the painted view again, as the feed does for another tab's
+        if (touchesBrowseScore(Object.keys(fieldUpdates))) window.ProviderRegistry?.rebuildAllBrowseLookups?.();
 
         // THE card write, so the one honest place to say a character changed; anything holding an earlier
         // copy re-reads.
@@ -24113,6 +23917,7 @@ async function applyCardFieldsNow(updates) {
     if (affected.length) {
         await fetchCharactersByIds(affected);
         for (const id of affected) notifyCharacterChanged(id);
+        if (list.some(u => touchesBrowseScore(Object.keys(u.fields)))) window.ProviderRegistry?.rebuildAllBrowseLookups?.();
     }
     // the rows the server refused say why, once, the way a single card write does
     if (failed.length) showToast(summarizeCardRefusals(failed.map(f => f.error || 'not saved')), 'error', 8000);

@@ -67,12 +67,28 @@ const byRank = (a, b) => {
 };
 
 /**
+ * Whether a record moves a window that picks one row for the chat: a row of its entity, the default pick, this chat's own.
+ * @param {object} r a change record
+ * @param {{ entity: string, setting: string, chatId: string|null, chatField: string }} pick the entity, the setting naming the default, the chat and its field
+ */
+export function movesChatPick(r, { entity, setting, chatId, chatField }) {
+    return !!(r.all || r.entity === entity
+        || (r.entity === 'setting' && (r.ids || []).includes(setting))
+        || (r.entity === 'chat' && (r.ids || []).includes(chatId) && (!r.fields || r.fields.includes(chatField))));
+}
+
+/**
  * Keep a cache in line: fn(records) gets other tabs' records for these entities, or null to re-read the whole view.
  * @param {{ own?: boolean | 'both' }} [opts] own: true hands fn this tab's own records instead and never a re-read; 'both' every origin's, re-reads included
  * @returns {Function} the unregister
  */
 export function registerFeedPatcher(entities, fn, { own = false } = {}) {
     return addPatcher(entities, fn, false, own);
+}
+
+/** Whether a record is this tab's own write coming back, for a patcher registered with own: 'both'. */
+export function isOwnRecord(r) {
+    return originOf(r) === 'self';
 }
 
 /**

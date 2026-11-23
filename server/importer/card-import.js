@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { upsertImportedCharacter, classifyImport, getCharacter, storedCardHash } from '../db/characters-store.js';
+import { upsertImportedCharacter, classifyImport, getCharacter, storedCardHash, patchCharacter } from '../db/characters-store.js';
 import { addCharSnapshot } from '../db/versions-store.js';
 import { allowedScriptsMark, forgetConsentIfMoved } from '../db/regex-store.js';
 import { invalidateAvatarThumbs } from '../lib/thumb-cache.js';
@@ -24,16 +24,27 @@ export function importCharacterBuffer(db, buffer, opts = {}) {
     return importCharacterParts(db, parsed, () => stripCardChunks(buffer), opts);
 }
 
-/** A snapshot of a character's card with its picture embedded, in the caller's transaction; its id, or a 404 when the character is gone. */
-export function snapshotCardAsItStood(db, paths, charId, label) {
+/**
+ * A snapshot of a character's card, its picture embedded unless told not to, in the caller's transaction; its id, or a 404 when gone.
+ * @param {{source?: string, keepAutoBackups?: number, embedAvatar?: boolean}} [opts] an automatic snapshot: deduped, trimmed to its source's cap unless keepAutoBackups says, no picture copy
+ */
+export function snapshotCardAsItStood(db, paths, charId, label, { source = 'local', keepAutoBackups, embedAvatar = true } = {}) {
     const was = getCharacter(db, charId);
     // deleted while a staged file was read: nothing to replace, and nothing written
     if (!was) throw httpError(404, 'character not found');
     const data = JSON.parse(JSON.stringify(was.card.data || {}));
     data._avatarUrl = `/avatars/${encodeURIComponent(charId)}.png`;
     const avatar = path.join(paths.avatarsDir, `${charId}.png`);
-    if (fs.existsSync(avatar)) data._avatarImageData = `data:image/png;base64,${fs.readFileSync(avatar).toString('base64')}`;
-    return addCharSnapshot(db, charId, { label, source: 'local', charName: data.name || null, data });
+    if (embedAvatar && fs.existsSync(avatar)) data._avatarImageData = `data:image/png;base64,${fs.readFileSync(avatar).toString('base64')}`;
+    return addCharSnapshot(db, charId, { label, source, charName: data.name || null, data }, { keepAutoBackups });
+}
+
+/** A card patch with the card as it stood snapshotted first, both or neither; opts as snapshotCardAsItStood takes them. */
+export function patchAfterSnapshot(db, paths, charId, label, fields, opts = {}) {
+    db.transaction(() => {
+        snapshotCardAsItStood(db, paths, charId, label, opts);
+        patchCharacter(db, charId, { fields }, { answer: false });
+    })();
 }
 
 /** The browse import's Replace resolution: a heal onto the id, favourite and lock kept, the card as it stood snapshotted first. Null when gone. */

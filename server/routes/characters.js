@@ -10,7 +10,7 @@ import { writeFileAtomic } from '../lib/atomic-write.js';
 import { invalidateAvatarThumbs } from './thumbs.js';
 import { NS_RE } from '../lib/provider-namespaces.js';
 import { characterQueryOpts, characterSetFrom } from '../lib/character-query.js';
-import { scanDuplicates, matchCharacterSteps, matchNamesForHintSteps } from '../db/duplicates-store.js';
+import { scanDuplicates, matchCharacterSteps, matchNamesForHintSteps, matchLinkHitsSteps } from '../db/duplicates-store.js';
 import { requireArchiveType, skipIfGone } from '../lib/request-guard.js';
 import { runSteps, runRequestSteps } from '../lib/steps.js';
 import { boolOf, pageOf, PAGE_DEFAULT, PAGE_MAX, PROBE_MAX_KEYS, HINT_TEXT_MAX, IDS_MAX, FIELDS_APPLY_MAX } from '../lib/query-params.js';
@@ -215,6 +215,23 @@ charactersRouter.get('/:id/related', async (req, res) => {
     const { gone, value } = await runRequestSteps(req, res, relatedCharacterSteps(req.db, req.params.id, { limit, ...flags }));
     if (gone) return;
     if (!value) return res.status(404).json({ error: 'character not found' });
+    res.json(value);
+});
+
+// a site's search hits ranked against this card by the duplicate rule; best is the one to link unasked
+charactersRouter.post('/:id/link-match', async (req, res) => {
+    const hits = req.body?.hits;
+    if (!Array.isArray(hits) || hits.length === 0) return res.status(400).json({ error: 'hits array required' });
+    if (hits.length > PROBE_MAX_KEYS) return res.status(400).json({ error: `max ${PROBE_MAX_KEYS} hits per request` });
+    const str = (v) => (typeof v === 'string' ? v : '');
+    const { gone, value } = await runRequestSteps(req, res, matchLinkHitsSteps(req.db, req.params.id, hits.map(h => ({
+        name: str(h?.name),
+        creator: str(h?.creator),
+        text: str(h?.text).slice(0, HINT_TEXT_MAX),
+        listingName: str(h?.listingName),
+    }))));
+    if (gone) return;
+    if (!value) return req.db.open ? res.status(404).json({ error: 'character not found' }) : res.status(503).json({ error: 'the library closed' });
     res.json(value);
 });
 

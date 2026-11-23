@@ -3,8 +3,9 @@ import {
     listSessions, getSession, createSession, patchSession, deleteSession,
     appendMessage, patchMessage, truncateFrom, deleteMessage,
 } from '../db/assistant-store.js';
-import { buildAssistantPrompt, parseReadRequests, readSwipesMessage, readLoreMessage, ENGINES, DEFAULT_ROLE } from '../llm/assistant.js';
-import { checkProposal, applyProposals, mergeOverrides, selfAnchorsFromApplied, laterAnchorsForReply, appliedTitle } from '../llm/assistant-edits.js';
+import { buildAssistantPrompt, parseReadRequests, readSwipesMessage, readLoreMessage, ENGINES, DEFAULT_ROLE, ASSISTANT_PROPOSALS } from '../llm/assistant.js';
+import { checkProposal, applyProposals, mergeOverrides, selfAnchorsFromApplied, laterAnchorsForReply, appliedTitle, fieldLabelOf, isFieldEngine } from '../llm/assistant-edits.js';
+import { SOURCES_SETTING } from '../llm/assistant-sources.js';
 import { chatStream } from '../llm/service.js';
 import { LENGTH_FINISH_REASONS as LENGTH_REASONS } from '../llm/errors.js';
 import { openReply, withReplyCeiling, logStoreFailure } from '../llm/reply-tail.js';
@@ -14,7 +15,7 @@ import { namedProfileId } from '../db/llm-profiles-store.js';
 import { chatExists, readMessageRow, getChatRow } from '../db/chats-store.js';
 import { runHook } from '../db/hook-seat.js';
 import { intOf } from '../lib/query-params.js';
-import { sessionLookup, transcriptHandlers, proposalExtra, sessionPictures } from '../lib/session-routes.js';
+import { sessionLookup, transcriptHandlers, proposalExtra, sessionPictures, modelTranscript } from '../lib/session-routes.js';
 
 // The assistant, an out-of-character session bound to a chat. the server stores the reply and the snapshot it built
 
@@ -26,7 +27,7 @@ export const assistantRouter = Router();
 const sessionOr404 = sessionLookup(getSession);
 // a reader turn may show its chat's character (portrait, gallery) and the chat's own pictures
 const pictureScope = (db, session) => ({ charId: getChatRow(db, session.chatId)?.char_id ?? null, chatId: session.chatId });
-const transcript = transcriptHandlers({ sessionOr404, appendMessage, patchMessage, deleteMessage, truncateFrom, pictureScope });
+const transcript = transcriptHandlers({ sessionOr404, appendMessage, patchMessage, deleteMessage, truncateFrom, pictureScope, proposals: ASSISTANT_PROPOSALS });
 
 /** The built-in role text, sent rather than mirrored; registered before /sessions/:sid so the literal path wins. */
 assistantRouter.get('/defaults', (req, res) => {
@@ -86,31 +87,37 @@ assistantRouter.post('/sessions/:sid/messages', transcript.append);
 assistantRouter.patch('/sessions/:sid/messages/:seq', transcript.patch);
 assistantRouter.delete('/sessions/:sid/messages/:seq', transcript.remove);
 
+/**
+ * A change judged now; an unplaced replace brings the message it named, read where the judge found it (a delete since moves it).
+ * @returns {{status: string, reason?: string, quote?: {seq: number, text: string}}} quote.seq: the number the model named, as the notes print it
+ */
+function judgeNow(db, chatId, p, { snapshot, self, later }) {
+    const v = checkProposal(db, chatId, snapshot, p, self, later);
+    const text = p.engine === 'chat' && p.op === 'replace' && v.status === 'ambiguous' ? readMessageRow(db, chatId, v.resolved?.seq ?? p.change?.seq)?.mes : undefined;
+    return { status: v.status, ...(v.reason ? { reason: v.reason } : {}), ...(typeof text === 'string' ? { quote: { seq: p.change.seq, text } } : {}) };
+}
+
 /** The session's turns for the builder; only the last reply gets a fresh verdict, older ones keep their stored fate. */
 function transcriptFor(db, session) {
-    const msgs = session.messages;
-    let last = -1;
-    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant') { last = i; break; }
-    return msgs.map((m, i) => {
-        if (i !== last || !m.extra?.proposals?.length) return { role: m.role, content: m.content, extra: m.extra };
-        const applied = m.extra.applied || {};
-        const self = selfAnchorsFromApplied(applied);
-        const judged = {};
-        // an unplaced replace gets its message quoted under the note, once per message, capped
-        const quotes = {};
-        for (const p of m.extra.proposals) {
-            if (p.invalid || applied[p.id]) continue;
-            try {
-                const v = checkProposal(db, session.chatId, m.extra.context || null, p, self);
-                judged[p.id] = { status: v.status, ...(v.reason ? { reason: v.reason } : {}) };
-                if (p.engine === 'chat' && p.op === 'replace' && v.status === 'ambiguous' && !(p.change.seq in quotes)) {
-                    // the message the model named, where the judge found it now (a delete since moves it)
-                    const text = readMessageRow(db, session.chatId, v.resolved?.seq ?? p.change.seq)?.mes;
-                    if (typeof text === 'string') quotes[p.change.seq] = text;
-                }
-            } catch { /* the note goes without a verdict for this one */ }
-        }
-        return { role: m.role, content: m.content, extra: { ...m.extra, judged, ...(Object.keys(quotes).length ? { quotes } : {}) } };
+    return modelTranscript(session.messages, {
+        surface: ASSISTANT_PROPOSALS,
+        judge: (p, ctx) => judgeNow(db, session.chatId, p, ctx),
+        lastReply: (m) => {
+            const applied = m.extra.applied || {};
+            const self = selfAnchorsFromApplied(applied);
+            const judged = {};
+            // an unplaced replace gets its message quoted under the note, once per message, capped
+            const quotes = {};
+            for (const p of m.extra.proposals) {
+                if (p.invalid || applied[p.id]) continue;
+                try {
+                    const { quote, ...v } = judgeNow(db, session.chatId, p, { snapshot: m.extra.context || null, self });
+                    judged[p.id] = v;
+                    if (quote && !(quote.seq in quotes)) quotes[quote.seq] = quote.text;
+                } catch { /* the note goes without a verdict for this one */ }
+            }
+            return { ...m.extra, judged, ...(Object.keys(quotes).length ? { quotes } : {}) };
+        },
     });
 }
 
@@ -127,6 +134,7 @@ function builderSettings(db) {
         systemPrompt: String(settingValue(db, 'assistantSystemPrompt', '') || ''),
         maxContext: Number(settingValue(db, 'assistantMaxContext', 0)) || 0,
         reserveForReply: replyReserve(db),
+        sources: settingValue(db, SOURCES_SETTING, {}),
     };
 }
 
@@ -151,7 +159,7 @@ assistantRouter.post('/sessions/:sid/generate', async (req, res) => {
                     ...(interrupted ? { interrupted } : {}),
                     ...(reasoning.trim() ? { reasoning } : {}),
                     ...(snapshot ? { context: snapshot } : {}),
-                    ...proposalExtra(text),
+                    ...proposalExtra(text, ASSISTANT_PROPOSALS),
                 },
             });
         } catch (e) { logStoreFailure('assistant', e); return null; }
@@ -239,9 +247,11 @@ assistantRouter.get('/sessions/:sid/proposals/:seq', (req, res) => {
                 : p.engine === 'chat' && Number.isInteger(r.seq) && r.seq !== p.change.seq ? { seq: r.seq } : null;
             // and its NAME, live where the row still exists, else as the write recorded it
             const title = p.engine === 'lore' ? appliedTitle(req.db, r) : undefined;
+            // a field change keeps its field's name once applied, as the verdict printed it
+            const label = typeof p.change?.field === 'string' && isFieldEngine(p.engine) ? fieldLabelOf(p.engine, p.change.field) : undefined;
             return {
                 ...p, status: 'applied', appliedAt: applied[p.id].at, result: applied[p.id].result,
-                ...(resolved ? { resolved } : {}), ...(title !== undefined ? { title } : {}),
+                ...(resolved ? { resolved } : {}), ...(title !== undefined ? { title } : {}), ...(label !== undefined ? { label } : {}),
             };
         }
         return { ...p, ...checkProposal(req.db, session.chatId, snapshot, p, self, later) };
@@ -268,7 +278,7 @@ assistantRouter.post('/sessions/:sid/apply', (req, res) => {
         .map(p => mergeOverrides(p, overrides[p.id]));
     if (!chosen.length) return res.status(400).json({ error: 'nothing to apply (already applied, or no such proposal)' });
 
-    const results = applyProposals(req.db, session.chatId, msg.extra?.context || null, chosen, selfAnchorsFromApplied(already), laterAnchorsForReply(session.messages, seq));
+    const results = applyProposals(req.db, session.chatId, msg.extra?.context || null, chosen, selfAnchorsFromApplied(already), laterAnchorsForReply(session.messages, seq), { paths: req.paths });
 
     // recorded on the message so a reopened panel shows it done; extra merges, the snapshot survives
     const at = Date.now();
@@ -282,6 +292,9 @@ assistantRouter.post('/sessions/:sid/apply', (req, res) => {
         touched: {
             worlds: [...new Set(results.filter(r => r.status === 'applied' && r.result?.world).map(r => r.result.world))],
             chat: results.some(r => r.status === 'applied' && r.result && 'seq' in r.result),
+            card: results.find(r => r.status === 'applied' && r.result?.charId)?.result.charId ?? null,
+            persona: results.find(r => r.status === 'applied' && r.result?.personaId)?.result.personaId ?? null,
+            chatNotes: results.some(r => r.status === 'applied' && r.result?.chatNotes === true),
         },
     });
 });

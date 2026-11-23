@@ -588,6 +588,7 @@ function renderSnapshotList(snaps) {
             case 'chub_restore':  // legacy
             case 'remote_restore': icon = 'fa-cloud-arrow-down'; break;
             case 'auto_backup': icon = 'fa-shield-halved'; break;
+            case 'assistant': icon = 'fa-wand-magic-sparkles'; break;
             default: icon = 'fa-bookmark';
         }
         return `

@@ -1,8 +1,8 @@
-// The duplicate scan, the pre-import match and the browse hint, over the fingerprint index; every verdict is the rule's (duplicate-match.js)
+// The duplicate scan, the pre-import match, the browse hint and the link ranking, over the fingerprint index; every verdict is the rule's (duplicate-match.js)
 import {
     prepareCard, cardFingerprint, ownKeysOf, worthScoring, isDuplicate, gradeNameMatches, hintScore, publicTextVerdict, providerPathsMatch,
     namePrefixesOf, descriptionDistance, mayBeRenamed, TWIN_BITS, bigramOccurrences, bigramFloor, lowestBigramFloor, similarNameLengths, CONFIDENCE_ORDER,
-    listingOf, differentListings,
+    listingOf, differentListings, linkVerdict,
 } from '../lib/duplicate-match.js';
 import { probeProviderLinkOwners, linkedProviderIds, providerPathGroups, UUID_KEY } from './characters-store.js';
 import { nameHolderSteps, creatorHolders, cutFieldPrints, descriptionTwins, allFingerprintSteps, drainFingerprints, allListingTitles, listingsOf, creatorNotesOf } from './fingerprint-index.js';
@@ -388,4 +388,22 @@ export function* matchNamesForHintSteps(db, hits) {
         yield;
     }
     return out;
+}
+
+/**
+ * A site's search hits against one library card (POST /characters/{id}/link-match), each judged by the rule, ranked.
+ * @param {Array<{ name: string, creator?: string, text?: string, listingName?: string }>} hits
+ * @returns {{ ranked: Array<{ index: number, score: number, confidence: string|null, confident: boolean, matchReason: string }>, best: number|null }|null} null when the card is gone
+ */
+export function* matchLinkHitsSteps(db, id, hits) {
+    const local = pairJudge(db).card(id);
+    if (!local) return null;
+    const ranked = [];
+    for (let i = 0; i < hits.length; i++) {
+        ranked.push({ index: i, ...linkVerdict(local, hits[i]) });
+        if (i % 50 === 49) yield;
+    }
+    // confident first, the author's own listing before a repost, the name as written before a suffixed one, then the score, then the site's order
+    ranked.sort((a, b) => (b.confident - a.confident) || (b.sameAuthor - a.sameAuthor) || (b.literalName - a.literalName) || (b.score - a.score) || (a.index - b.index));
+    return { ranked, best: ranked[0]?.confident ? ranked[0].index : null };
 }

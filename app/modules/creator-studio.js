@@ -4,7 +4,7 @@ import CoreAPI from './core-api.js';
 import { CHAT_PURIFY_CONFIG } from './providers/provider-utils.js';
 import { cardValuesEqual } from './card-fields.js';
 import { syncRangeFill, syncFieldAvailability } from './chats/window.js';
-import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldCardLabel, canRetry, retryAskText, fieldEditKey, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 const nf = (n) => Number(n || 0).toLocaleString();
@@ -54,8 +54,6 @@ const STATUS_TEXT = {
     invalid: 'Malformed proposal',
     failed: 'The apply failed',
 };
-
-const OP_LABEL = { set: 'Write', replace: 'Replace text', tags: 'Tags', greeting: 'Greeting' };
 
 const fieldLabel = (key) => _fields.find(f => f.key === key)?.label || key;
 
@@ -396,58 +394,18 @@ function renderText(text, opts = {}) {
     return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), deps?.readDraft?.().name || '', { ...opts, userName: '{{user}}' }), CHAT_PURIFY_CONFIG);
 }
 
-/** What a card calls its target: the field, the tags, or the greeting by number. */
-function targetName(c) {
-    if (c.op === 'tags') return 'Tags';
-    if (c.op === 'greeting') return c.index === 'new' ? 'New greeting' : `Greeting ${c.index}`;
-    return fieldLabel(c.field);
-}
-
-// The override key a touch-up edits: a replace's replacement, everything else its content.
-const editKey = (p) => (p.change.op === 'replace' ? 'with' : 'content');
-
+/** One change's review card, the shared field card over the studio's labels. */
 function proposalCardHtml(p, { seq } = {}) {
-    const pk = propKey(seq, p.id);
-    const status = p.status || 'ready';
-    const judged = status !== 'applied' && ('before' in p || 'after' in p);
-    const showDiff = _openDiffs.has(pk);
-    const isTags = p.change.op === 'tags';
-    const hasDiff = judged && !isTags && String(p.before ?? '') !== String(p.after ?? '');
-    const rejected = _rejected.has(pk);
-    const tagsHtml = isTags && judged && !rejected
-        ? `<div class="cas-prop-fields"><div class="cas-prop-field">
-            <span class="cas-prop-field-k">Tags</span>
-            <span class="cas-prop-field-v is-del">${(p.before || []).length ? (p.before || []).map(t => `<span>${esc(t)}</span>`).join('') : '<em>none</em>'}</span>
-            <i class="fa-solid fa-arrow-right"></i>
-            <span class="cas-prop-field-v is-add">${(p.after || []).length ? (p.after || []).map(t => `<span>${esc(t)}</span>`).join('') : '<em>none</em>'}</span>
-          </div></div>`
-        : '';
-    // a field written from empty gets the create card's one-line preview, so the author
-    // can triage without opening the diff
-    const preview = judged && !isTags && !String(p.before ?? '').trim() && p.after
-        ? `<div class="cas-prop-preview">${esc(String(p.after).slice(0, 140))}${String(p.after).length > 140 ? '…' : ''}</div>` : '';
-    const head = [
-        p.merged ? `<span class="cas-prop-merged" title="The reply wrote this field in ${p.merged} pieces; they were assembled into one change so nothing overwrites the rest">assembled from ${p.merged}</span>` : '',
-        p.via ? '<span class="cas-prop-merged" title="This change quotes an earlier change of the partner\'s that was never applied; the two are placed together as one edit">with an earlier change</span>' : '',
-        _edits.has(pk) ? reviewEditedFlagHtml() : '',
-        reviewApproximateFlagHtml(p, status, rejected, 'field'),
-    ].filter(Boolean).join('\n            ');
-    return reviewCardHtml({
-        id: p.id, op: p.change.op, opLabel: OP_LABEL[p.change.op] || p.change.op, name: targetName(p.change), status,
-        statusText: STATUS_TEXT[status] || status, rejected, head,
-        acts: reviewActsHtml({
-            id: p.id, status, rejected, hasDiff, showDiff, editable: typeof p.change[editKey(p)] === 'string',
-            editOpen: _openEdits.has(pk), applyTitle: 'Apply this change to the form now',
-        }),
-        before: [tagsHtml, preview].filter(Boolean).join('\n        '),
-        edit: reviewEditBoxHtml({ id: p.id, open: _openEdits.has(pk), rejected, value: _edits.get(pk) ?? String(p.change[editKey(p)] ?? '') }),
-        why: p.why, reason: p.reason,
-        body: hasDiff && showDiff ? CoreAPI.diffSplitView(p.before, p.after).html : '',
+    return fieldProposalCardHtml(p, {
+        pk: propKey(seq, p.id), review, statusText: STATUS_TEXT[p.status || 'ready'] || p.status,
+        labelOf: fieldLabel, applyTitle: 'Apply this change to the form now',
     });
 }
 
 const liveProposals = (seq) => (_proposals.get(seq)?.proposals || [])
     .filter(p => (p.status || 'ready') === 'ready' && !_rejected.has(propKey(seq, p.id)));
+// the cards a Try again answers: refused as written and not set aside (the card engine is always on here)
+const retryableProposals = (seq) => (_proposals.get(seq)?.proposals || []).filter(p => canRetry(p, _rejected.has(propKey(seq, p.id))));
 
 function proposalsHtml(seq) {
     const state = _proposals.get(seq);
@@ -462,7 +420,7 @@ function proposalsHtml(seq) {
     return reviewBlockHtml({
         seq, icon: 'fa-id-card', live: liveProposals(seq).length, errors,
         canFix: seq === _messages.length - 1,
-        units: proposals.map(p => proposalCardHtml(p, { seq })).join(''),
+        units: proposals.map(p => proposalCardHtml(p, { seq })).join(''), retryable: retryableProposals(seq).length,
     });
 }
 
@@ -1181,8 +1139,18 @@ async function fixBlock(seq) {
     await askAndGenerate(`That block${s} did not parse and reached nothing. Re-issue the SAME change${s} as one valid block: keep every change flat, close each object before the next, no rewording.`);
 }
 
+// a Try again names the reply by its stamp; the server hands the model each change as written and judged now
+async function retryProposals(seq, ids) {
+    if (busy() || !_sessionId) return;
+    const at = _messages[seq]?.at;
+    const chosen = retryableProposals(seq).filter(p => !ids || ids.includes(p.id));
+    if (!Number.isInteger(at) || !chosen.length) return;
+    const ask = retryAskText(chosen.map(p => ({ label: fieldCardLabel(p, fieldLabel), status: STATUS_TEXT[p.status] || p.status })));
+    await askAndGenerate(ask, { retry: { at, ids: chosen.map(p => p.id), shown: chosen.map(p => p.change) } });
+}
+
 // the turn and its reply belong to the session captured before the POST; _posting holds every busy gate meanwhile
-async function askAndGenerate(ask, { fromInput = false, pictures = [] } = {}) {
+async function askAndGenerate(ask, { fromInput = false, pictures = [], retry = null } = {}) {
     if (busy() || !_sessionId) return;
     const sid = _sessionId;
     let stored;
@@ -1190,10 +1158,13 @@ async function askAndGenerate(ask, { fromInput = false, pictures = [] } = {}) {
     const shown = pictures.length ? _tray.take() : [];
     try {
         stored = await CoreAPI.readAnswer(await CoreAPI.apiRequest(`/creator/sessions/${encodeURIComponent(sid)}/messages`, 'POST', {
-            role: 'user', content: ask, ...(shown.length ? { pictures: shown.map(p => ({ kind: p.kind, id: p.id })) } : {}),
+            role: 'user', content: ask, ...(shown.length ? { pictures: shown.map(p => ({ kind: p.kind, id: p.id })) } : {}), ...(retry ? { retry } : {}),
         }));
     } catch (e) {
         if (_sessionId === sid) _tray.giveBack(shown);
+        // a reply gone or changed since it was shown: the screen reads again, unless that would drop review work in hand
+        const held = _editing !== null || _rejected.size || _edits.size || _openEdits.size;
+        if (retry && (e.status === 404 || e.status === 409) && _sessionId === sid && !held) await openSession(sid, { keepScroll: true }).catch(() => { /* the toast below says what failed */ });
         CoreAPI.showToast(`Could not ${fromInput ? 'send' : 'ask'}: ${e.message}`, 'error');
         return;
     } finally {
@@ -1287,12 +1258,14 @@ async function runApply(seq, ids) {
     const overrides = {};
     for (const id of ids) {
         const p = findProposal(seq, id);
-        if (p && _edits.has(propKey(seq, id))) overrides[id] = { [editKey(p)]: _edits.get(propKey(seq, id)) };
+        if (p && _edits.has(propKey(seq, id))) overrides[id] = { [fieldEditKey(p)]: _edits.get(propKey(seq, id)) };
     }
     try {
         const out = await CoreAPI.readAnswer(await CoreAPI.apiRequest(`/creator/sessions/${encodeURIComponent(_sessionId)}/apply`, 'POST', { seq, ids, draft: deps.readDraft(), ...(Object.keys(overrides).length ? { overrides } : {}) }));
         const applied = out.results.filter(r => r.status === 'applied').length;
         const refused = out.results.length - applied;
+        // an applied card's touch-up is spent; kept, it would hold every re-read as work in hand
+        for (const r of out.results) if (r.status === 'applied') for (const store of [_edits, _openEdits]) store.delete(propKey(seq, r.id));
         if (applied) {
             const patch = {};
             for (const f of out.touched.fields || []) patch[f] = out.draft[f];
@@ -1511,6 +1484,8 @@ function wire(panel) {
             case 'clear-selection': _selection = null; return renderScopeRow();
             case 'retry-proposals': return void refreshProposals(Number(btn.dataset.seq));
             case 'fix-block': return void fixBlock(Number(btn.dataset.seq));
+            case 'retry-one': return void retryProposals(seq, [btn.dataset.propId]);
+            case 'retry-all': return void retryProposals(Number(btn.dataset.seq), null);
             case 'apply': return void applySelected(Number(btn.dataset.seq));
             case 'apply-one': return void applyOne(seq, btn.dataset.propId);
             case 'reject-one': _rejected.add(propKey(seq, btn.dataset.propId)); repaintProp(seq, btn.dataset.propId, { carryPick: false }); return syncPropsChrome(seq);
@@ -1540,6 +1515,7 @@ function wire(panel) {
         }
     });
 
+    const afterPress = createPressGuard(panel);
     // delegated, since every view is rebuilt on render
     panel.addEventListener('change', async (e) => {
         const t = e.target;
@@ -1581,10 +1557,10 @@ function wire(panel) {
         const editId = t.dataset?.propEdit;
         if (editId) {
             const p = findProposal(seq, editId);
-            const original = String(p?.change?.[editKey(p)] ?? '');
+            const original = String(p?.change?.[fieldEditKey(p)] ?? '');
             if (t.value === original) _edits.delete(propKey(seq, editId));
             else _edits.set(propKey(seq, editId), t.value);
-            repaintProp(seq, editId);
+            afterPress(() => repaintProp(seq, editId));
         }
     });
 

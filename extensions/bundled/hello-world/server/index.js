@@ -119,6 +119,9 @@ export function register(router, ctx) {
     });
     ctx.prompt.addBlock({ id: 'note', position: 'at_depth', depth: 0, role: 'system', text: ({ db }) => ctx.setting(db, 'promptNote') || '' });
 
+    // ---- a source the chat assistant can be given, off until the reader switches it on in its context view
+    ctx.assistant.addSource({ id: 'waves', label: 'Hello World waves', read: ({ db, charId }) => `This character has been waved at ${wavesOf(db, charId)} times.` });
+
     // ---- a chat's names, the stored messages its prompt is written from, and its macros; ctx.requireChat answers 404 for a chat the account lacks
     router.get('/read/:chatId', ctx.requireChat, (req, res) => {
         const { chatId } = req.params;

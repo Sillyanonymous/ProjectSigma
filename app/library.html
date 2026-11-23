@@ -1700,6 +1700,14 @@ https://jannyai.com/characters/uuid_slug
                                     <span class="settings-hint u-m-0">0 = unlimited</span>
                                 </div>
                             </div>
+                            <div class="settings-row">
+                                <label for="settingsMaxAssistantBackups">Max Chat Assistant snapshots per character:</label>
+                                <div class="settings-input-group u-row">
+                                    <input class="glass-input settings-input-sm" type="number" id="settingsMaxAssistantBackups" min="0" max="100" value="10">
+                                    <span class="settings-hint u-m-0">0 = unlimited</span>
+                                </div>
+                                <span class="settings-hint">Taken before the Chat Assistant writes to a card, and kept apart from the auto-backups above</span>
+                            </div>
                         </div>
 
                         <div class="settings-group" id="settingsBackupGroup">

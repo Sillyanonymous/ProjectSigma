@@ -472,7 +472,8 @@ export function stringHash(str, seed = 0) {
 
 // the card texts the macros read, by the card spec's field names; the Character's Note sits in an extension
 const CARD_TEXT_KEYS = ['system_prompt', 'post_history_instructions', 'description', 'personality', 'scenario', 'mes_example', 'depth_prompt', 'creator_notes', 'first_mes'];
-const cardText = (card, key) => (key === 'depth_prompt' ? card.extensions?.depth_prompt?.prompt : card[key]);
+/** One card text by its spec name; the Character's Note sits in an extension. */
+export const cardText = (card, key) => (key === 'depth_prompt' ? card?.extensions?.depth_prompt?.prompt : card?.[key]);
 
 /** The chat's own card texts in force: its chat_metadata key -> text, for each it holds as text. */
 export function chatCardTexts(chatMetadata) {

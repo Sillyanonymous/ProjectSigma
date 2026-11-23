@@ -4,7 +4,7 @@ import CoreAPI from '../core-api.js';
 import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
 import { mountChatWindow, syncRangeFill, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldEditKey, fieldCardLabel, canRetry, retryAskText, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -41,6 +41,7 @@ let _view = 'chat';
 let _defaultPrompt = '';
 // what the assistant can see, as the server computes it; null until read, rendered as reading, never as nothing
 let _context = null;
+let _contextAsk = 0;
 // per-card state is keyed by seq + id (an id is unique only within its message); the two below are this panel's own
 const review = createReviewState();
 const { openDiffs: _openDiffs, rejected: _rejected, openEdits: _openEdits, edits: _edits } = review;
@@ -55,8 +56,9 @@ const STATUS_TEXT = {
     applied: 'Applied',
     superseded: 'Already handled by an applied change',
     blind: 'The assistant never read this in full',
+    off: 'Edits of this kind were off',
     gone: 'The target no longer exists',
-    ambiguous: 'The text to change is not unique',
+    ambiguous: 'Cannot be placed as written',
     invalid: 'Malformed proposal',
     failed: 'The write failed',
 };
@@ -157,7 +159,7 @@ function toolbarHtml() {
             <i class="fa-solid fa-trash"></i>
         </button>
         <button type="button" class="cas-tab-menu${_view === 'context' ? ' is-on' : ''}" data-cas-act="context-view"
-            title="What it can see: story range, lorebooks, edit engines" aria-label="Context">
+            title="What it can see: the card, sources, story range, lorebooks, edit engines" aria-label="Context">
             <i class="fa-solid fa-layer-group"></i>
         </button>`;
 }
@@ -168,9 +170,92 @@ function toolbarHtml() {
 
 const nf = (n) => Number(n || 0).toLocaleString();
 
-/** Is either edit engine live? Read from the setting, which is what the request will use. */
-const enginesOn = () => CoreAPI.getSetting('assistantLoreEdits') === true
-    || CoreAPI.getSetting('assistantChatEdits') === true;
+// each edit engine's switch, and the block a nudge asks for when it is on
+const ENGINES = [
+    { engine: 'lore', key: 'assistantLoreEdits', block: 'the lorebook block' },
+    { engine: 'chat', key: 'assistantChatEdits', block: 'the chat-edits block' },
+    { engine: 'card', key: 'assistantCardEdits', block: 'the card block' },
+    { engine: 'notes', key: 'assistantNotesEdits', block: 'the notes block' },
+    { engine: 'persona', key: 'assistantPersonaEdits', block: 'the persona block' },
+];
+const ENGINE_SETTINGS = ENGINES.map(e => e.key);
+/** Is any edit engine live? Read from the setting, which is what the request will use. */
+const enginesOn = () => ENGINE_SETTINGS.some(k => CoreAPI.getSetting(k) === true);
+/** Is this engine live: the model is taught its block only then, so a Try again needs it. */
+const engineOn = (engine) => CoreAPI.getSetting(ENGINES.find(e => e.engine === engine)?.key) === true;
+// the engines that write a field (card, notes, persona) draw the shared field card
+const FIELD_ENGINES = new Set(['card', 'notes', 'persona']);
+// the key a touch-up overrides: a field change's own, else the content
+const editKeyOf = (p) => (p && FIELD_ENGINES.has(p.engine) ? fieldEditKey(p) : 'content');
+
+// a field engine reads what a source shared: switched off, the engine has nothing it may change
+const ENGINE_NEEDS = {
+    assistantNotesEdits: { source: 'authorsNote', why: "Author's Note is off in Sources (the context view), so its note can't be changed; this chat's own texts still can." },
+    assistantPersonaEdits: { source: 'persona', why: 'Persona is off in Sources (the context view), so there is no persona to change.', empty: 'This chat has no persona, so there is none to change.' },
+};
+const engineNeedHtml = (key) => {
+    const need = ENGINE_NEEDS[key];
+    const row = need && Array.isArray(_context?.sources) ? _context.sources.find(r => r.id === need.source) : null;
+    if (!row || CoreAPI.getSetting(key) !== true) return '';
+    if (!row.on) return `<p class="cl-cwin-hint cas-over">${esc(need.why)}</p>`;
+    return row.empty && need.empty ? `<p class="cl-cwin-hint cas-over">${esc(need.empty)}</p>` : '';
+};
+
+// what each built-in source is, said under its switch; an extension's says whose it is
+const SOURCE_HINT = {
+    persona: 'Who you play here: the persona\'s name, pronouns and description, so the assistant knows which character is yours.',
+    authorsNote: 'The note this chat sends with the story, with where it is placed and how often.',
+    chatFacts: 'This chat\'s name, how many messages it holds, and which chat it branches from.',
+    preset: 'The text blocks your preset sends the story\'s model, as written. A long preset makes every question cost more.',
+};
+// where to fill a source that is on but has nothing to share
+const SOURCE_FIX = {
+    persona: 'Pick one in the Personas window.',
+    authorsNote: 'Write one in This chat\'s card, under Author\'s Note.',
+};
+
+/** One source's row: its switch, what it carried, and a hint for its state; the state is the server's, never recomputed. */
+function sourceRowHtml(row) {
+    const ext = !!row.owner;
+    const readout = !row.on ? '' : row.failed ? 'failed' : row.empty ? 'none'
+        : row.id === 'persona' && !row.chars ? 'name only' : Number.isFinite(row.chars) ? nf(row.chars) : '';
+    const owner = row.ownerName || row.owner;
+    let hint = ext ? `Shared by the extension ${owner}.` : (SOURCE_HINT[row.id] || '');
+    let warn = '';
+    if (row.on && row.failed) warn = `The extension ${owner} could not share this just now; the assistant is asked without it.`;
+    else if (row.on && row.empty) hint = `${row.empty}.${SOURCE_FIX[row.id] ? ` ${SOURCE_FIX[row.id]}` : ext ? ` Shared by the extension ${owner}.` : ''}`;
+    else if (row.on && row.id === 'persona' && !row.chars) hint = `${row.detail || 'This persona'} has no description; the assistant gets only its name and any pronouns set.`;
+    return `
+        <div class="cl-cwin-block cas-source${row.on ? '' : ' is-quiet'}">
+            <label class="cl-cwin-field cl-cwin-toggle">
+                <span class="cl-cwin-field-label cas-source-label" title="${esc(row.label)}">${esc(row.label)}${row.on && row.detail && !row.empty ? `<small>${esc(row.detail)}</small>` : ''}</span>
+                ${readout ? `<span class="cl-cwin-readout">${esc(readout)}</span>` : ''}
+                <input type="checkbox" class="cl-switch-input" data-source="${esc(row.id)}" ${row.on ? 'checked' : ''}>
+                <span class="cl-switch" aria-hidden="true"></span>
+            </label>
+            <p class="cl-cwin-hint">${esc(hint)}</p>
+            ${warn ? `<p class="cl-cwin-hint cas-over">${esc(warn)}</p>` : ''}
+        </div>`;
+}
+
+/** The Sources group; an older server that sends no list says so instead of drawing every source off. */
+function sourcesGroupHtml() {
+    const rows = Array.isArray(_context?.sources) ? _context.sources : null;
+    const body = rows === null
+        ? `<p class="cl-cwin-group-note">This server has not said which sources it sends. Reload the page;
+            if it stays, the server is running an older build than this panel.</p>`
+        : `<p class="cl-cwin-group-note">What else the assistant is given besides the card, the lorebooks and the recent
+                messages. A source you switch off is not read at all.</p>
+            <div class="cl-cwin-fields">${rows.map(sourceRowHtml).join('')}</div>`;
+    return `
+        <section class="cl-cwin-group">
+            <h4 class="cl-cwin-group-title"><i class="fa-solid fa-sliders"></i>Sources</h4>
+            ${body}
+        </section>`;
+}
+
+/** The engine switches, each with what it needs said when that is off. */
+const engineBlocksHtml = () => ENGINE_SETTINGS.map(k => togBlock(k, engineNeedHtml(k))).join('');
 
 /** The context view: what the assistant can see, as controls; every figure is the server's own assembly. */
 function contextViewHtml() {
@@ -219,7 +304,7 @@ function contextViewHtml() {
         <section class="cl-cwin-group">
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-id-card"></i>Character card</h4>
             ${cardBody}
-        </section>${ownGroup}
+        </section>${ownGroup}${sourcesGroupHtml()}
         <section class="cl-cwin-group">
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-comments"></i>Story in range</h4>
             <div class="cl-cwin-fields">
@@ -275,8 +360,7 @@ function contextViewHtml() {
         <section class="cl-cwin-group">
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-wand-magic-sparkles"></i>Edit engines</h4>
             <div class="cl-cwin-fields">
-                ${togBlock('assistantLoreEdits')}
-                ${togBlock('assistantChatEdits')}
+                ${engineBlocksHtml()}
             </div>
         </section>
     </div>`;
@@ -287,28 +371,51 @@ function renderText(text, opts = {}) {
     return CoreAPI.safePurify(CoreAPI.formatChatText(String(text ?? ''), _char?.name || '', { ...opts, ...STORED_TEXT }), CHAT_PURIFY_CONFIG);
 }
 
+// a field change's field, named as the verdict printed it
+const fieldLabelOf = (p) => (key) => p.label || key;
+
+/** What a lore or message card heads with: the entry's NAME, the number only when the verdict read no row or there is no name. */
+function proposalName(p) {
+    if (p.change.op === 'create') return p.change.comment || 'New entry';
+    const seq = p.resolved?.seq ?? p.change.seq;
+    if (p.engine !== 'lore') return Number.isInteger(seq) ? `Message #${seq}` : 'A message';
+    const title = typeof p.title === 'string' ? p.title.trim() : '';
+    // a change addressed by title carries its own name even before any row was read
+    const typedTitle = typeof p.change.entry === 'string' ? p.change.entry.trim() : '';
+    const uid = p.resolved?.uid ?? p.change.uid;
+    return title || typedTitle || (uid != null ? `Entry #${uid}` : 'An entry');
+}
+
+/** The status line a card shows; a field card words a target that is gone its own way. */
+const statusTextOf = (p) => {
+    const status = p.status || 'ready';
+    return (FIELD_ENGINES.has(p.engine) && status === 'gone' && 'Not there to change') || STATUS_TEXT[status] || status;
+};
+
+/** A change as its card names it, for the asks that name it. */
+const proposalLabel = (p) => (FIELD_ENGINES.has(p.engine) ? fieldCardLabel(p, fieldLabelOf(p)) : `${OP_LABEL[p.change.op] || 'Change'}, ${proposalName(p)}`);
+
 function proposalCardHtml(p, { inGroup = false, seq } = {}) {
+    if (FIELD_ENGINES.has(p.engine)) {
+        return fieldProposalCardHtml(p, {
+            pk: propKey(seq, p.id), review, statusText: statusTextOf(p),
+            labelOf: fieldLabelOf(p), applyTitle: p.engine === 'card' ? 'Write this to the card now' : 'Apply this change now', flagDrift: true,
+            engineOn: engineOn(p.engine),
+        });
+    }
     const pk = propKey(seq, p.id);
     const status = p.status || 'ready';
     // in a creates-the-book group the parent names the book; the head shows the RESOLVED target, not the typed label
     const rUid = p.resolved?.uid ?? p.change.uid;
     const rWorld = p.resolved?.world ?? p.change.world;
-    // the entry's NAME heads the card; the number only when the verdict read no row (blind) or there is no name
     const loreRow = p.engine === 'lore' && p.change.op !== 'create';
-    const title = typeof p.title === 'string' ? p.title.trim() : '';
-    // a change addressed by title carries its own name even before any row was read
-    const typedTitle = typeof p.change.entry === 'string' ? p.change.entry.trim() : '';
-    const name = p.change.op === 'create'
-        ? (p.change.comment || 'New entry')
-        : loreRow
-            ? (title || typedTitle || `Entry #${rUid}`)
-            : `Message #${p.resolved?.seq ?? p.change.seq}`;
-    const uidMark = loreRow && (title || typedTitle) && rUid != null ? `<span class="cas-prop-uid">#${esc(rUid)}</span>` : '';
+    const name = proposalName(p);
+    const uidMark = loreRow && name !== `Entry #${rUid}` && rUid != null ? `<span class="cas-prop-uid">#${esc(rUid)}</span>` : '';
     const world = inGroup || p.engine !== 'lore' ? '' : esc(rWorld);
     // the diff is disclosed, never inline; a field-only update offers no toggle, and a stale open toggle paints nothing
     const judged = status !== 'applied' && ('before' in p || 'after' in p);
     const showDiff = _openDiffs.has(pk);
-    const hasDiff = judged && p.change.op !== 'hide' && String(p.before ?? '') !== String(p.after ?? '');
+    const hasDiff = judged && p.change.op !== 'hide' && 'after' in p && String(p.before ?? '') !== String(p.after ?? '');
     const body = !judged
         ? ''
         : (p.change.op === 'hide'
@@ -346,11 +453,6 @@ function proposalCardHtml(p, { inGroup = false, seq } = {}) {
             </select>
         </div>`;
     })() : '';
-    // an unplaced replace on the LAST reply only gets the re-quote verb: the note it leans on quotes only that reply
-    const requoteBtn = status === 'ambiguous' && p.engine === 'chat' && p.change.op === 'replace' && seq === _messages.length - 1
-        ? `<button type="button" class="cas-prop-act" data-cas-act="requote" data-prop-id="${esc(p.id)}"
-               title="Ask the assistant to quote the passage as the message reads now and propose this change again"><i class="fa-solid fa-rotate-right"></i></button>`
-        : '';
     const head = [
         uidMark,
         world ? `<span class="cas-prop-world">${world}</span>` : '',
@@ -372,10 +474,10 @@ function proposalCardHtml(p, { inGroup = false, seq } = {}) {
         statusText: STATUS_TEXT[status] || status, rejected, head,
         acts: reviewActsHtml({
             id: p.id, status, rejected, hasDiff, showDiff, editable: typeof p.change.content === 'string',
-            editOpen: _openEdits.has(pk), extra: requoteBtn,
+            editOpen: _openEdits.has(pk), retry: canRetry(p, rejected, engineOn(p.engine)),
         }),
         before: [fieldsHtml, previewHtml, destHtml].filter(Boolean).join('\n        '),
-        edit: reviewEditBoxHtml({ id: p.id, open: _openEdits.has(pk), rejected, value: _edits.get(pk) ?? String(p.change.content ?? '') }),
+        edit: reviewEditBoxHtml({ id: p.id, open: _openEdits.has(pk) && status === 'ready', rejected, value: _edits.get(pk) ?? String(p.change.content ?? '') }),
         after: newBook,
         why: p.why, reason: p.reason,
         tail: Array.isArray(p.change.keys) && p.change.keys.length ? `<div class="cas-prop-keys">${keyPillsHtml(p.change.keys, 10)}</div>` : '',
@@ -392,6 +494,9 @@ const createsBookHtml = (book) => `<div class="cas-prop-new">
 // applicable now: server-ready AND not set aside; the head count and the Apply footer both read this set
 const liveProposals = (seq) => (_proposals.get(seq)?.proposals || [])
     .filter(p => (p.status || 'ready') === 'ready' && !_rejected.has(propKey(seq, p.id)));
+// the cards a Try again answers: refused as written, not set aside, their engine still on
+const retryableProposals = (seq) => (_proposals.get(seq)?.proposals || [])
+    .filter(p => canRetry(p, _rejected.has(propKey(seq, p.id)), engineOn(p.engine)));
 
 function proposalsHtml(seq) {
     const state = _proposals.get(seq);
@@ -421,7 +526,7 @@ function proposalsHtml(seq) {
     }
     return reviewBlockHtml({
         seq, icon: 'fa-book-atlas', live: liveProposals(seq).length, errors,
-        canFix: seq === _messages.length - 1, units: units.join(''),
+        canFix: seq === _messages.length - 1, units: units.join(''), retryable: retryableProposals(seq).length,
     });
 }
 
@@ -636,6 +741,24 @@ const SETTING_FIELDS = [
         kind: 'toggle',
         hint: 'Rewrite, replace text in, hide or delete messages in this chat. Nothing is written until you press Apply.',
     },
+    {
+        key: 'assistantCardEdits',
+        label: 'Let it propose card edits',
+        kind: 'toggle',
+        hint: 'Rewrite the card\'s fields, tags and alternate greetings. Every chat with this character reads the card, and a greeting opens new chats, not this one. The card is saved to its Version History before anything is written. Nothing is written until you press Apply.',
+    },
+    {
+        key: 'assistantNotesEdits',
+        label: 'Let it propose edits to this chat\'s notes',
+        kind: 'toggle',
+        hint: 'The Author\'s Note, and this chat\'s own scenario, example dialogue and main prompt. Only this chat changes: a chat using the default note gets a note of its own, and the card is untouched. Nothing is written until you press Apply.',
+    },
+    {
+        key: 'assistantPersonaEdits',
+        label: 'Let it propose persona edits',
+        kind: 'toggle',
+        hint: 'Rewrite your persona\'s description. A persona is shared, so a change reaches every chat that uses it, not only this one. Nothing is written until you press Apply.',
+    },
 ];
 
 // The chat-settings window's form language, defined once in settings-panel.css. Module
@@ -651,7 +774,7 @@ function syncLiveFormattingRow() {
     });
 }
 
-function togBlock(key) {
+function togBlock(key, extra = '') {
     const f = settingField(key);
     return `
         <div class="cl-cwin-block">
@@ -660,7 +783,7 @@ function togBlock(key) {
                 <input type="checkbox" class="cl-switch-input" data-set="${f.key}" ${CoreAPI.getSetting(f.key) === true ? 'checked' : ''}>
                 <span class="cl-switch" aria-hidden="true"></span>
             </label>
-            <p class="cl-cwin-hint">${esc(f.hint)}</p>
+            <p class="cl-cwin-hint">${esc(f.hint)}</p>${extra}
         </div>`;
 }
 
@@ -750,8 +873,7 @@ function settingsHtml() {
         <section class="cl-cwin-group">
             <h4 class="cl-cwin-group-title"><i class="fa-solid fa-wand-magic-sparkles"></i>Proposed edits</h4>
             <div class="cl-cwin-fields">
-                ${togBlock('assistantLoreEdits')}
-                ${togBlock('assistantChatEdits')}
+                ${engineBlocksHtml()}
             </div>
         </section>
         <div class="cas-set-foot">Changes apply to the next message you send.</div>
@@ -1107,7 +1229,7 @@ async function send() {
 }
 
 // the reader's turn and its reply land in the session captured before the POST; _posting holds every busy gate meanwhile
-async function askAndGenerate(ask, { fromInput = false, pictures = [] } = {}) {
+async function askAndGenerate(ask, { fromInput = false, pictures = [], retry = null } = {}) {
     if (busy() || !ownsSession()) return;
     const sid = _sessionId;
     let stored;
@@ -1115,11 +1237,13 @@ async function askAndGenerate(ask, { fromInput = false, pictures = [] } = {}) {
     const shown = pictures.length ? _tray.take() : [];
     try {
         stored = await api(`/assistant/sessions/${encodeURIComponent(sid)}/messages`, 'POST', {
-            role: 'user', content: ask, ...(shown.length ? { pictures: shown.map(p => ({ kind: p.kind, id: p.id })) } : {}),
+            role: 'user', content: ask, ...(shown.length ? { pictures: shown.map(p => ({ kind: p.kind, id: p.id })) } : {}), ...(retry ? { retry } : {}),
         });
     } catch (e) {
         if (_sessionId === sid) _tray.giveBack(shown);
         _posting = false;
+        // a reply changed since it was shown: re-read by the feed's rule, owed while review work is in hand
+        if (retry && (e.status === 404 || e.status === 409) && _sessionId === sid) _staleFromFeed = true;
         CoreAPI.showToast(`Could not ${fromInput ? 'send' : 'ask'}: ${e.message}`, 'error');
         followOwed();
         return;
@@ -1412,9 +1536,15 @@ async function applySelected(seq) {
         .map(cb => cb.closest('.cas-prop')?.dataset.propId).filter(Boolean);
     if (!ids.length) { CoreAPI.showToast('Nothing selected', 'info'); return; }
 
+    const picked = ids.map(id => findProposal(seq, id)).filter(Boolean);
+    const reach = [
+        picked.some(p => p.reach?.kind === 'card') ? 'the character\'s card, which every chat with them reads (saved to Version History first)' : '',
+        picked.some(p => p.reach?.kind === 'persona') ? 'the persona, in every chat that uses it' : '',
+    ].filter(Boolean);
     const ok = await CoreAPI.showConfirm({
         title: 'Apply changes',
-        message: `${ids.length} change${ids.length === 1 ? '' : 's'} will be written to your lorebooks and chat.`,
+        message: `${ids.length} change${ids.length === 1 ? '' : 's'} will be written.`,
+        ...(reach.length ? { content: [{ type: 'note', text: `This reaches beyond this chat: ${reach.join('; and ')}.` }] } : {}),
         confirmLabel: 'Apply',
     });
     if (!ok) return;
@@ -1475,7 +1605,8 @@ async function runApply(seq, ids) {
     for (const id of ids) {
         // The stores key by seq + id; the wire keys by the raw id, unique within this seq.
         const o = {};
-        if (_edits.has(propKey(seq, id))) o.content = _edits.get(propKey(seq, id));
+        const p = findProposal(seq, id);
+        if (_edits.has(propKey(seq, id))) o[editKeyOf(p)] = _edits.get(propKey(seq, id));
         if (_redirects.has(propKey(seq, id))) o.world = _redirects.get(propKey(seq, id));
         if (Object.keys(o).length) overrides[id] = o;
     }
@@ -1484,12 +1615,17 @@ async function runApply(seq, ids) {
             { seq, ids, ...(Object.keys(overrides).length ? { overrides } : {}) });
         const applied = out.results.filter(r => r.status === 'applied').length;
         const refused = out.results.length - applied;
+        // an applied card's touch-up and destination are spent; kept, they would hold every re-read as work in hand
+        for (const r of out.results) if (r.status === 'applied') for (const store of [_edits, _openEdits, _redirects]) store.delete(propKey(seq, r.id));
         if (applied) CoreAPI.showToast(`Applied ${applied} change${applied === 1 ? '' : 's'}${refused ? `, refused ${refused}` : ''}`, refused ? 'warning' : 'success');
         else CoreAPI.showToast('Nothing was applied', 'warning');
 
         // the write was the server's, so tell every open surface: lore edits reach the panels, a message edit the conversation
         for (const world of out.touched.worlds || []) CoreAPI.notifyWorldsChanged(world, 'assistant');
-        if (out.touched.chat) document.dispatchEvent(new CustomEvent('cl-assistant-edited-chat', { detail: { chatId: _chatId } }));
+        if (out.touched.chat || out.touched.chatNotes) {
+            document.dispatchEvent(new CustomEvent('cl-assistant-edited-chat', { detail: { chatId: _chatId, messages: !!out.touched.chat, notes: !!out.touched.chatNotes } }));
+        }
+        if (out.touched.card) CoreAPI.notifyCharacterChanged(out.touched.card);
         // a new book is also a new LINK on the character, so the character's lore surfaces are stale too
         if (out.results.some(r => r.result?.createdBook) && _char?.id) {
             CoreAPI.notifyCharacterChanged(_char.id);
@@ -1609,7 +1745,8 @@ function injectPanel() {
             case 'clear-prompt': return clearPrompt();
             case 'retry-proposals': return void refreshProposals(Number(btn.dataset.seq));
             case 'fix-block': return void fixBlock(Number(btn.dataset.seq));
-            case 'requote': return void requoteProposal(Number(btn.closest('.cas-props')?.dataset.seq), btn.dataset.propId);
+            case 'retry-one': return void retryProposals(Number(btn.closest('.cas-props')?.dataset.seq), [btn.dataset.propId]);
+            case 'retry-all': return void retryProposals(Number(btn.dataset.seq), null);
             case 'apply': return void applySelected(Number(btn.dataset.seq));
             case 'apply-one': return void applyOne(Number(btn.closest('.cas-props')?.dataset.seq), btn.dataset.propId);
             case 'reject-one': {
@@ -1680,6 +1817,15 @@ function injectPanel() {
         await CoreAPI.flushSettings();
         void refreshContext();
     });
+    // a source's switch writes the one object every source shares, then reads the context back: the size is the server's
+    panelEl?.addEventListener('change', async (e) => {
+        const id = e.target.dataset?.source;
+        if (!id) return;
+        const stored = CoreAPI.getSetting('assistantContextSources');
+        CoreAPI.setSetting('assistantContextSources', { ...(stored && typeof stored === 'object' ? stored : {}), [id]: e.target.checked });
+        await CoreAPI.flushSettings();
+        void refreshContext();
+    });
     panelEl?.addEventListener('change', (e) => {
         if (e.target.id !== 'casPrompt') return;
         CoreAPI.setSetting('assistantSystemPrompt', e.target.value.trim());
@@ -1710,14 +1856,16 @@ function injectPanel() {
     });
     // The reviewer's touch-ups: matching the original clears the override, so "I put it
     // back" and "I never touched it" are the same state.
+    const afterPress = createPressGuard(panelEl);
     panelEl?.addEventListener('change', (e) => {
         const seq = Number(e.target.closest?.('.cas-props')?.dataset.seq);
         const editId = e.target.dataset?.propEdit;
         if (editId) {
-            const original = String(findProposal(seq, editId)?.change?.content ?? '');
+            const p = findProposal(seq, editId);
+            const original = String(p?.change?.[editKeyOf(p)] ?? '');
             if (e.target.value === original) _edits.delete(propKey(seq, editId));
             else _edits.set(propKey(seq, editId), e.target.value);
-            repaintProp(seq, editId);
+            afterPress(() => repaintProp(seq, editId));
             return followOwed();
         }
         const destId = e.target.dataset?.propWorld;
@@ -1799,25 +1947,26 @@ function togglePanel(ctx) {
 
 /** Re-read what the assistant can see: on the chat, the turn count, an engine toggle, or an applied lore edit. */
 async function refreshContext() {
+    const ask = ++_contextAsk;
     if (!_chatId) { _context = null; return; }
+    let next = null;
     try {
-        _context = await api(`/assistant/context?chatId=${encodeURIComponent(_chatId)}`);
+        next = await api(`/assistant/context?chatId=${encodeURIComponent(_chatId)}`);
     } catch (e) {
         // An honest unknown, not a fabricated empty: a strip claiming "no lorebooks"
         // because a fetch failed would be a lie the reader acts on.
-        _context = null;
         console.error('[Assistant] Could not read the context:', e.message);
     }
+    // two quick switches race their reads; only the newest answer describes the settings now
+    if (ask !== _contextAsk) return;
+    _context = next;
     render();
 }
 
 /** Ask for the same change again as an applicable block; a normal turn, so the model re-formats its own answer. */
 async function nudgeForProposal(seq) {
     if (busy() || !ownsSession()) return;
-    const engines = [
-        CoreAPI.getSetting('assistantLoreEdits') === true ? 'the lorebook block' : '',
-        CoreAPI.getSetting('assistantChatEdits') === true ? 'the chat-edits block' : '',
-    ].filter(Boolean).join(' or ');
+    const engines = ENGINES.filter(e => CoreAPI.getSetting(e.key) === true).map(e => e.block).join(' or ');
     const ask = `Put that into ${engines} so I can apply it. Same change, no rewording, just the block.`;
     await askAndGenerate(ask);
 }
@@ -1833,15 +1982,14 @@ async function fixBlock(seq) {
     await askAndGenerate(ask);
 }
 
-// ask by the note's number for an unplaced replace; the note quotes the message beside the ask, where models copy from
-async function requoteProposal(seq, id) {
+// a Try again names the reply by its stamp; the server hands the model each change as written and judged now
+async function retryProposals(seq, ids) {
     if (busy() || !ownsSession()) return;
-    const list = _proposals.get(seq)?.proposals || [];
-    const n = list.findIndex(p => p.id === id);
-    if (n < 0) return;
-    const at = list[n].change?.seq;
-    const ask = `Change ${n + 1} could not be placed in message ${at}. Re-issue that one change, quoting the passage exactly as the app note above shows it: the same edit, nothing else reworded.`;
-    await askAndGenerate(ask);
+    const at = _messages[seq]?.at;
+    const chosen = retryableProposals(seq).filter(p => !ids || ids.includes(p.id));
+    if (!Number.isInteger(at) || !chosen.length) return;
+    const ask = retryAskText(chosen.map(p => ({ label: proposalLabel(p), status: statusTextOf(p) })));
+    await askAndGenerate(ask, { retry: { at, ids: chosen.map(p => p.id), shown: chosen.map(p => p.change) } });
 }
 
 function useStarter(text) {

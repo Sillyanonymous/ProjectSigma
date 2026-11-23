@@ -427,10 +427,14 @@ const SCORED_TEXTS = ['description', 'first_mes', 'personality', 'scenario', 'cr
  */
 export function prepareCard(fields, { listingTitles = [] } = {}) {
     const f = fields || {};
-    const prepared = { nameVariants: nameVariantsForDupe(f.name || ''), listingVariants: listingKeysOf(listingTitles), creator: creatorKey(f.creator) };
+    // nameKey: the name as written, case and width folded but its suffixes kept, so "Ann" and "Ann (v2)" stay apart where it matters
+    const prepared = { nameVariants: nameVariantsForDupe(f.name || ''), nameKey: String(f.name || '').normalize('NFKC').trim().toLowerCase(), listingVariants: listingKeysOf(listingTitles), creator: creatorKey(f.creator) };
     for (const k of SCORED_TEXTS) prepared[k] = prepareText(f[k]);
     return prepared;
 }
+
+// what an exact name earns; the link ranking reads it as "the name is this card's"
+const NAME_EXACT_POINTS = 15;
 
 // the name arm: exact (15), prefix (13), similarity (7 to 10) between own names; a listing title relates to an own name exactly only
 function nameArm(a, b) {
@@ -439,7 +443,7 @@ function nameArm(a, b) {
     const weigh = (va, vb, own) => {
         const relation = nameRelation(va, vb);
         let points = 0, why = '';
-        if (relation === 'exact') { points = 15; why = own ? 'Exact name match' : 'Exact listing name match'; }
+        if (relation === 'exact') { points = NAME_EXACT_POINTS; why = own ? 'Exact name match' : 'Exact listing name match'; }
         else if (!own) return;
         else if (relation === 'prefix') { points = 13; why = 'Name prefix match'; }
         else if (va.length >= 3 && vb.length >= 3) {
@@ -560,6 +564,29 @@ export const isDuplicate = (result) => !!result?.confidence;
 export const isSameCharacter = (result) => !!result && (result.contentIdentical || result.confidence === 'high' || result.confidence === 'medium');
 
 export const CONFIDENCE_ORDER = { high: 3, medium: 2, low: 1 };
+
+// ============================================================================
+// THE PROVIDER LINK: a site's search hit against the one library card it may link to
+// ============================================================================
+
+// the card's own texts a site's public description may repeat word for word
+const LINK_TEXT_FIELDS = ['creator_notes', 'description', 'first_mes'];
+
+/**
+ * A search hit against one library card: the rule's score, and whether it is surely the card, to link unasked.
+ * @param {object} local the library card, prepareCard
+ * @param {{ name: string, creator?: string, text?: string, listingName?: string }} hit text: the site's public description, read as its creator notes
+ * @returns {{ score: number, confidence: 'high'|'medium'|'low'|null, confident: boolean, matchReason: string }}
+ */
+export function linkVerdict(local, hit) {
+    const remote = prepareCard({ name: hit?.name, creator: hit?.creator, creator_notes: hit?.text }, { listingTitles: hit?.listingName ? [hit.listingName] : [] });
+    const v = scorePrepared(local, remote);
+    const exactName = v.breakdown.name === NAME_EXACT_POINTS;
+    const sameAuthor = !!local.creator && local.creator === remote.creator;
+    // with no real author on one side, only the site's text being the card's own says it is this card
+    const confident = exactName && (sameAuthor || ((!local.creator || !remote.creator) && LINK_TEXT_FIELDS.some(k => publicTextVerdict(remote.creator_notes.raw, local[k].raw) === 'same')));
+    return { score: v.score, confidence: v.confidence, confident, sameAuthor: confident && sameAuthor, literalName: exactName && !!local.nameKey && local.nameKey === remote.nameKey, matchReason: v.matchReason };
+}
 
 // ============================================================================
 // THE BROWSE HINT: a remote card's name, creator and (when the site gives one) text, against the library's namesakes

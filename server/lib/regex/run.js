@@ -1,6 +1,6 @@
 // The server's regex passes, each under a time budget: a pattern that runs away is stopped, skipped from then on, and named.
 import vm from 'node:vm';
-import { applyPass, countMatches, takesPass, namesMacros, PLACE } from './engine.js';
+import { applyPass, countMatches, runScript, takesPass, namesMacros, PLACE } from './engine.js';
 
 // a text's whole chain gets one budget; a sane chain takes well under a millisecond
 const BUDGET_MS = 250;
@@ -20,6 +20,22 @@ function stop(db, script) {
     console.warn(`[regex] "${script.scriptName || 'a script'}" ran out of time and is skipped until it is saved again`);
 }
 
+// one script over one text under the whole budget: one that runs out alone is stopped and leaves the text as it was
+function guarded(db, script, text, ctx, charge) {
+    realm.job = () => runScript(script, text, ctx);
+    const t = performance.now();
+    try {
+        return vm.runInContext('job()', realm, { timeout: BUDGET_MS });
+    } catch (e) {
+        if (e?.code !== 'ERR_SCRIPT_EXECUTION_TIMEOUT') throw e;
+        stop(db, script);
+        return text;
+    } finally {
+        realm.job = null;
+        charge(script, performance.now() - t);
+    }
+}
+
 /** Whether a script was stopped in this library for taking too long (the window flags it). */
 export function isStopped(db, script) {
     return stoppedIn(db).has(keyOf(script));
@@ -36,7 +52,7 @@ export function buildBudget() {
 }
 
 /**
- * A text through one pass, guarded: a script that runs out of time is stopped and the chain reruns without it.
+ * A text through one pass, guarded: a script that runs out of time alone is stopped, and the text answers through the rest.
  * @param {object} db the library, whose stopped scripts are skipped
  * @param {{ budget?: Map }} opts the pass's context; budget, a build's account, stops a script slow over the whole build
  * @returns {string}
@@ -47,12 +63,15 @@ export function runPass(db, text, scripts, opts) {
     const live = scripts.filter(s => !stopped.has(keyOf(s)));
     if (!live.length) return text;
     const spent = opts?.budget || null;
+    const charge = (s, ms) => { if (spent) spent.set(keyOf(s), (spent.get(keyOf(s)) || 0) + ms); };
+    // this chain's own times, charged to the build only when it finishes: a chain that runs out is timed again script by script
+    const took = new Map();
     let current = null;
     let mark = 0;
     // the time since a script began is its own, charged when the next one begins or the chain ends
     const begin = (s) => {
         const now = performance.now();
-        if (current && spent) spent.set(keyOf(current), (spent.get(keyOf(current)) || 0) + now - mark);
+        if (current) took.set(current, (took.get(current) || 0) + now - mark);
         current = s;
         mark = now;
     };
@@ -64,10 +83,11 @@ export function runPass(db, text, scripts, opts) {
     let out;
     try {
         out = vm.runInContext('job()', realm, { timeout: BUDGET_MS });
+        for (const [s, ms] of took) charge(s, ms);
     } catch (e) {
         if (e?.code !== 'ERR_SCRIPT_EXECUTION_TIMEOUT' || !current) throw e;
-        stop(db, current);
-        return runPass(db, text, scripts, opts);
+        // a whole chain past the budget names no culprit (many sane scripts on a slow machine): only a script that runs out alone is stopped
+        out = applyPass(text, live, { ...opts, run: (s, input, ctx) => guarded(db, s, input, ctx, charge) });
     } finally {
         realm.job = null;
     }

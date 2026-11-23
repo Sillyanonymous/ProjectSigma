@@ -226,6 +226,13 @@ function exampleTurns(block, userName, charName) {
 // one message per depth, order bucket and role, in ST's order; three depth-0 entries are not three system turns
 const DEPTH_ROLE_ORDER = ['assistant', 'user', 'system'];
 
+/** Where the story places a card's Character's Note: ST's defaults (depth 4, system) for what it leaves out, null below depth 0. */
+export function cardNotePlacement(note) {
+    const depth = Number.isInteger(note?.depth) ? note.depth : 4;
+    if (depth < 0) return null;
+    return { depth, role: DEPTH_ROLE_ORDER.includes(note?.role) ? note.role : 'system' };
+}
+
 // what the user turn carrying a character's pictures says, since the hosts take pictures in the user's turns only
 export const PICTURES_BEFORE_REPLY = '[Shown with the next message]';
 
@@ -335,12 +342,12 @@ function depthItems(ctx) {
     if (an && an.position === NOTE_POSITION.inChat && Number.isInteger(an.depth) && an.depth >= 0 && DEPTH_ROLE_ORDER.includes(an.role)) {
         items.push({ depth: an.depth, role: an.role, order: DEFAULT_INJECTION_ORDER, content: an.content });
     }
-    // the card's Character's Note, at ST's defaults (depth 4, system) when the card leaves them out; ST's walk places no negative depth
+    // the card's Character's Note where cardNotePlacement puts it; ST's walk places no negative depth
     const note = ctx.card?.extensions?.depth_prompt;
-    if (note && ctx.fields?.depth_prompt && !(Number.isInteger(note.depth) && note.depth < 0)) {
+    const placed = note && cardNotePlacement(note);
+    if (placed && ctx.fields?.depth_prompt) {
         items.push({
-            depth: Number.isInteger(note.depth) ? note.depth : 4,
-            role: DEPTH_ROLE_ORDER.includes(note.role) ? note.role : 'system',
+            ...placed,
             order: DEFAULT_INJECTION_ORDER,
             content: ctx.fields.depth_prompt,
         });

@@ -2,12 +2,13 @@
 
 import CoreAPI from '../core-api.js';
 import { mountChatWindow, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
-import { setActivePersona, writePersona, deletePersona, pronounsHtml, applyPronounPreset, syncPronounPreset, readPronouns } from '../personas.js';
+import { registerFeedPatcher, movesChatPick } from '../feed.js';
+import { setActivePersona, writePersona, deletePersona, pronounsHtml, applyPronounPreset, syncPronounPreset, readPronouns, bumpPersonaFace, personaFaceUrl, followPersonaPictures, notePersonaRead, personaRequest } from '../personas.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
-// built from the persona id, never the stored column, so nothing authored reaches an <img src>
-const avatarUrl = (p, size) => (p?.avatar ? CoreAPI.thumbUrl('persona', p.id, size) : null);
+// the shared face (modules/personas.js): built from the id, stamped by its picture alone
+const avatarUrl = (p, size) => (p?.avatar ? personaFaceUrl(p.id, size) : null);
 
 // faces render small, so a thumb tier rather than the full png
 const ROW_AVATAR = 96;
@@ -36,6 +37,13 @@ let _shelfFailed = false; // the last read of the shelf failed, which is not an 
 // the open editor across a redraw: its fields as drawn, and what the reader had typed, opened and focused in it
 let _editorOpened = null;
 let _editorKept = null;
+// what the open editor's persona held when it was drawn, and whether it has moved under the reader's typing since
+let _editorBase = null;
+let _editorStale = false;
+let _readSeq = 0;        // reads asked, numbered
+let _takenSeq = 0;       // the newest answer taken; an older one landing after it is dropped
+let _saving = false;     // the editor's own save is out: its echo is not a write from elsewhere
+let _owedFollow = false; // a follow arrived during the save; a save that fails reads it after all
 
 function buildPanelHTML() {
     return `
@@ -131,6 +139,14 @@ function bookRowHtml(p) {
 
 function editorHtml(p) {
     return `<div class="cpp-editor">
+        ${p.id === 'new' ? '' : `<div class="settings-band is-warn cpp-band" data-cpp="band" role="status" hidden>
+            <i class="fa-solid fa-arrows-rotate settings-band-icon"></i>
+            <div class="settings-band-text">
+                <span class="settings-band-when">Changed elsewhere</span>
+                <span class="settings-band-sub">Another tab, device or the Assistant saved this persona. Reload it before saving over it.</span>
+            </div>
+            <button type="button" class="cl-btn cl-btn-secondary cl-btn-sm" data-cpp-act="reload-edit">Reload</button>
+        </div>`}
         <label class="cl-cwin-label" for="cppName_${esc(p.id)}">Name</label>
         <input type="search" id="cppName_${esc(p.id)}" class="cl-cwin-input cpp-input" data-cpp-field="name"
             value="${esc(p.name)}" autocomplete="off" placeholder="What the character calls you">
@@ -162,6 +178,9 @@ function editorHtml(p) {
 const editorFieldKey = (f) => (f.dataset.cppField ? `field:${f.dataset.cppField}` : `pronoun:${f.dataset.cppPronoun}`);
 const editorFields = (ed) => [...ed.querySelectorAll('[data-cpp-field], [data-cpp-pronoun]')];
 const editorState = (ed) => JSON.stringify(editorFields(ed).map(f => [editorFieldKey(f), f.value]));
+// what an editor shows of a persona, so a move under it is told apart from one the editor cannot show
+const editableOf = (p) => (p ? JSON.stringify([p.name, p.description || '', p.pronouns || {}]) : null);
+const editorTouched = (ed) => editorState(ed) !== _editorOpened;
 
 // before a redraw: the editor on screen, its typing only when touched (Settings > Chat's list keeps the same)
 function keepEditor(content) {
@@ -170,7 +189,7 @@ function keepEditor(content) {
     const active = ed.contains(document.activeElement) && document.activeElement.matches('[data-cpp-field], [data-cpp-pronoun]') ? document.activeElement : null;
     _editorKept = {
         id: ed.querySelector('[data-cpp-act="save"]')?.dataset.id ?? null,
-        typed: editorState(ed) === _editorOpened ? null : Object.fromEntries(editorFields(ed).map(f => [editorFieldKey(f), f.value])),
+        typed: editorTouched(ed) ? Object.fromEntries(editorFields(ed).map(f => [editorFieldKey(f), f.value])) : null,
         fold: !!ed.querySelector('details.cpp-pronouns')?.hasAttribute('open'),
         focus: active ? { key: editorFieldKey(active), start: active.selectionStart, end: active.selectionEnd } : null,
     };
@@ -183,6 +202,11 @@ function restoreEditor(content) {
     _editorKept = null;
     if (!ed) return;
     _editorOpened = editorState(ed);
+    // drawn from the row: the base is what it shows now; drawn over typing, the base stays what the typing started from
+    const row = _list?.find(p => p.id === _editing) || null;
+    if (!kept?.typed) { _editorBase = editableOf(row); _editorStale = false; }
+    else if (editableOf(row) !== _editorBase) _editorStale = true;
+    syncEditorBand(ed);
     if (!kept) return;
     if (kept.typed) {
         for (const f of editorFields(ed)) if (typeof kept.typed[editorFieldKey(f)] === 'string') f.value = kept.typed[editorFieldKey(f)];
@@ -197,10 +221,18 @@ function restoreEditor(content) {
     }
 }
 
-function render() {
+// the band says the persona moved under the typing; Save waits for a reload while it shows
+function syncEditorBand(ed) {
+    const band = ed?.querySelector('[data-cpp="band"]');
+    if (band) band.hidden = !_editorStale;
+}
+
+/** @param {{keep?: boolean}} [opts] keep false draws the editor from the stored row, the reader's typing dropped (Reload) */
+function render({ keep = true } = {}) {
     const content = document.getElementById('cppContent');
     if (!content) return;
-    keepEditor(content);
+    if (keep) keepEditor(content);
+    else _editorKept = null;
     // no header meta: the in-force banner below names the persona and why
 
     if (_loading) {
@@ -214,8 +246,11 @@ function render() {
     }
     // Unread and empty are different answers and must not share a rendering.
     if (_list === null) { content.innerHTML = ''; return; }
-    // a persona deleted elsewhere takes its editor with it
-    if (_editing && _editing !== 'new' && !_list.some(p => p.id === _editing)) _editing = null;
+    // a persona deleted elsewhere takes its editor with it, said when the reader had typed in it
+    if (_editing && _editing !== 'new' && !_list.some(p => p.id === _editing)) {
+        if (_editorKept?.typed) CoreAPI.showToast('This persona was deleted elsewhere', 'info');
+        _editing = null;
+    }
 
     content.innerHTML = `
         ${inForceHtml()}
@@ -237,24 +272,75 @@ function render() {
 // DATA
 // ========================================
 
-async function load() {
-    _loading = true;
-    _error = null;
-    render();
+/**
+ * Read the list and who is in force; an answer older than a later read is dropped.
+ * @param {{quiet?: boolean}} [opts] quiet: a failed read keeps what is shown (a follow), rather than saying it failed
+ * @returns {Promise<boolean>} whether this read's answer was taken
+ */
+async function readPersonas({ quiet = false } = {}) {
+    const seq = ++_readSeq;
     try {
         const [listResp, resResp] = await Promise.all([
             CoreAPI.apiRequest('/personas', 'GET'),
             CoreAPI.apiRequest(`/personas/resolve${_chatId ? `?chatId=${encodeURIComponent(_chatId)}` : ''}`, 'GET'),
         ]);
         if (!listResp.ok) throw new Error(`server returned ${listResp.status}`);
-        const payload = await listResp.json();
-        _list = Array.isArray(payload) ? payload : (payload.personas || []);
-        _resolved = resResp.ok ? await resResp.json() : null;
+        const [payload, resolved] = await Promise.all([listResp.json(), resResp.ok ? resResp.json() : null]);
+        if (seq < _takenSeq) return false;
+        _takenSeq = seq;
+        const fresh = Array.isArray(payload) ? payload : (payload.personas || []);
+        notePersonaRead(fresh);
+        _list = fresh;
+        _resolved = resolved;
+        _error = null;
+        return true;
     } catch (e) {
+        if (seq < _takenSeq || quiet) return false;
+        _takenSeq = seq;
         _error = e.message;
         _list = null;
+        return true;
     }
+}
+
+async function load() {
+    _loading = true;
+    _error = null;
+    render();
+    await readPersonas();
     _loading = false;
+    render();
+}
+
+/** Personas written elsewhere (another tab, the assistant's apply in this one): read again; an editor being typed in is never redrawn. */
+async function patchPersonasFromFeed(records) {
+    // what the window shows: a persona, the global one, this chat's own, and a persona's lorebooks
+    const moves = (r) => movesChatPick(r, { entity: 'persona', setting: 'activePersonaId', chatId: _chatId, chatField: 'personaId' })
+        || (r.entity === 'worldLink' && r.scope === 'persona');
+    if (records && !records.some(moves)) return;
+    // a picture moved elsewhere, the window open or not; a reconnect leaves the next read to tell
+    followPersonaPictures(records);
+    if (!panelOpen) return;
+    // the save re-reads when it lands; read now, its own text would read as a change made elsewhere
+    if (_saving) { _owedFollow = true; return; }
+    await followRead();
+}
+
+/** The follow's read and draw: what moved is drawn, an editor being typed in is never redrawn and says when its persona moved. */
+async function followRead() {
+    const shown = JSON.stringify([_list, _resolved]);
+    if (!(await readPersonas({ quiet: true })) || !panelOpen) return;
+    // the window's own verbs echo back here after their own refresh: nothing moved, nothing to draw
+    if (JSON.stringify([_list, _resolved]) === shown) return;
+    const ed = document.getElementById('cppContent')?.querySelector('.cpp-editor');
+    // a redraw under typing would break a phone keyboard's composition: the band says it, the list waits for the editor to close
+    if (ed && editorTouched(ed)) {
+        if (_editing === 'new') return;
+        const row = _list.find(p => p.id === _editing);
+        if (!row) { render(); return; }
+        if (editableOf(row) !== _editorBase) { _editorStale = true; syncEditorBand(ed); }
+        return;
+    }
     render();
 }
 
@@ -271,7 +357,7 @@ async function setGlobal(id) {
 
 async function setChatOverride(id) {
     if (!_chatId) { CoreAPI.showToast('Open a chat first', 'info'); return; }
-    const r = await CoreAPI.apiRequest(`/chats/${encodeURIComponent(_chatId)}`, 'PATCH', { personaId: id });
+    const r = await personaRequest(`/chats/${encodeURIComponent(_chatId)}`, 'PATCH', { personaId: id });
     if (!r.ok) { CoreAPI.showToast('Could not set the persona for this chat', 'error'); return; }
     // an override move never reaches syncActivePersonaName, so announce it here with the persona the server resolves
     const chatId = _chatId;
@@ -304,17 +390,33 @@ async function loadShelf() {
     render();
 }
 
+// Reload: the editor drawn from the stored persona, the reader's typing and the band dropped
+function reloadEditor() {
+    _editorStale = false;
+    render({ keep: false });
+}
+
 async function savePersona(id) {
+    if (_editorStale && id === _editing) { CoreAPI.showToast('This persona changed elsewhere; reload it first', 'warning'); return; }
     const sheet = document.querySelector('.cpp-sheet');
     const name = sheet?.querySelector('[data-cpp-field="name"]')?.value?.trim() || '';
     const description = sheet?.querySelector('[data-cpp-field="description"]')?.value ?? '';
-    if (!(await writePersona(id === 'new' ? null : id, { name, description, pronouns: readPronouns(sheet) }))) return;
+    _saving = true;
+    _owedFollow = false;
+    let saved;
+    try { saved = await writePersona(id === 'new' ? null : id, { name, description, pronouns: readPronouns(sheet) }); } finally { _saving = false; }
+    if (!saved) {
+        // a write from elsewhere landed while this save was out: read it now, so the band can say so
+        if (_owedFollow) { _owedFollow = false; await followRead(); }
+        return;
+    }
+    _owedFollow = false;
     _editing = null;
     await refresh();
 }
 
 async function uploadAvatar(id, file) {
-    const r = await CoreAPI.apiRequest(`/personas/${encodeURIComponent(id)}/avatar`, 'PUT', file, {
+    const r = await personaRequest(`/personas/${encodeURIComponent(id)}/avatar`, 'PUT', file, {
         raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream' },
     });
     if (!r.ok) {
@@ -322,12 +424,14 @@ async function uploadAvatar(id, file) {
         CoreAPI.showToast(err.error || 'Could not save that picture', 'error');
         return;
     }
+    bumpPersonaFace(id);
     await refresh();
 }
 
 async function dropAvatar(id) {
-    const r = await CoreAPI.apiRequest(`/personas/${encodeURIComponent(id)}/avatar`, 'DELETE');
+    const r = await personaRequest(`/personas/${encodeURIComponent(id)}/avatar`, 'DELETE');
     if (!r.ok) { CoreAPI.showToast('Could not remove the picture', 'error'); return; }
+    bumpPersonaFace(id);
     await refresh();
 }
 
@@ -357,12 +461,10 @@ function injectPanel() {
         const id = btn.dataset.id;
         switch (btn.dataset.cppAct) {
             case 'close': return closePanel();
-            case 'new': _editing = 'new'; return render();
-            case 'edit':
-                _editing = _editing === id ? null : id;
-                if (_editing) void loadShelf();
-                return render();
-            case 'cancel-edit': _editing = null; return render();
+            case 'new': return newPersona();
+            case 'edit': return editPersona(id);
+            case 'cancel-edit': _editing = null; _editorStale = false; return render();
+            case 'reload-edit': return reloadEditor();
             case 'pronoun-preset': return applyPronounPreset(btn);
             case 'save': return savePersona(id);
             case 'delete': return removePersona(id);
@@ -413,11 +515,44 @@ export function openPanel(ctx) {
     load();
 }
 
-export function closePanel() {
+// a touched editor asks before its typing goes; true when there is none or the reader lets it go
+async function confirmDiscard() {
+    const ed = document.getElementById('cppContent')?.querySelector('.cpp-editor');
+    if (!ed || !editorTouched(ed)) return true;
+    const name = _editing === 'new' ? null : _list?.find(p => p.id === _editing)?.name;
+    return CoreAPI.confirmDiscardEdits(_editing === 'new' ? 'the new persona' : name ? `the persona ${name}` : 'this persona');
+}
+
+// a persona's editor, or none when its row is pressed again; a touched editor asks first
+async function editPersona(id) {
+    const was = _editing;
+    if (!(await confirmDiscard())) return;
+    // the window closed, or the editor moved, while it asked
+    if (!panelOpen || _editing !== was) return;
+    _editing = _editing === id ? null : id;
+    _editorStale = false;
+    if (_editing) void loadShelf();
+    render({ keep: false });
+}
+
+async function newPersona() {
+    const was = _editing;
+    if (!(await confirmDiscard())) return;
+    if (!panelOpen || _editing !== was) return;
+    _editing = 'new';
+    render({ keep: false });
+}
+
+// resolves whether it closed (a touched editor asks first); never rejects, exclusive mode calls it bare
+export async function closePanel({ force = false } = {}) {
+    if (panelOpen && !force && !(await confirmDiscard())) return false;
+    if (!panelOpen) return true;
     const panel = document.getElementById('chatPersonasPanel');
     panelOpen = false;
     _editing = null;
+    _editorStale = false;
     closeChatWindow(panel, { button: 'chatConvPersonas' });
+    return true;
 }
 
 export function togglePanel(ctx) {
@@ -428,11 +563,13 @@ export function togglePanel(ctx) {
 function init() {
     // follow the chat, or the override lands on the one left; read the event, the announce beats the open finishing
     document.addEventListener('cl-chat-changed', (e) => {
-        if (!e.detail?.chatId) { if (panelOpen) closePanel(); return; }
+        if (!e.detail?.chatId) { if (panelOpen) void closePanel({ force: true }); return; }
         if (e.detail.chatId === _chatId) return;
         _chatId = e.detail.chatId;
         if (panelOpen) load();
     });
+    // both origins: the assistant's apply in this tab is as foreign to the editor as another tab's save
+    registerFeedPatcher(['persona', 'setting', 'chat', 'worldLink'], patchPersonasFromFeed, { own: 'both' });
 }
 
 export default { init, openPanel, closePanel, togglePanel };

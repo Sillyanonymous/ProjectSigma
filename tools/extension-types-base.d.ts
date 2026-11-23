@@ -24,7 +24,7 @@ export interface ClientExtension {
 /** What init is handed: api 2, the part promised not to break casually. */
 export interface ExtensionContext {
     /** The host's extension api, '<major>.<minor>': the minor counts the batches of doors added within the major. */
-    readonly apiVersion: '2.8';
+    readonly apiVersion: '2.9';
     /** Your row in the server's inventory: its reading of your manifest.json. */
     readonly manifest: ManifestRow;
     /** The facade the app's own modules use, every function it exports; not typed here. What you register through onViewEnter, onViewExit, onCharactersDeleted, storeWatch or onJob answers its removal and is undone when you are switched off; a notifications section from registerNotificationSection answers its node and is taken out then too, or sooner by removeNotificationSection(id); its id is yours alone, held under your extension's name, so it never replaces the app's section or another extension's. */
@@ -668,6 +668,7 @@ export interface ServerContext {
     readonly hooks: ServerHooks;
     readonly macros: ServerMacros;
     readonly prompt: ServerPrompt;
+    readonly assistant: ServerAssistant;
     readonly llm: ServerLlm;
     readonly jobs: ServerJobs;
     /** Refuses the write a store guard is looking at: it rolls back and its request answers 400 in these words. */
@@ -892,6 +893,30 @@ export interface PromptBlockSpec extends PromptBlockPlacement {
     id: string;
     /** Answers the block's text once per chat prompt, or the text with a placement of that build's own. */
     text(facts: BlockFacts): string | number | (PromptBlockPlacement & { text: string | number });
+}
+
+export interface ServerAssistant {
+    /** A context source the chat assistant can be given, with its own switch in the assistant's context view. Answers the removal. */
+    addSource(spec: AssistantSourceSpec): () => void;
+}
+
+export interface AssistantSourceSpec {
+    /** [a-z][a-z0-9-]{0,31}, unique among your sources. */
+    id: string;
+    /** What its switch is called: one line, at most 60 characters. */
+    label: string;
+    /** Whether it is shared until the reader switches it; false by default. */
+    defaultOn?: boolean;
+    /** Answers the text to share, once per assistant build, only while its switch is on. */
+    read(facts: AssistantSourceFacts): string | number;
+}
+
+export interface AssistantSourceFacts {
+    readonly db: Database;
+    readonly user: string;
+    readonly chatId: string;
+    readonly charId: string;
+    readonly [key: string]: unknown;
 }
 
 export interface BlockFacts {

@@ -1,7 +1,14 @@
-import { anchorOf, loreKey, keyList, BLOCK_NAME } from './assistant.js';
-import { finishFirstMessage } from './prompt.js';
+import { anchorOf, loreKey, keyList, BLOCK_NAME, EDIT_FIELDS, editFieldKeys, CHAT_OWN_KEYS, changeLabel } from './assistant.js';
+import { cardNotePlacement } from './preset.js';
+import { finishFirstMessage, chatOwnTexts } from './prompt.js';
+import { chatNoteOf, noteDefaults, NOTE_KEYS } from './authors-note.js';
+import { cardText } from './macros.js';
+import { getCharacter } from '../db/characters-store.js';
+import { getPersona, updatePersona } from '../db/personas-store.js';
+import { patchAfterSnapshot } from '../importer/card-import.js';
+import { ASSISTANT_BACKUP } from '../db/versions-store.js';
 import { getWorldEntry, upsertWorld, upsertWorldEntry, createWorldEntry, deleteWorldEntry } from '../db/worlds-store.js';
-import { patchChatMessage, deleteChatMessage, readMessageRow, getChatRow, messageSeqOf } from '../db/chats-store.js';
+import { patchChatMessage, deleteChatMessage, readMessageRow, getChatRow, messageSeqOf, patchChat, chatMetadataOf } from '../db/chats-store.js';
 import { applyWorldsFor, worldExists } from '../db/world-links-store.js';
 
 // Proposed edits: parse, judge, apply in a safe order. server-side because the anchor can only be checked where the row is read
@@ -16,6 +23,13 @@ const CHAT_OPS = new Set(['edit', 'replace', 'hide', 'delete']);
 const CARD_OPS = new Set(['set', 'replace', 'tags', 'greeting']);
 export const CARD_FIELDS = ['name', 'tagline', 'description', 'personality', 'scenario', 'first_mes',
     'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'];
+// the field engines: card, this chat's notes, the persona; set and replace on a named field, the card adding tags and greetings
+const FIELD_ENGINES = new Set(Object.keys(EDIT_FIELDS));
+/** Whether an engine writes a named field (the card, this chat's notes, the persona) rather than lore or a message. */
+export const isFieldEngine = (engine) => FIELD_ENGINES.has(engine);
+const FIELD_OPS = new Set(['set', 'replace']);
+/** What a reply may propose when its surface names nothing: the lore, the messages, and the studio's card. */
+const DEFAULT_PROPOSALS = Object.freeze({ lore: true, chat: true, card: CARD_FIELDS });
 const isInt = v => Number.isInteger(v);
 const isStr = v => typeof v === 'string';
 const isBool = v => typeof v === 'boolean';
@@ -156,21 +170,25 @@ function stripTrailingCommas(text) {
 }
 
 /**
- * Pull the fenced edit blocks out of a reply; an unclosed last fence parses, unparseable JSON refuses the block.
- * @returns {{proposals: Array, errors: Array<{engine, message}>}}
+ * Parse a reply's fenced edit blocks: an unclosed last fence parses, bad JSON refuses the block, an engine the surface lacks is skipped.
+ * @param {object} [surface] engine -> its writable field keys (true for lore and chat)
+ * @returns {{proposals: Array, errors: Array<{engine, message}>, blocks: Array<{engine, from: number, to: number, ids: string[]}>}} blocks: each parsed block's lines [from, to) and the ids it holds
  */
-export function parseProposals(text) {
+export function parseProposals(text, surface = DEFAULT_PROPOSALS) {
     const lines = String(text ?? '').split(/\r?\n/);
     const proposals = [];
     const errors = [];
-    const seen = new Set();
+    const blocks = [];
+    // a twin's signature names the change it repeats, so its block still says which change it holds
+    const seen = new Map();
     let i = 0;
     let n = 0;
 
     while (i < lines.length) {
         const open = lines[i].match(FENCE);
         const engine = open && BLOCK_ENGINE[open[1]];
-        if (!engine) { i++; continue; }
+        if (!engine || !surface[engine]) { i++; continue; }
+        const from = i;
         const bodyLines = [];
         i++;
         while (i < lines.length && !FENCE.test(lines[i])) { bodyLines.push(lines[i]); i++; }
@@ -201,16 +219,18 @@ export function parseProposals(text) {
             continue;
         }
         const blockStart = proposals.length;
+        const twins = [];
         for (const rawChange of changes) {
             const raw = normalizePlacement(engine, rawChange);
             // Models emit byte-identical twins of one change often enough that the review
             // card was counting the same edit twice; one card is the honest count.
             const sig = `${engine}:${JSON.stringify(raw)}`;
-            if (seen.has(sig)) continue;
-            seen.add(sig);
-            const invalid = validate(engine, raw);
+            if (seen.has(sig)) { twins.push(seen.get(sig)); continue; }
+            const id = `${engine}:${n++}`;
+            seen.set(sig, id);
+            const invalid = validate(engine, raw, surface[engine]);
             proposals.push({
-                id: `${engine}:${n++}`,
+                id,
                 engine,
                 op: isStr(raw?.op) ? raw.op : '(missing)',
                 why: isStr(raw?.why) ? raw.why : '',
@@ -218,9 +238,10 @@ export function parseProposals(text) {
                 ...(invalid ? { invalid } : {}),
             });
         }
-        if (engine === 'card') coalesceCardSets(proposals, blockStart);
+        if (FIELD_ENGINES.has(engine)) coalesceCardSets(proposals, blockStart);
+        blocks.push({ engine, from, to: Math.min(i, lines.length), ids: [...new Set([...proposals.slice(blockStart).map(p => p.id), ...twins])] });
     }
-    return { proposals, errors };
+    return { proposals, errors, blocks };
 }
 
 /** Several sets on one field in one block fold into the first, in order, marked `merged`. */
@@ -239,8 +260,40 @@ function coalesceCardSets(proposals, from) {
     }
 }
 
+/**
+ * A reply as the model reads it back once a later reply exists: each block keeps its applied changes, the rest named in one line.
+ * @param {object} extra the stored reply's extra (its proposals and applied records)
+ * @param {object} [surface] the surface it was parsed under
+ * @param {{who?: string, where?: string}} [words] who applies a change, and what it reaches
+ * @returns {string} the text unchanged when nothing is unapplied, or when a reparse disagrees with the stored ids
+ */
+export function withheldContent(text, extra, surface = DEFAULT_PROPOSALS, { who = 'reader', where = 'the lorebook or the story' } = {}) {
+    const stored = extra?.proposals || [];
+    const landed = (id) => extra?.applied?.[id]?.status === 'applied';
+    if (!stored.length || stored.every(p => landed(p.id))) return text;
+    const { proposals, blocks } = parseProposals(text, surface);
+    // the stored ids are what the cards and the app note name; a text that parses otherwise is left whole
+    if (proposals.length !== stored.length || proposals.some((p, i) => p.id !== stored[i].id || p.op !== stored[i].op)) return text;
+    const at = new Map(stored.map((p, i) => [p.id, i]));
+    const lines = String(text).split(/\r?\n/);
+    const out = [];
+    let from = 0;
+    for (const b of blocks) {
+        if (b.ids.every(landed)) continue;
+        out.push(...lines.slice(from, b.from));
+        const kept = b.ids.filter(landed).map(id => stored[at.get(id)].change);
+        if (kept.length) out.push(`\`\`\`${BLOCK_NAME[b.engine]}`, JSON.stringify({ changes: kept }), '```');
+        const held = b.ids.filter(id => !landed(id)).map(id => changeLabel(stored[at.get(id)], at.get(id)));
+        const one = held.length === 1;
+        out.push(`[Left out here: ${held.join(', ')}. The ${who} has not applied ${one ? 'it' : 'them'}, so ${one ? 'it' : 'they'} never reached ${where}.]`);
+        from = b.to;
+    }
+    out.push(...lines.slice(from));
+    return out.join('\n');
+}
+
 /** Shape check only. Whether it is SAFE is a separate question, answered by checkProposal. */
-function validate(engine, c) {
+function validate(engine, c, fields) {
     if (!c || typeof c !== 'object' || Array.isArray(c)) return 'not an object';
     const op = c.op;
     if (!isStr(op)) return 'no op';
@@ -265,8 +318,8 @@ function validate(engine, c) {
         return null;
     }
 
-    if (engine === 'card') {
-        if (!CARD_OPS.has(op)) return `unknown card op "${op}"`;
+    if (FIELD_ENGINES.has(engine)) {
+        if (!(engine === 'card' ? CARD_OPS : FIELD_OPS).has(op)) return `unknown ${engine} op "${op}"`;
         if (op === 'tags') {
             const add = c.add ?? [];
             const remove = c.remove ?? [];
@@ -278,7 +331,7 @@ function validate(engine, c) {
             if (!(isInt(c.index) && c.index >= 1) && c.index !== 'new') return 'greeting needs its number (from 1) or "new"';
             return isStr(c.content) ? null : 'greeting needs content';
         }
-        if (!isStr(c.field) || !CARD_FIELDS.includes(c.field)) return `${op} needs a field, one of ${CARD_FIELDS.join(', ')}`;
+        if (!isStr(c.field) || !fields.includes(c.field)) return `${op} needs a field, one of ${fields.join(', ')}`;
         if (op === 'set') return isStr(c.content) ? null : 'set needs content';
         if (!isStr(c.find) || !c.find) return 'replace needs find text';
         if (!isStr(c.with)) return 'replace needs replacement text';
@@ -316,7 +369,8 @@ const UNRECORDED = 'what the assistant read here is not on record; ask it again'
 
 const selfKeyChat = (seq) => `chat:${seq}`;
 const selfKeyLore = (world, uid) => `lore:${world}::${uid}`;
-export const selfKeyCard = (target) => `card:${target}`;
+/** A field engine's self key; the card's keeps its plain `card:` form, which stored studio records carry. */
+export const selfKeyCard = (target, engine = 'card') => `${engine}:${target}`;
 
 /** The self map from a stored applied record, so every judge sees the same history. */
 export function selfAnchorsFromApplied(applied) {
@@ -324,7 +378,7 @@ export function selfAnchorsFromApplied(applied) {
     for (const rec of Object.values(applied || {})) {
         const r = rec?.result;
         if (!r?.newAnchor) continue;
-        const key = 'seq' in r ? selfKeyChat(r.seq) : 'target' in r ? selfKeyCard(r.target) : selfKeyLore(r.world, r.uid);
+        const key = 'seq' in r ? selfKeyChat(r.seq) : 'target' in r ? selfKeyCard(r.target, r.engine) : selfKeyLore(r.world, r.uid);
         (self[key] = self[key] || []).push(r.newAnchor);
     }
     return self;
@@ -577,6 +631,7 @@ function blindLoreReason(snapshot, world, uid) {
  */
 export function checkProposal(db, chatId, snapshot, p, self = null, later = null) {
     if (p.invalid) return { status: 'invalid', reason: p.invalid };
+    if (FIELD_ENGINES.has(p.engine)) return checkFieldProposal(db, chatId, snapshot, p, self, later);
     const c = p.change;
 
     if (p.engine === 'lore') {
@@ -626,7 +681,7 @@ export function checkProposal(db, chatId, snapshot, p, self = null, later = null
         const found = { ...res, title: entryTitle(entry), ...(c.op === 'delete' ? {} : { fields: fieldChanges(entry, c.set) }) };
         // a later reply's applied change outranks this one, the reviewer already chose the newer text
         if (later?.[selfKeyLore(world, uid)]) {
-            return { status: 'superseded', reason: 'a later change the author applied rewrote this entry', before: live, ...found };
+            return { status: 'superseded', reason: "rewritten since by a later reply's change", before: live, ...found };
         }
         // an outside change stays applicable, flagged `changed`, the diff decides; rewriting this reply's own apply refuses
         let changed = false;
@@ -676,7 +731,7 @@ function judgeChatAt(db, chatId, snapshot, c, shown, self, later, given) {
     const liveAnchor = anchorOf(live);
     // outranked by a later reply's apply, checked by anchor since a bare position could name a stranger
     if ((later?.[selfKeyChat(seq)] || []).includes(liveAnchor)) {
-        return { status: 'superseded', reason: 'a later change the author applied reshaped this message', before: live, ...res };
+        return { status: 'superseded', reason: "reshaped since by a later reply's change", before: live, ...res };
     }
     const mismatch = liveAnchor !== readAnchor;
     const selfMade = mismatch && (self?.[selfKeyChat(seq)] || []).includes(liveAnchor);
@@ -780,16 +835,17 @@ function resolveThroughPrior(live, change, prior, depth = 0) {
 
 /**
  * Judge one card proposal against the posted draft; drift is flagged, never refused. no db, no gate.
+ * @param {{subject?: string}} [words] what a reason calls the text judged: the studio's draft, the assistant's card
  * @returns {{status, changed?, before, after, reason?, target}}
  */
-export function checkCardProposal(snapshot, draft, p, self = null, prior = [], later = null) {
+export function checkCardProposal(snapshot, draft, p, self = null, prior = [], later = null, { subject = 'draft' } = {}) {
     if (p.invalid) return { status: 'invalid', reason: p.invalid };
     const c = p.change;
     const target = cardTarget(c);
-    const selfHas = (liveAnchor) => (self?.[selfKeyCard(target)] || []).includes(liveAnchor);
+    const selfHas = (liveAnchor) => (self?.[selfKeyCard(target, p.engine)] || []).includes(liveAnchor);
     // a later reply's applied change outranks this one; tags and new greetings compose, never outranked
-    if (later?.[selfKeyCard(target)] && c.op !== 'tags' && !(c.op === 'greeting' && c.index === 'new')) {
-        return { status: 'superseded', reason: 'a later change the author applied rewrote this field', before: cardBefore(draft, c), target };
+    if (later?.[selfKeyCard(target, p.engine)] && c.op !== 'tags' && !(c.op === 'greeting' && c.index === 'new')) {
+        return { status: 'superseded', reason: "rewritten since by a later reply's change", before: cardBefore(draft, c), target };
     }
     if (c.op === 'tags') {
         const before = Array.isArray(draft?.tags) ? draft.tags.slice() : [];
@@ -806,7 +862,7 @@ export function checkCardProposal(snapshot, draft, p, self = null, prior = [], l
         const list = Array.isArray(draft?.alternate_greetings) ? draft.alternate_greetings : [];
         if (c.index === 'new') return { status: 'ready', before: '', after: String(c.content), target };
         const i = c.index - 1;
-        if (i >= list.length) return { status: 'gone', reason: `there is no alternate greeting ${c.index}; the draft has ${list.length}`, target };
+        if (i >= list.length) return { status: 'gone', reason: `there is no alternate greeting ${c.index}; the ${subject} has ${list.length}`, target };
         const live = String(list[i] ?? '');
         const liveAnchor = anchorOf(live);
         const readAnchor = snapshot?.greetings?.[i] || null;
@@ -843,7 +899,7 @@ export function checkCardProposal(snapshot, draft, p, self = null, prior = [], l
         }
         return {
             status: 'ambiguous',
-            reason: span.hits === 0 ? 'that passage is not in the field; quote it as the draft shows it' : `that passage appears ${span.hits} times in the field`,
+            reason: span.hits === 0 ? `that passage is not in the field; quote it as the ${subject} shows it` : `that passage appears ${span.hits} times in the field`,
             before: live, target,
         };
     }
@@ -854,7 +910,7 @@ export function checkCardProposal(snapshot, draft, p, self = null, prior = [], l
  * Apply card proposals onto a copy of the draft, each re-judged; new greetings run last. touches no row.
  * @returns {{results: Array<{id, status, reason?, result?}>, draft: object}}
  */
-export function applyCardProposals(snapshot, draft, proposals, selfAnchors = null, prior = [], later = null) {
+export function applyCardProposals(snapshot, draft, proposals, selfAnchors = null, prior = [], later = null, words = {}) {
     const work = {
         ...draft,
         tags: Array.isArray(draft?.tags) ? draft.tags.slice() : [],
@@ -866,7 +922,7 @@ export function applyCardProposals(snapshot, draft, proposals, selfAnchors = nul
     const ordered = [...proposals.filter(p => !isNewGreeting(p)), ...proposals.filter(isNewGreeting)];
     const results = [];
     for (const p of ordered) {
-        const v = checkCardProposal(snapshot, work, p, self, prior, later);
+        const v = checkCardProposal(snapshot, work, p, self, prior, later, words);
         if (v.status !== 'ready') { results.push({ id: p.id, status: v.status, reason: v.reason }); continue; }
         const c = p.change;
         let result;
@@ -887,10 +943,175 @@ export function applyCardProposals(snapshot, draft, proposals, selfAnchors = nul
             result = { target: v.target, field: c.field, newAnchor: anchorOf(v.after) };
         }
         if (v.via) result.via = v.via;
-        note(selfKeyCard(result.target), result.newAnchor);
+        // a card result keeps its engine implicit, the form stored studio records already have
+        if (p.engine && p.engine !== 'card') result.engine = p.engine;
+        note(selfKeyCard(result.target, p.engine), result.newAnchor);
         results.push({ id: p.id, status: 'applied', result });
     }
     return { results, draft: work };
+}
+
+// ========================================
+// THE FIELD ENGINES OVER LIVE ROWS: the card, this chat's notes, the persona
+// ========================================
+
+const ENGINE_WORDS = { card: 'card', notes: "this chat's notes", persona: 'persona' };
+export const fieldLabelOf = (engine, key) => (EDIT_FIELDS[engine] || []).find(([k]) => k === key)?.[1] || key;
+
+/** The live fields of the card a chat's assistant edits, tags and greetings as the studio's draft holds them. */
+function liveCardFields(char) {
+    const data = char.card?.data || {};
+    return {
+        ...Object.fromEntries(editFieldKeys('card').map(k => [k, String(cardText(data, k) ?? '')])),
+        tags: Array.isArray(char.tags) ? char.tags.slice() : [],
+        alternate_greetings: Array.isArray(data.alternate_greetings) ? data.alternate_greetings.map(g => String(g ?? '')) : [],
+    };
+}
+
+/**
+ * One field engine's target: what it holds now, what the reply was shown, and who else it reaches; or why it cant be judged.
+ * @returns {{live: object, read: object, reach?: object, own?: object}|{status: string, reason: string}}
+ */
+function fieldTarget(db, chatId, snapshot, engine) {
+    if (!snapshot) return { status: 'blind', reason: UNRECORDED };
+    // a capability the reader had off when the reply was written was never offered, so nothing it wrote is honoured
+    if (!snapshot.engines?.includes(engine)) return { status: 'off', reason: `${ENGINE_WORDS[engine]} edits were switched off when this reply was written` };
+    if (engine === 'card') {
+        const read = snapshot.card;
+        if (!read?.anchors) return { status: 'blind', reason: UNRECORDED };
+        const char = getCharacter(db, read.charId);
+        if (!char) return { status: 'gone', reason: 'the character no longer exists' };
+        return { live: liveCardFields(char), read, reach: { kind: 'card', name: char.card?.data?.name || '' }, charId: read.charId };
+    }
+    if (engine === 'notes') {
+        const read = snapshot.notes;
+        if (!read?.anchors) return { status: 'blind', reason: UNRECORDED };
+        const row = getChatRow(db, chatId);
+        if (!row) return { status: 'gone', reason: 'the chat no longer exists' };
+        const note = chatNoteOf(chatMetadataOf(row.chat_metadata), noteDefaults(db));
+        const own = chatOwnTexts(row);
+        return {
+            live: { authors_note: note.prompt, ...Object.fromEntries(CHAT_OWN_KEYS.map(k => [k, own[k] ?? ''])) },
+            read,
+            own: { authors_note: note.own.prompt, ...Object.fromEntries(Object.keys(own).map(k => [k, true])) },
+        };
+    }
+    const read = snapshot.persona;
+    if (!read?.id) return { status: 'blind', reason: 'the persona was not shared with the assistant when this reply was written' };
+    const persona = getPersona(db, read.id);
+    if (!persona) return { status: 'gone', reason: 'that persona no longer exists' };
+    return { live: { description: String(persona.description ?? '') }, read, reach: { kind: 'persona', name: persona.name || '' }, personaId: read.id };
+}
+
+// what the judge's reasons call the text: the card the assistant read, the material the notes and the persona came in
+const WORDS = { card: { subject: 'card' }, notes: { subject: 'material' }, persona: { subject: 'material' } };
+
+// the scope a change's self anchors are keyed under: a persona's are that persona's, so another persona's later edit never supersedes it
+const scopedTo = (t, p) => (p.engine === 'persona' ? { ...p, engine: `persona@${t.personaId}` } : p);
+
+// what the reply was never shown is never its to change: a field without a recorded anchor, the tags unprinted, a greeting added since
+function fieldGate(t, p) {
+    const c = p.change;
+    if (c.op === 'tags') return t.read.tags ? null : { status: 'blind', reason: 'the tags were not shown to the assistant' };
+    if (c.op === 'greeting') {
+        if (c.index === 'new') return null;
+        // past the end of the live list, the judge says it is gone; one added since the read was never shown
+        if (c.index - 1 >= (t.live.alternate_greetings || []).length) return null;
+        return c.index - 1 < (t.read.greetings || []).length ? null : { status: 'blind', reason: `alternate greeting ${c.index} was not shown to the assistant` };
+    }
+    if (!(c.field in (t.read.anchors || {}))) {
+        const why = p.engine === 'notes' && c.field === 'authors_note' ? ': its source was switched off when this reply was written' : '';
+        return { status: 'blind', reason: `${fieldLabelOf(p.engine, c.field)} was not shown to the assistant${why}` };
+    }
+    return null;
+}
+
+// what the review card says beyond the diff: who else a write reaches, and a chat note made its own
+function fieldExtras(t, p) {
+    const c = p.change;
+    return {
+        ...(c.field ? { label: fieldLabelOf(p.engine, c.field) } : {}),
+        ...(t.reach ? { reach: t.reach } : {}),
+        ...(p.engine === 'notes' && c.field && !t.own?.[c.field] ? { makesOwn: true } : {}),
+    };
+}
+
+/** Judge one field-engine proposal against its live row; the studio's judge, behind the blind gate. */
+function checkFieldProposal(db, chatId, snapshot, p, self, later) {
+    const t = fieldTarget(db, chatId, snapshot, p.engine);
+    if (t.status) return { ...t, ...(p.change.field ? { label: fieldLabelOf(p.engine, p.change.field) } : {}) };
+    const refused = fieldGate(t, p);
+    if (refused) return { ...refused, ...fieldExtras(t, p) };
+    return { ...checkCardProposal(t.read, t.live, scopedTo(t, p), self, [], later, WORDS[p.engine]), ...fieldExtras(t, p) };
+}
+
+// the card patch for the fields a batch moved; a Character's Note new to the card takes ST's placement
+function cardPatch(char, before, after) {
+    const fields = {};
+    for (const k of editFieldKeys('card')) {
+        if (after[k] === before[k]) continue;
+        if (k !== 'depth_prompt') { fields[k] = after[k]; continue; }
+        const dp = char.card?.data?.extensions?.depth_prompt;
+        if (dp && typeof dp === 'object') fields['extensions.depth_prompt.prompt'] = after[k];
+        else fields['extensions.depth_prompt'] = { prompt: after[k], ...cardNotePlacement({}) };
+    }
+    if (JSON.stringify(after.tags) !== JSON.stringify(before.tags)) fields.tags = after.tags;
+    if (JSON.stringify(after.alternate_greetings) !== JSON.stringify(before.alternate_greetings)) fields.alternate_greetings = after.alternate_greetings;
+    return fields;
+}
+
+// one write per engine per apply: the card with its snapshot first, the chat's metadata, the persona
+function writeFields(db, chatId, engine, t, after, paths) {
+    if (engine === 'card') {
+        const char = getCharacter(db, t.charId);
+        const fields = cardPatch(char, t.live, after);
+        if (!Object.keys(fields).length) return;
+        // automatic, under its own cap: a long session's applies never push out the editor's backups, or the card as it was
+        patchAfterSnapshot(db, paths, t.charId, "Before the assistant's edits", fields, {
+            source: ASSISTANT_BACKUP, embedAvatar: false,
+        });
+        return;
+    }
+    if (engine === 'notes') {
+        const meta = {};
+        for (const k of editFieldKeys('notes')) {
+            if (after[k] === t.live[k]) continue;
+            // a stored empty note stays empty; an emptied text of the chat's own goes back to the card's
+            if (k === 'authors_note') meta[NOTE_KEYS.prompt] = after[k];
+            else meta[k] = after[k] ? after[k] : null;
+        }
+        if (Object.keys(meta).length) patchChat(db, chatId, { chatMetadata: meta });
+        return;
+    }
+    if (after.description !== t.live.description) updatePersona(db, t.personaId, { description: after.description });
+}
+
+/**
+ * Apply one engine's chosen field proposals: gated, re-judged in order on a working copy, then written once.
+ * @returns {Array<{id, status, reason?, result?}>}
+ */
+function applyFieldEngine(db, chatId, snapshot, engine, proposals, self, later, paths) {
+    const t = fieldTarget(db, chatId, snapshot, engine);
+    if (t.status) return proposals.map(p => ({ id: p.id, status: t.status, reason: t.reason }));
+    const refused = [];
+    const open = [];
+    for (const p of proposals) {
+        if (p.invalid) { refused.push({ id: p.id, status: 'invalid', reason: p.invalid }); continue; }
+        const r = fieldGate(t, p);
+        if (r) refused.push({ id: p.id, status: r.status, reason: r.reason });
+        else open.push(p);
+    }
+    const { results, draft } = applyCardProposals(t.read, t.live, open.map(p => scopedTo(t, p)), self, [], later, WORDS[engine]);
+    if (results.some(r => r.status === 'applied')) {
+        try {
+            writeFields(db, chatId, engine, t, draft, paths);
+        } catch (e) {
+            return [...refused, ...results.map(r => (r.status === 'applied' ? { id: r.id, status: 'failed', reason: e.message } : r))];
+        }
+        const where = engine === 'card' ? { charId: t.charId } : engine === 'persona' ? { personaId: t.personaId } : { chatNotes: true };
+        for (const r of results) if (r.status === 'applied') Object.assign(r.result, where);
+    }
+    return [...refused, ...results];
 }
 
 // ========================================
@@ -1017,12 +1238,21 @@ function applyChat(db, chatId, p, computed) {
  * Apply the chosen proposals, each re-checked just before its write, each result saying what happened.
  * @returns {Array<{id, status, reason?, result?}>}
  */
-export function applyProposals(db, chatId, snapshot, proposals, selfAnchors = null, later = null) {
+export function applyProposals(db, chatId, snapshot, proposals, selfAnchors = null, later = null, { paths = null } = {}) {
     const out = [];
     // seeded from earlier applies and grown as the batch writes, so two edits to one message both land
     const self = { ...(selfAnchors || {}) };
     const note = (key, anchor) => { if (anchor) self[key] = [...(self[key] || []), anchor]; };
-    for (const p of orderProposals(proposals)) {
+    // each field engine lands as one write: its proposals judged together on a working copy, then stored once
+    for (const engine of FIELD_ENGINES) {
+        const mine = proposals.filter(p => p.engine === engine);
+        if (!mine.length) continue;
+        for (const r of applyFieldEngine(db, chatId, snapshot, engine, mine, self, later, paths)) {
+            if (r.result?.newAnchor) note(selfKeyCard(r.result.target, r.result.engine || engine), r.result.newAnchor);
+            out.push(r);
+        }
+    }
+    for (const p of orderProposals(proposals.filter(p => !FIELD_ENGINES.has(p.engine)))) {
         const verdict = checkProposal(db, chatId, snapshot, p, self, later);
         if (verdict.status !== 'ready') {
             out.push({ id: p.id, status: verdict.status, reason: verdict.reason });

@@ -1,7 +1,7 @@
 // Prompt manager: the block list of the active preset, shown inside the conversation.
 
 import CoreAPI from '../core-api.js';
-import { registerFeedPatcher } from '../feed.js';
+import { registerFeedPatcher, movesChatPick } from '../feed.js';
 import { mountChatWindow, openChatWindow, closeChatWindow, registerChatWindow } from './window.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
@@ -233,9 +233,7 @@ async function savePreset(parts = ['blocks']) {
 
 // a preset written elsewhere, another made the default (a setting naming activePresetId) or this chat's own picked: re-read unless a save or drawer holds it
 function patchPresetsFromFeed(records) {
-    const moves = (r) => r.all || r.entity === 'preset'
-        || (r.entity === 'setting' && (r.ids || []).includes('activePresetId'))
-        || (r.entity === 'chat' && (r.ids || []).includes(_chatId) && (!r.fields || r.fields.includes('presetId')));
+    const moves = (r) => movesChatPick(r, { entity: 'preset', setting: 'activePresetId', chatId: _chatId, chatField: 'presetId' });
     if (records && !records.some(moves)) return;
     if (!panelOpen) return;
     if (savingPreset || presetSaveQueued || _editingId || _settingsOpen) { _staleFromFeed = true; return; }
@@ -1010,6 +1008,8 @@ function openDrawer(id) {
     _editingId = _editingId === id ? null : id;
     renderList();
     renderDrawer();
+    // the row's pen closing the drawer is a close too: a write held for it is read now
+    if (!_editingId && _staleFromFeed) patchPresetsFromFeed();
 }
 
 function closeDrawer() {

@@ -125,7 +125,7 @@ const FIELDS = [
                 label: 'Render HTML blocks',
                 kind: 'toggle',
                 hint: 'Some cards and models write styled panels (status blocks, trackers) as HTML. With this on, '
-                    + 'a complete block renders as intended; scripts and event handlers are always stripped, and comments '
+                    + 'a complete block renders as intended, its styles kept to its own message; scripts and event handlers are always stripped, and comments '
                     + 'and tags that are not HTML (a preset\'s own markers) are hidden, their text kept. Off shows the raw tags.',
             },
             {

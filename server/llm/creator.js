@@ -17,6 +17,8 @@ export const DRAFT_FIELDS = [
     ['creator_notes', 'Creator notes'],
 ];
 const DRAFT_FIELD_KEYS = DRAFT_FIELDS.map(([k]) => k);
+/** Who applies a studio change and what it reaches, in the notes the model is sent. */
+export const STUDIO_WORDS = Object.freeze({ where: 'the draft', who: 'author' });
 const DRAFT_LABEL = Object.fromEntries(DRAFT_FIELDS);
 
 const MAX_FIELD = 200000;
@@ -255,7 +257,7 @@ export function buildCreatorPrompt({
     const ack = { role: 'assistant', content: 'Read. What are we working on?' };
     const system = { role: 'system', content: creatorSystemPrompt(systemPrompt, { name: draft.name }) };
     const steer = scopeNote(scope, selection);
-    const turns = transcriptTurns(transcript, { where: 'the draft', who: 'author' }, pictures);
+    const turns = transcriptTurns(transcript, STUDIO_WORDS, pictures);
     // the steer rides the LAST author turn so it applies to this ask and never to history
     if (steer && turns.length && turns[turns.length - 1].role === 'user') {
         const last = turns[turns.length - 1];

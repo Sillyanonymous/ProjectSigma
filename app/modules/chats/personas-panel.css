@@ -91,6 +91,9 @@
    chats.css); only the width stays local. */
 .cpp-input { width: 100%; }
 
+/* the changed-elsewhere band sits in the editor's column, whose gap already spaces it */
+.cpp-band { margin-bottom: 0; }
+
 .cpp-editor-acts {
     display: flex;
     justify-content: flex-end;

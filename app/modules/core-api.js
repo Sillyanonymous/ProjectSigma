@@ -314,6 +314,15 @@ export function showConfirm(opts) {
 }
 
 /**
+ * The house's discard confirm over typing not saved yet ("Discard unsaved edits?", Keep Editing); never rejects.
+ * @param {string} subject what the typing changes, as the sentence names it
+ * @returns {Promise<boolean>} true when the reader lets it go
+ */
+export function confirmDiscardEdits(subject) {
+    return window.confirmDiscardEdits?.(subject) ?? Promise.resolve(false);
+}
+
+/**
  * The footer verb of a running operation, in one of its three states.
  * @param {HTMLButtonElement} btn a .cl-btn
  * @param {'running'|'stopping'|'done'} state Cancel (red on hover) / Stopping... (disabled) / Close (neutral)
@@ -1855,6 +1864,7 @@ export default {
     showToast,
     summarizeImportActivity,
     showConfirm,
+    confirmDiscardEdits,
     setRunVerb,
     openSettingsToSection,
     savePresetPicker,

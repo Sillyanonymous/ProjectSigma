@@ -3944,7 +3944,7 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
                 if (/(?:Download|Import|Extract)Btn$/i.test(c.id || '')) return c;
             }
             for (const c of candidates) {
-                if (!c.classList.contains('secondary')) return c;
+                if (!c.classList.contains('cl-btn-secondary')) return c;
             }
             return null;
         }
@@ -3957,8 +3957,9 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
                 return;
             }
             let state = 'primary';
-            if (sourceBtn.classList.contains('warning')) state = 'warning';
-            else if (sourceBtn.classList.contains('secondary')) state = 'secondary';
+            // the classes stampImportButton writes
+            if (sourceBtn.classList.contains('cl-btn-warning')) state = 'warning';
+            else if (sourceBtn.classList.contains('cl-btn-secondary')) state = 'secondary';
             quickBtn.setAttribute('data-state', state);
             const icon = sourceBtn.querySelector('i');
             if (icon) {
