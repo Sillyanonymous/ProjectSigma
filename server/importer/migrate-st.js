@@ -12,11 +12,12 @@ import { mergePlaylistsDoc } from '../db/playlists-store.js';
 import { createPersona, setActivePersona } from '../db/personas-store.js';
 import { importCharacterPng, importChatsDir, legacyGalleryFolders } from './import-st.js';
 import { snapshotCardAsItStood } from './card-import.js';
-import { upsertWorld } from '../db/worlds-store.js';
+import { importWorld } from '../db/worlds-store.js';
 import { applyWorldsFor } from '../db/world-links-store.js';
 import { verifyStMigration, PERSONA_PICTURES_KEY } from './verify-st-migration.js';
 import { EXT_SETTINGS_KEY, STORE_DOC_MAP, CSS_SETTING_KEYS, stWorldInfo } from './st-layout.js';
 import { warmAvatarThumbs, warmMediaThumbs } from '../lib/thumb-warm.js';
+import { progressLine, progressReporter } from './progress-line.js';
 
 // the one-time ST-with-extension to standalone migration: filename-first identity, duplicates as copies, the whole estate, a run that verifies itself
 
@@ -101,8 +102,9 @@ function probeIdentityOwner(stmts, info) {
 /**
  * Build the migration plan, read-only over source and target: each PNG's action, the duplicate groups, the inventory, the sizes.
  * @param {object|null} db open target db for alias probes; null = probe nothing (fresh)
+ * @param {(p: {done: number, total: number}) => void} [opts.onProgress] the card files read so far
  */
-export function scanStDir(userDir, { only = null, sample = null, excludeTags = [] } = {}, db = null) {
+export function scanStDir(userDir, { only = null, sample = null, excludeTags = [], onProgress = null } = {}, db = null) {
     const charactersDir = path.join(userDir, 'characters');
     if (!fs.existsSync(charactersDir)) {
         throw new Error(`no characters/ folder under ${userDir}; point at the ST user data dir (eg. data/default-user)`);
@@ -113,12 +115,15 @@ export function scanStDir(userDir, { only = null, sample = null, excludeTags = [
     const files = [];
     const noCard = [];
     const excluded = [];
-    for (const file of listPngs(charactersDir)) {
+    const pngs = listPngs(charactersDir);
+    for (const [i, file] of pngs.entries()) {
+        onProgress?.({ done: i, total: pngs.length });
         const info = scanPng(path.join(charactersDir, file));
         if (!info) { noCard.push(file); continue; }
         if (exclude.length && info.tags.some(t => exclude.includes(t))) { excluded.push(file); continue; }
         files.push(info);
     }
+    onProgress?.({ done: pngs.length, total: pngs.length });
 
     // duplicate groups over the WHOLE source (report view): union files sharing any
     // identity key the resolver consults
@@ -273,9 +278,10 @@ export function scanStDir(userDir, { only = null, sample = null, excludeTags = [
     };
 }
 
-function importVersions(db, filesDir, plan, fileToChar, summary) {
+function importVersions(db, filesDir, plan, fileToChar, summary, tick) {
     for (const info of plan) {
         if (!info.versionUid) continue;
+        tick();
         const charId = fileToChar.get(info.file);
         if (!charId) continue;
         const doc = readJsonFile(path.join(filesDir, `${CLV_PREFIX}${info.versionUid}.json`));
@@ -292,23 +298,23 @@ function importVersions(db, filesDir, plan, fileToChar, summary) {
     }
 }
 
-function importCharLore(db, settings, baseToChar, summary) {
+function importCharLore(db, settings, baseToChar, summary, worldName) {
     const { charLore } = stWorldInfo(settings);
     const entries = Array.isArray(charLore) ? charLore : [];
     for (const entry of entries) {
         if (!entry || typeof entry.name !== 'string') continue;
         const charId = baseToChar.get(entry.name);
         if (!charId) { summary.charLoreUnmatched++; continue; }
-        const books = Array.isArray(entry.extraBooks) ? entry.extraBooks.filter(b => typeof b === 'string' && b) : [];
+        const books = Array.isArray(entry.extraBooks) ? entry.extraBooks.filter(b => typeof b === 'string' && b).map(worldName) : [];
         summary.charLoreLinks += applyWorldsFor(db, 'char', charId, { add: books, ensure: true }).added.length;
     }
 }
 
-function importGlobalWorlds(db, settings, summary) {
+function importGlobalWorlds(db, settings, summary, worldName) {
     const { globalSelect } = stWorldInfo(settings);
     const names = Array.isArray(globalSelect) ? globalSelect : [];
-    // worlds import under their ST filename base so globalSelect matches verbatim; appended after existing rows, so re-runs are idempotent
-    summary.globalWorlds += applyWorldsFor(db, 'global', null, { add: names.filter(n => typeof n === 'string'), ensure: true }).added.length;
+    // the link writer trims each name as the worlds were stored; appended after existing rows, so re-runs are idempotent
+    summary.globalWorlds += applyWorldsFor(db, 'global', null, { add: names.filter(n => typeof n === 'string').map(worldName), ensure: true }).added.length;
 }
 
 function importPlaylists(db, doc, fileToChar, summary) {
@@ -331,7 +337,7 @@ function importPlaylists(db, doc, fileToChar, summary) {
     summary.playlists = Object.keys(translated.playlists).length;
 }
 
-function importPersonas(db, paths, userDir, settings, summary) {
+function importPersonas(db, paths, userDir, settings, summary, worldName) {
     const personas = settings?.power_user?.personas;
     if (!personas || typeof personas !== 'object') return;
     const descriptions = settings.power_user?.persona_descriptions || {};
@@ -369,7 +375,7 @@ function importPersonas(db, paths, userDir, settings, summary) {
                 row.avatar = `${row.id}.png`;
             }
             // ST binds at most one lorebook per persona; it joins the end of the native ordered list
-            const book = typeof descriptions[avatarId]?.lorebook === 'string' ? descriptions[avatarId].lorebook.trim() : '';
+            const book = typeof descriptions[avatarId]?.lorebook === 'string' ? worldName(descriptions[avatarId].lorebook).trim() : '';
             if (book && applyWorldsFor(db, 'persona', row.id, { add: [book], ensure: true }).added.length) summary.personaWorlds++;
             if (settings.power_user?.default_persona === avatarId) setActivePersona(db, row.id);
         } catch (err) {
@@ -417,6 +423,7 @@ export function migrateStDir(userDir, opts = {}) {
         dryRun = false, verify = true, verifyMode = null, reportPath = null, force = false,
     } = opts;
     const log = typeof opts.log === 'function' ? opts.log : () => {};
+    const step = stepReporter(dryRun ? null : opts.progress);
     if (!handle) throw new Error('a target user handle is required (--user <handle>)');
     userDir = path.resolve(userDir);
 
@@ -442,7 +449,8 @@ export function migrateStDir(userDir, opts = {}) {
             throw new Error(`target "${handle}" was finalized after a migration (${finalized.value}); `
                 + 'its ST-era aliases were purged, so a re-run would DUPLICATE every character. Pass --force only if that is really what you want.');
         }
-        const scan = scanStDir(userDir, { only, sample, excludeTags }, db || probeDb);
+        const read = step('read', 'Read the folder', 'cards');
+        const scan = scanStDir(userDir, { only, sample, excludeTags, onProgress: ({ done, total }) => read(done, total) }, db || probeDb);
         log(`plan: ${scan.counts.selected}/${scan.counts.cards} cards selected `
             + `(${scan.counts.create} create, ${scan.counts.heal} heal, ${scan.counts.copy} copy), `
             + `${scan.counts.worlds} worlds, ${scan.counts.chatDirsMatched} chat folders, `
@@ -462,7 +470,7 @@ export function migrateStDir(userDir, opts = {}) {
         const paths = ensureUserDirs(handle);
         const summary = {
             imported: 0, healed: 0, copies: 0, skipped: [], errors: [],
-            worlds: 0, chats: 0, chatsUnmatched: 0, chatLinesDropped: 0,
+            worlds: 0, worldsRenamed: [], chats: 0, chatsUnmatched: 0, chatLinesDropped: 0,
             mediaImported: 0, mediaSkipped: 0,
             versionChars: 0, versionSnapshots: 0, versionSnapshotsHeld: 0,
             charLoreLinks: 0, charLoreUnmatched: 0, globalWorlds: 0,
@@ -471,24 +479,44 @@ export function migrateStDir(userDir, opts = {}) {
             storeDocs: 0, storeDocsOverwritten: [], cssSettings: 0,
         };
 
-        // worlds first: cheap, and chat metadata may name them
+        // worlds first: chat metadata may name them. Each lands trimmed, as link writers trim; an already-trimmed file claims its name first
         const worldsDir = path.join(userDir, 'worlds');
-        for (const file of scan.worlds) {
+        const baseOf = (file) => path.basename(file, path.extname(file));
+        const spaced = (file) => baseOf(file) !== baseOf(file).trim();
+        const written = new Set();
+        const renamed = new Map(); // ST's name -> the stored one, where it is no plain trim
+        const worldsStep = step('worlds', 'Lorebooks', 'lorebooks');
+        let worldsDone = 0;
+        worldsStep(0, scan.worlds.length);
+        for (const file of [...scan.worlds.filter(f => !spaced(f)), ...scan.worlds.filter(spaced)]) {
             try {
                 const data = JSON.parse(fs.readFileSync(path.join(worldsDir, file), 'utf8'));
-                upsertWorld(db, path.basename(file, path.extname(file)), data, { imported: true });
+                // a name held from before this run is healed in place; one this run already wrote is another book
+                const stored = importWorld(db, baseOf(file), data, { replaces: (n) => !written.has(n) });
+                written.add(stored);
+                if (stored !== baseOf(file).trim()) {
+                    renamed.set(baseOf(file), stored);
+                    summary.worldsRenamed.push({ from: baseOf(file), to: stored });
+                    log(`lorebook "${baseOf(file)}" stored as "${stored}": another file has the same name apart from spaces`);
+                }
                 summary.worlds++;
             } catch (err) {
                 summary.errors.push({ file, error: err.message });
             }
+            worldsStep(++worldsDone, scan.worlds.length);
         }
+        // a link names a book as ST did; the writers trim it, so only a renamed book needs its stored name handed over
+        const worldName = (name) => (renamed.has(name) ? renamed.get(name) : name);
+        const mapsWorlds = renamed.size ? worldName : null;
 
         const charactersDir = path.join(userDir, 'characters');
         const imagesRoot = path.join(userDir, 'user', 'images');
         const galleryOpts = fs.existsSync(imagesRoot) ? { imagesRoot, counters: summary } : {};
         const fileToChar = new Map();
         const baseToChar = new Map();
+        const charsStep = step('characters', 'Characters', 'characters');
         let done = 0;
+        charsStep(0, scan.plan.length);
         for (const info of scan.plan) {
             try {
                 const result = importCharacterPng(db, paths, path.join(charactersDir, info.file), {
@@ -497,22 +525,27 @@ export function migrateStDir(userDir, opts = {}) {
                         action: info.action === 'heal' ? 'heal' : info.action === 'copy' ? 'copy' : 'create',
                         id: info.targetId,
                         aliasMode: info.aliasMode,
+                        ...(mapsWorlds ? { worldName: mapsWorlds } : {}),
                         // a heal overwrites a card the reader may have edited since: a changed one is snapshotted first, as a Replace does
                         before: info.action === 'heal' ? (dbIn, charId, { contentHash, storedHash }) => {
                             if (storedHash !== contentHash) snapshotCardAsItStood(dbIn, paths, charId, 'Before SillyTavern migration');
                         } : undefined,
                     },
                 });
-                if (!result) { summary.skipped.push(info.file); continue; }
-                fileToChar.set(info.file, result.id);
-                baseToChar.set(info.base, result.id);
-                if (info.action === 'heal') summary.healed++;
-                else if (info.action === 'copy') summary.copies++;
-                else summary.imported++;
+                // a skipped card still counts below, so the step and its log line reach the total
+                if (!result) summary.skipped.push(info.file);
+                else {
+                    fileToChar.set(info.file, result.id);
+                    baseToChar.set(info.base, result.id);
+                    if (info.action === 'heal') summary.healed++;
+                    else if (info.action === 'copy') summary.copies++;
+                    else summary.imported++;
+                }
             } catch (err) {
                 summary.errors.push({ file: info.file, error: err.message });
             }
-            if (++done % 100 === 0 || done === scan.plan.length) {
+            charsStep(++done, scan.plan.length);
+            if (done % 100 === 0 || done === scan.plan.length) {
                 log(`characters ${done}/${scan.plan.length} (media ${summary.mediaImported}, errors ${summary.errors.length})`);
             }
         }
@@ -520,17 +553,29 @@ export function migrateStDir(userDir, opts = {}) {
         const filesDir = path.join(userDir, 'user', 'files');
         const settings = readJsonFile(path.join(userDir, 'settings.json'));
         // personas before chats: a greeting stored expanded names the ST default persona, as ST showed it
-        importPersonas(db, paths, userDir, settings, summary);
+        importPersonas(db, paths, userDir, settings, summary, worldName);
 
-        importChatsDir(db, path.join(userDir, 'chats'), summary, { allowDirs: new Set(scan.selectedBases) });
+        const chatsStep = step('chats', 'Chats', 'chat folders');
+        let chatDirsDone = 0;
+        chatsStep(0, scan.counts.chatDirsMatched);
+        importChatsDir(db, path.join(userDir, 'chats'), summary, {
+            allowDirs: new Set(scan.selectedBases),
+            worldName: mapsWorlds,
+            onDir: () => chatsStep(++chatDirsDone, scan.counts.chatDirsMatched),
+        });
         log(`chats ${summary.chats} imported, ${summary.chatsUnmatched} unmatched${summary.chatLinesDropped ? `, ${summary.chatLinesDropped} lines dropped (torn, or not a message)` : ''}`);
 
-        importVersions(db, filesDir, scan.plan, fileToChar, summary);
-        importCharLore(db, settings, baseToChar, summary);
-        importGlobalWorlds(db, settings, summary);
+        const restStep = step('rest', 'Versions and the rest', 'version files');
+        const versionFiles = scan.plan.filter(info => info.versionUid).length;
+        let versionsDone = 0;
+        restStep(0, versionFiles);
+        importVersions(db, filesDir, scan.plan, fileToChar, summary, () => restStep(versionsDone++, versionFiles));
+        importCharLore(db, settings, baseToChar, summary, worldName);
+        importGlobalWorlds(db, settings, summary, worldName);
         importPlaylists(db, readJsonFile(path.join(filesDir, '_cl_playlists.json')), fileToChar, summary);
         importStoreDocs(db, filesDir, summary);
         importCssSettings(db, settings, summary);
+        restStep(versionFiles, versionFiles);
 
         // the cards this run brought over, so the finalize verifies the same set, not every card in the folder
         db.prepare('INSERT OR REPLACE INTO app_store (key, value, updated_at) VALUES (?, ?, ?)')
@@ -541,7 +586,8 @@ export function migrateStDir(userDir, opts = {}) {
             // deep once, quick after: the byte re-hash proves read-equals-written on the first clean pass; re-runs never rewrite media
             const mode = resolveVerifyMode(db, verifyMode);
             log(`verifying source against target (${mode})...`);
-            verifyOut = verifyStMigration(userDir, db, paths, { files: scan.selectedFiles, mediaBytes: mode === 'full' });
+            const checkStep = step('check', 'Check the result', 'characters and lorebooks');
+            verifyOut = verifyStMigration(userDir, db, paths, { files: scan.selectedFiles, mediaBytes: mode === 'full', onProgress: ({ done: d, total }) => checkStep(d, total) });
             verifyOut.mode = mode;
             log(verifyOut.findings.length
                 ? `VERIFY FAILED: ${verifyOut.findings.length} finding(s)`
@@ -568,33 +614,49 @@ export function migrateStDir(userDir, opts = {}) {
     }
 }
 
-/** Declare the migration done: a final verify, then the ST-era aliases purged; one-way, a later run is refused by the marker. */
+/**
+ * Declare the migration done: a final verify, then the ST-era aliases purged; one-way, a later run is refused by the marker.
+ * @returns {{ok: boolean, purged?: number, findings: string[], verify: object|null}} verify is the final check's answer, null under force
+ */
 export function finalizeStMigration(userDir, opts = {}) {
     const { handle = null, force = false, verifyMode = null } = opts;
     const log = typeof opts.log === 'function' ? opts.log : () => {};
+    const step = stepReporter(opts.progress);
     if (!handle) throw new Error('a target user handle is required (--user <handle>)');
     const db = openDb(handle);
     try {
         const paths = ensureUserDirs(handle);
+        let verify = null;
         if (!force) {
             const mode = resolveVerifyMode(db, verifyMode);
             log(`final parity verify before the point of no return (${mode})...`);
             // the set the last run brought over: cards it left out on purpose would each read as a card with no character
             let files = null;
             try { files = JSON.parse(db.prepare("SELECT value FROM app_store WHERE key = 'st-migration-selection'").get()?.value || 'null')?.files || null; } catch { files = null; }
-            const out = verifyStMigration(path.resolve(userDir), db, paths, { files, mediaBytes: mode === 'full' });
-            if (out.findings.length) return { ok: false, findings: out.findings };
-            log(`verify clean (${out.checked} checks, ${mode})`);
+            const checkStep = step('check', 'Final check', 'characters and lorebooks');
+            verify = { mode, ...verifyStMigration(path.resolve(userDir), db, paths, { files, mediaBytes: mode === 'full', onProgress: ({ done, total }) => checkStep(done, total) }) };
+            if (verify.findings.length) return { ok: false, findings: verify.findings, verify };
+            log(`verify clean (${verify.checked} checks, ${mode})`);
         }
+        const purgeStep = step('purge', 'Remove the SillyTavern-era records', '');
+        purgeStep(0, 1);
         const purged = db.prepare(
             "DELETE FROM char_aliases WHERE kind IN ('avatar_file', 'version_uid', 'gallery_id')").run().changes;
         db.prepare('INSERT OR REPLACE INTO app_store (key, value, updated_at) VALUES (?, ?, ?)')
             .run('st-migration-finalized', JSON.stringify({ at: Date.now(), source: path.resolve(userDir), purged }), Date.now());
+        purgeStep(1, 1);
         log(`purged ${purged} ST-era alias row(s); the library is native-pure`);
-        return { ok: true, purged, findings: [] };
+        return { ok: true, purged, findings: [], verify };
     } finally {
         closeDb(handle);
     }
+}
+
+// one step's progress records ({ step, label, done, total, unit }) through the caller's reporter; nothing without one
+function stepReporter(progress) {
+    return (key, label, unit) => (done, total, extra) => {
+        if (typeof progress === 'function') progress({ step: key, label, done, total, unit, ...extra });
+    };
 }
 
 /** A home's migration markers (finalized, verified) read without holding the library open; nulls for a home with no library. */
@@ -650,16 +712,22 @@ if (isCli) {
         else if (a === '--force') opts.force = true;
         else if (a === '--warm-thumbs') opts.warmThumbs = true;
         else if (a === '--report') opts.reportPath = args[++i];
+        else if (a === '--progress-lines') opts.progressLines = true;
         else userDir = a;
     }
     if (!userDir || !opts.handle) {
-        console.error('usage: node server/importer/migrate-st.js <st-user-data-dir> --user <handle> [--dry-run] [--only <name|file>]... [--sample N] [--exclude-tag <tag>]... [--warm-thumbs] [--finalize] [--force] [--verify full|fast|off] [--report <path>]');
+        console.error('usage: node server/importer/migrate-st.js <st-user-data-dir> --user <handle> [--dry-run] [--only <name|file>]... [--sample N] [--exclude-tag <tag>]... [--warm-thumbs] [--finalize] [--force] [--verify full|fast|off] [--report <path>] [--progress-lines]');
         process.exit(1);
     }
     if (!opts.only.length) opts.only = null;
+    // each step's progress as a marked line beside the human ones, for the wizard's route, which asks for them and draws its bar
+    if (opts.progressLines) opts.progress = progressReporter((record) => console.log(progressLine(record)));
     if (finalize) {
         try {
-            const out = finalizeStMigration(userDir, { handle: opts.handle, force: opts.force, verifyMode: opts.verifyMode, log: m => console.log(m) });
+            const out = finalizeStMigration(userDir, { handle: opts.handle, force: opts.force, verifyMode: opts.verifyMode, progress: opts.progress, log: m => console.log(m) });
+            if (opts.reportPath) {
+                fs.writeFileSync(opts.reportPath, JSON.stringify({ mode: 'finalize', at: Date.now(), handle: opts.handle, ok: out.ok, purged: out.purged ?? 0, verify: out.verify }, null, 2));
+            }
             if (!out.ok) {
                 for (const f of out.findings.slice(0, 50)) console.error(`VERIFY ${f}`);
                 console.error('finalize REFUSED: fix the findings (or re-run the migration to heal), then retry');
@@ -682,14 +750,24 @@ if (isCli) {
                 + `errors ${summary.errors.length}`);
             for (const e of summary.errors) console.error(`ERROR ${e.file}: ${e.error}`);
             if (opts.warmThumbs) {
-                console.log('warming avatar thumbnails...');
-                const progress = (done, total) => { if (done % 2000 === 0) console.log(`thumbs ${done}/${total}`); };
-                const a = await warmAvatarThumbs(userPaths(opts.handle), { onProgress: progress });
-                console.log(`avatar thumbs: ${a.generated} generated, ${a.failed} failed; warming gallery thumbnails...`);
+                // counted before the first is made, so the total stands; a thumbnail already made counts as done
+                const warmStep = (key, label, what) => {
+                    const report = stepReporter(opts.progress)(key, label, 'thumbnails');
+                    let counted = {};
+                    return {
+                        onCount: (c) => { counted = { sources: c.sources, sizes: c.sizes }; report(0, c.total, counted); console.log(`${label.toLowerCase()}: ${c.total} for ${c.sources} ${what} (${c.sizes} size${c.sizes === 1 ? '' : 's'} each)`); },
+                        onProgress: (done, total) => {
+                            report(done, total, counted);
+                            if (done % 2000 === 0) console.log(`${label.toLowerCase()} ${done}/${total}`);
+                        },
+                    };
+                };
+                const a = await warmAvatarThumbs(userPaths(opts.handle), warmStep('thumbs', 'Portrait thumbnails', 'portraits'));
+                console.log(`portrait thumbnails: ${a.generated} generated, ${a.cached} already there, ${a.failed} failed`);
                 const wdb = openDb(opts.handle);
-                const m = await warmMediaThumbs(wdb, userPaths(opts.handle), { onProgress: progress });
+                const m = await warmMediaThumbs(wdb, userPaths(opts.handle), warmStep('gallery-thumbs', 'Gallery thumbnails', 'pictures (videos and sounds get none)'));
                 closeDb(opts.handle);
-                console.log(`gallery thumbs: ${m.generated} generated, ${m.failed} failed`);
+                console.log(`gallery thumbnails: ${m.generated} generated, ${m.cached} already there, ${m.failed} failed`);
             } else {
                 console.log('note: thumbnails generate on first view, so the first browse of a large library');
                 console.log('feels slow. Pre-generate them with --warm-thumbs, or from Settings inside the app.');

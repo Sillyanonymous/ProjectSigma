@@ -369,11 +369,6 @@ function wireBrowseErrorDelegate() {
             ctx.retry?.();
             return;
         }
-        const guideBtn = e.target.closest('.browse-banner-guide');
-        if (guideBtn) {
-            CoreAPI.openUserGuide(guideBtn.dataset.guide);
-            return;
-        }
         if (e.target.closest('.browse-banner-report')) {
             const ok = await CoreAPI.copyTextToClipboard(await buildBrowseErrorReport(ctx));
             CoreAPI.showToast(ok ? 'Error report copied to clipboard' : 'Could not copy to clipboard', ok ? 'success' : 'error');
@@ -405,7 +400,7 @@ export function renderBrowseError(grid, { provider, error, message, title, view 
             ${message || error?.message ? `<p>${esc(message || error.message)}</p>` : ''}
             <div class="browse-error-actions">
                 ${retry ? '<button class="glass-btn browse-banner-retry"><i class="fa-solid fa-redo"></i> Retry</button>' : ''}
-                ${guide ? `<button class="glass-btn browse-banner-guide" data-guide="${esc(guide.section)}"><i class="fa-solid fa-book-open"></i> ${esc(guide.label)}</button>` : ''}
+                ${guide ? `<button class="glass-btn browse-banner-guide" data-guide-link="${esc(guide.section)}"><i class="fa-solid fa-book-open"></i> ${esc(guide.label)}</button>` : ''}
                 <button class="glass-btn browse-banner-report"><i class="fa-solid fa-copy"></i> Copy Error Report</button>
             </div>
         </div>
@@ -424,9 +419,10 @@ export function renderBrowseError(grid, { provider, error, message, title, view 
  * @param {string} [opts.message] - body line
  * @param {string} [opts.hint] - muted secondary line (cta layout)
  * @param {Array<{key:string,label:string,icon?:string,variant?:string}>} [opts.actions] - buttons
+ * @param {{label: string, section: string}} [opts.guide] - a button opening the user guide at that section
  * @returns {string}
  */
-export function buildProviderNotice({ kind = 'info', layout = 'banner', icon, title, message, hint, actions = [] } = {}) {
+export function buildProviderNotice({ kind = 'info', layout = 'banner', icon, title, message, hint, actions = [], guide } = {}) {
     const esc = CoreAPI.escapeHtml;
     const DEFAULT_ICON = { locked: 'fa-lock', hidden: 'fa-eye-slash', warning: 'fa-triangle-exclamation', error: 'fa-triangle-exclamation', info: 'fa-circle-info' };
     const iconClass = icon || `fa-solid ${DEFAULT_ICON[kind] || DEFAULT_ICON.info}`;
@@ -436,7 +432,9 @@ export function buildProviderNotice({ kind = 'info', layout = 'banner', icon, ti
         const variant = layout === 'cta' ? `cl-btn-${a.variant || 'primary'}` : (a.variant || '');
         const ico = a.icon ? `<i class="${a.icon}"></i> ` : '';
         return `<button type="button" class="${btnBase}${variant ? ' ' + variant : ''} browse-notice-action" data-notice-action="${esc(a.key)}">${ico}${esc(a.label)}</button>`;
-    }).join('');
+    }).join('')
+        // the app's data-guide-link handler opens it, so no caller wires the guide button
+        + (guide ? `<button type="button" class="${btnBase}${layout === 'cta' ? ' cl-btn-secondary' : ''} browse-notice-action" data-guide-link="${esc(guide.section)}"><i class="fa-solid fa-book-open"></i> ${esc(guide.label)}</button>` : '');
     const actionsHtml = btns ? `<div class="browse-notice-actions">${btns}</div>` : '';
     // banner actions are a flex sibling of the body so margin-left:auto trails them on the text row
     return `
@@ -458,10 +456,11 @@ export function buildProviderNotice({ kind = 'info', layout = 'banner', icon, ti
  * import gets now.
  * @param {string} [consequence] - what importing now does, in the provider's words
  * @param {string} [reason] - the headline, when the provider knows why it failed
+ * @param {{label: string, section: string}} [guide] - a button opening the user guide at that section
  * @returns {string}
  */
-export function definitionFailedNotice(consequence, reason = "Could not load this character's definition.") {
-    return buildProviderNotice({ kind: 'warning', layout: 'cta', message: reason, hint: consequence });
+export function definitionFailedNotice(consequence, reason = "Could not load this character's definition.", guide) {
+    return buildProviderNotice({ kind: 'warning', layout: 'cta', message: reason, hint: consequence, guide });
 }
 
 /**
@@ -962,6 +961,9 @@ export function getBrowserEndpoint() {
     return (CoreAPI.getSetting('browserEndpoint') || '').trim();
 }
 
+/** The guide's Hosted Browser section, for every notice that sends a reader there to add or set up a browser. */
+export const HOSTED_BROWSER_GUIDE = Object.freeze({ label: 'Hosted Browser in the guide', section: 'online/the-hosted-browser' });
+
 /** Whether a browser is configurable, not whether one is up: managed mode starts it lazily. */
 export function hasBrowserEndpoint() {
     return getBrowserMode() === 'managed' ? true : !!getBrowserEndpoint();
@@ -1004,7 +1006,10 @@ export async function serviceCall(route, body, { timeoutMs = 180000, signal = nu
     if (signal?.aborted) throw cancelled();
     // spelled here, not readAnswer: a service refuses with ok: false too, and the words name the service
     if (!resp.ok || data?.ok === false) {
-        throw new Error(data?.error || `The ${label} service returned HTTP ${resp.status}`);
+        const err = new Error(data?.error || `The ${label} service returned HTTP ${resp.status}`);
+        // the service's own code, when it names one (NO_BROWSER: no browser installed for it to start)
+        if (typeof data?.code === 'string') err.code = data.code;
+        throw err;
     }
     // a 2xx with no JSON is something in front of the server answering for it
     if (!data) throw new Error(`The ${label} service answered without a body (HTTP ${resp.status})`);

@@ -1,10 +1,11 @@
 // The assistant: an out-of-character writing partner beside the conversation; the server assembles, parses, judges and applies.
 
 import CoreAPI from '../core-api.js';
+import { effortFieldHtml, EFFORT_HINT_TAIL } from '../connection-editor.js';
 import { CHAT_PURIFY_CONFIG } from '../providers/provider-utils.js';
 import { mountChatWindow, syncRangeFill, syncFieldAvailability, openChatWindow, closeChatWindow, registerChatWindow, STORED_TEXT } from './window.js';
 import { registerFeedPatcher } from '../feed.js';
-import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldEditKey, fieldCardLabel, canRetry, retryAskText, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, paintPanelStatus, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldEditKey, fieldCardLabel, canRetry, retryAskText, reviewActsHtml, reviewEditBoxHtml, reviewCardHtml, reviewEditedFlagHtml, reviewApproximateFlagHtml, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, attachToChat, followPictureRemovals, followConnectionWrites } from '../ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 
@@ -256,6 +257,15 @@ function sourcesGroupHtml() {
 
 /** The engine switches, each with what it needs said when that is off. */
 const engineBlocksHtml = () => ENGINE_SETTINGS.map(k => togBlock(k, engineNeedHtml(k))).join('');
+// a context re-read under the Settings view repaints these in place, so the form and its focus stay
+function syncEngineNeeds(root) {
+    for (const key of Object.keys(ENGINE_NEEDS)) {
+        const block = root?.querySelector(`[data-set="${key}"]`)?.closest('.cl-cwin-block');
+        if (!block) continue;
+        block.querySelectorAll('.cas-over').forEach(n => n.remove());
+        block.insertAdjacentHTML('beforeend', engineNeedHtml(key));
+    }
+}
 
 /** The context view: what the assistant can see, as controls; every figure is the server's own assembly. */
 function contextViewHtml() {
@@ -690,9 +700,7 @@ const SETTING_FIELDS = [
     {
         key: 'assistantReasoningEffort',
         label: 'Reasoning effort',
-        kind: 'select',
-        options: [['', 'Connection Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']],
-        hint: 'Only reasoning models read this. Lower thinks less and answers sooner; the roleplay keeps the connection\'s own setting.',
+        hint: `Only reasoning models read this. Lower thinks less and answers sooner; the roleplay keeps the connection's own setting. ${EFFORT_HINT_TAIL}`,
     },
     {
         key: 'assistantMaxReply',
@@ -824,7 +832,10 @@ function settingsHtml() {
                         : `<p class="cl-cwin-hint">${esc(_profilesNote || 'No connections yet')}</p>`}
                     <p class="cl-cwin-hint">Which connection answers the assistant. The roleplay keeps its own.</p>
                 </div>
-                ${selBlock('assistantReasoningEffort')}
+                ${effortFieldHtml({
+                    id: 'casSet_assistantReasoningEffort', carrier: ['data-set', 'assistantReasoningEffort'],
+                    value: String(CoreAPI.getSetting('assistantReasoningEffort') || ''), hint: settingField('assistantReasoningEffort').hint,
+                })}
                 ${numBlock('assistantMaxReply')}
                 ${numBlock('assistantTemperature')}
             </div>
@@ -946,21 +957,12 @@ function render() {
         if (sel) CoreAPI.initCustomSelect(sel);
     }
 
-    // Ambient, above the composer: never a claim, just
-    // what the session holds and what the next ask roughly costs.
-    const statusEl = document.getElementById('casStatus');
-    if (statusEl) {
-        const tok = _context?.budget?.tokens;
-        const bits = [];
-        if (_messages.length) bits.push(`${_messages.length} msg${_messages.length === 1 ? '' : 's'}`);
-        if (tok) bits.push(`~${nf(tok)} tok next`);
-        statusEl.textContent = bits.join(' · ');
-        statusEl.classList.toggle('hidden', !bits.length);
-    }
+    paintStatus();
 
     if (_view === 'settings') {
         body.innerHTML = settingsHtml();
         syncRangeFill(body);
+        CoreAPI.mountEffortPicker(body.querySelector('[data-effort]'), { inheritLabel: 'Connection Default', rememberAs: 'assistantReasoningEffort' });
         body.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
         syncLiveFormattingRow();
         return;
@@ -1907,6 +1909,8 @@ async function openPanel(ctx) {
     render();
     _livePainter?.flush();
     await loadProfiles();
+    // a panel reopened on its Settings view draws the connections it just read
+    if (_view === 'settings') render();
     void syncSight();
     // not awaited: context, prompts and persona are independent of the transcript
     void refreshContext();
@@ -1945,6 +1949,11 @@ function togglePanel(ctx) {
 // CONTEXT STRIP BEHAVIOUR
 // ========================================
 
+// Ambient, above the composer: never a claim, just what the session holds and what the next ask roughly costs
+function paintStatus() {
+    paintPanelStatus(document.getElementById('casStatus'), _messages.length, _context?.budget?.tokens);
+}
+
 /** Re-read what the assistant can see: on the chat, the turn count, an engine toggle, or an applied lore edit. */
 async function refreshContext() {
     const ask = ++_contextAsk;
@@ -1960,6 +1969,8 @@ async function refreshContext() {
     // two quick switches race their reads; only the newest answer describes the settings now
     if (ask !== _contextAsk) return;
     _context = next;
+    // under Settings only what reads the context repaints: the form's redraw took the focus and a phone's keyboard from the next field
+    if (_view === 'settings') { paintStatus(); syncEngineNeeds(document.getElementById('casBody')); return; }
     render();
 }
 

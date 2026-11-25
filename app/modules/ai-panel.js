@@ -409,6 +409,21 @@ export function restoreReaderState(el, state) {
     }
 }
 
+/**
+ * The line under a panel's transcript: the messages so far and the next send's size; hidden when it has neither.
+ * @param {HTMLElement|null} el
+ * @param {number} count
+ * @param {number} [tokens]
+ */
+export function paintPanelStatus(el, count, tokens) {
+    if (!el) return;
+    const bits = [];
+    if (count) bits.push(`${count} msg${count === 1 ? '' : 's'}`);
+    if (tokens) bits.push(`~${Number(tokens).toLocaleString()} tok next`);
+    el.textContent = bits.join(' · ');
+    el.classList.toggle('hidden', !bits.length);
+}
+
 // ========================================
 // THE SCROLL PIN
 // ========================================

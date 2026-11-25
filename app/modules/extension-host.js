@@ -15,7 +15,7 @@ import { browserFetch } from './providers/provider-utils.js';
 export { guardExtensionCall };
 
 // '<major>.<minor>', the server's SERVER_EXT_API_VERSION: the minor moves with each batch of new doors
-export const EXT_API_VERSION = '2.10';
+export const EXT_API_VERSION = '2.11';
 
 // id -> { manifest, state: 'loaded'|'failed', error?, module?, styleLink? }
 const _status = new Map();

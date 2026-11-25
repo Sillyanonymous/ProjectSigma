@@ -3,10 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseStDate, chatNameTaken, parseStChatJsonl } from '../db/chats-store.js';
 import { addMediaFile, mediaExistsByName, galleryDirFor } from '../db/media-store.js';
-import { getWorld, upsertWorld } from '../db/worlds-store.js';
+import { importWorld } from '../db/worlds-store.js';
 import { headWorldFor, replaceWorldsFor } from '../db/world-links-store.js';
 import { storeSuppliedChat } from '../llm/prompt.js';
-import { crc32 } from '../lib/png-card.js';
 import { readZipIndex, readZipEntryAsync, checkArchive } from '../lib/zip.js';
 import { importCharacterBuffer } from './card-import.js';
 import { addAttachment, attachmentDirFor, setMessageAttachments } from '../db/attachments-store.js';
@@ -14,27 +13,6 @@ import { imageSizeOf } from '../lib/image-size.js';
 import { nameForBytes } from '../lib/stored-file.js';
 import { httpError } from '../lib/http-error.js';
 import { nextTurn } from '../lib/steps.js';
-
-function worldHash(data) {
-    return crc32(Buffer.from(JSON.stringify(data?.entries || {}), 'utf8'));
-}
-
-/**
- * Same NAME does not mean same BOOK: absent -> import; identical entries -> reuse;
- * different -> first free "Name (N)". Returns the final name.
- */
-function importWorld(db, name, data) {
-    const existing = getWorld(db, name);
-    // a placeholder is the slot this book was waited for in: fill it, never mint "Name (2)"
-    if (!existing || existing.placeholder) { upsertWorld(db, name, data, { imported: true }); return name; }
-    if (worldHash(existing.data) === worldHash(data)) return name;
-    for (let n = 2; ; n++) {
-        const candidate = `${name} (${n})`;
-        const clash = getWorld(db, candidate);
-        if (!clash) { upsertWorld(db, candidate, data, { imported: true }); return candidate; }
-        if (worldHash(clash.data) === worldHash(data)) return candidate;
-    }
-}
 
 // an entry as the export writes it: the books it names, and each chat file's own name
 const currentEntry = (c) => Array.isArray(c.worlds) && Array.isArray(c.chatFiles) && !!c.chatNames && typeof c.chatNames === 'object'

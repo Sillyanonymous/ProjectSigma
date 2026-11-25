@@ -61,7 +61,7 @@ thumbsRouter.post('/warm', (req, res) => {
         Object.assign(state, {
             running: false, phase: 'done',
             done: a.total + m.total, total: a.total + m.total, failed: a.failed + m.failed,
-            generated: a.generated + m.generated,
+            generated: a.generated + m.generated, cached: a.cached + m.cached,
         });
     })().catch(() => { state.running = false; });
     res.json({ ok: true, started: true });

@@ -207,7 +207,10 @@ function spawnBrowser(binary, args, opts) {
     return spawn(binary, args, opts);
 }
 
-/** Newest playwright build first, then the system browsers. Mirrors run-browser.mjs. */
+// where Termux keeps its packages when PREFIX is not passed down
+const TERMUX_PREFIX = '/data/data/com.termux/files/usr';
+
+/** Newest playwright build first, then the system browsers (Termux's on Android). Mirrors run-browser.mjs off Android. */
 function managedBrowserCandidates() {
     const out = [];
     if (process.env.CL_BROWSER) out.push(process.env.CL_BROWSER);
@@ -232,6 +235,9 @@ function managedBrowserCandidates() {
         glob(join(homedir(), 'Library/Caches/ms-playwright'), /^chromium-\d+$/, ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium']);
         out.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
                  '/Applications/Chromium.app/Contents/MacOS/Chromium');
+    } else if (process.platform === 'android') {
+        // Termux's chromium package (x11-repo) links its launcher here; no playwright build runs on Android
+        out.push(join(process.env.PREFIX || TERMUX_PREFIX, 'bin', 'chromium-browser'));
     } else {
         glob('/ms-playwright', /^chromium-\d+$/, ['chrome-linux', 'chrome']);
         glob(join(homedir(), '.cache/ms-playwright'), /^chromium-\d+$/, ['chrome-linux', 'chrome']);
@@ -243,6 +249,12 @@ function managedBrowserCandidates() {
 
 export function findManagedBrowser() {
     return managedBrowserCandidates().find(p => { try { return existsSync(p); } catch { return false; } }) || null;
+}
+
+/** What a missing browser says: the status pill and the start's error, which points at the guide for the how. */
+export function noBrowserWords(platform = process.platform) {
+    const found = platform === 'android' ? 'No Chromium found on this phone.' : 'No Chrome, Chromium or Edge found on this machine.';
+    return { status: found, error: `${found} See Hosted Browser in the user guide.` };
 }
 
 function freeLoopbackPort() {
@@ -356,9 +368,8 @@ export async function getManagedEndpoint(req, force = false) {
     _managedPending = (async () => {
         await stopManagedBrowser();
         const binary = findManagedBrowser();
-        if (!binary) {
-            throw new Error('No Chrome, Chromium or Edge found on this machine. Install one, set CL_BROWSER to its path, or switch to endpoint mode and point Project Σ at a browser elsewhere.');
-        }
+        // coded, so a browse view tells "nothing installed" from an endpoint that did not answer
+        if (!binary) throw Object.assign(new Error(noBrowserWords().error), { code: 'NO_BROWSER' });
 
         const port = await freeLoopbackPort();
         const profile = managedProfileDir();
@@ -422,7 +433,8 @@ export async function getManagedEndpoint(req, force = false) {
         armManagedReaper();
         console.log(`[provider-services] managed browser up: ${info.Browser} (${binary})`);
         return endpoint;
-    })().catch((e) => { _managedLastError = e.message; _managedFailedAt = Date.now(); throw e; })
+    // no browser installed is a few file checks, never a slow start, so it takes no cooldown (which would drop its code)
+    })().catch((e) => { _managedLastError = e.message; if (e.code !== 'NO_BROWSER') _managedFailedAt = Date.now(); throw e; })
         .finally(() => { _managedPending = null; _managedStarting = null; });
 
     return _managedPending;
@@ -596,11 +608,13 @@ export function registerBrowserRoutes(router) {
     router.get('/browser/managed/status', (req, res) => {
         if (refuseNonAdmin(req, res)) return;
         const running = managedRunning();
+        const binary = running ? _managed.binary : findManagedBrowser();
         res.json({
             running,
             endpoint: running ? _managed.endpoint : null,
             browser: running ? _managed.browser : null,
-            binary: running ? _managed.binary : findManagedBrowser(),
+            binary,
+            missing: binary ? null : noBrowserWords().status,
             userAgentOverridden: running ? !!_managed.ua : null,
             idleStopMinutes: MANAGED_IDLE_MS / 60000,
             lastError: _managedLastError,
@@ -619,11 +633,13 @@ export function registerBrowserRoutes(router) {
 
         let client = null;
         let page = null;
+        // the managed browser is started, not reached: a reader who set no endpoint is not told about one
+        const connectLabel = req.body?.managed ? 'Browser started' : 'Endpoint reachable';
         try {
             // force: pressing Test is an explicit "try again", so it skips the failure cooldown.
             const endpoint = await resolveBrowserEndpoint(req, true);
             client = await CdpClient.connect(endpoint);
-            add('connect', 'Endpoint reachable', true, client.info.Browser || 'connected');
+            add('connect', connectLabel, true, client.info.Browser || 'connected');
             add('browser', 'Browser version', true, client.info.Browser || 'unknown');
 
             page = await CdpPage.create(client);
@@ -636,27 +652,31 @@ export function registerBrowserRoutes(router) {
 
             add('script', 'Can run injected script', (await page.evaluate('1 + 1')) === 2);
 
-            // reported before Cloudflare to explain a stall, never part of the verdict: a software-rendered browser clears fine
+            // reported before Cloudflare to explain a stall, never part of the verdict: software rendering and missing codecs each clear fine
             const stack = await probeRenderStack(page);
             const software = isSoftwareRenderer(stack.renderer);
+            // a site's check carries the Cloudflare row; the browser's own test has none to point at
+            const decides = consumer ? 'the Cloudflare result below' : 'whether a site gets through: press its Check under Settings, Online';
             add('gpu', 'Hardware accelerated', stack.renderer && !software,
                 !stack.renderer
-                    ? 'Could not read the WebGL renderer, so this browser may have WebGL disabled entirely. Only a problem if the Cloudflare check below also fails.'
+                    ? `Could not read the WebGL renderer, so this browser may have WebGL disabled entirely. Not fatal by itself: what matters is ${decides}.`
                     : (software
-                        ? `Rendering with ${String(stack.renderer).slice(0, 60)}, which is software. That has historically stalled the challenge, but it is not fatal by itself: what matters is the Cloudflare result below.`
+                        ? `Rendering with ${String(stack.renderer).slice(0, 60)}, which is software. That has historically stalled the challenge, but it is not fatal by itself: what matters is ${decides}.`
                         : String(stack.renderer).slice(0, 90)),
                 true);
             add('gl-extensions', 'WebGL extension count looks desktop-class', !stack.renderer || stack.exts >= 25,
                 !stack.renderer
                     ? 'Skipped: no WebGL renderer to inspect.'
                     : (stack.exts < 25
-                        ? `Only ${stack.exts} WebGL extensions; desktop GPUs report 30+ and mobile-class GPUs sit under 20. A weaker signal than it looks: judge by the Cloudflare result below.`
+                        ? `Only ${stack.exts} WebGL extensions; desktop GPUs report 30+ and mobile-class GPUs sit under 20. A weaker signal than it looks: what matters is ${decides}.`
                         : `${stack.exts} extensions.`),
                 true);
-            add('codecs', 'H.264 and AAC available', !!stack.video && !!stack.audio,
-                (!stack.video || !stack.audio)
-                    ? 'This build has no proprietary codecs, which is a browser Chrome-branded builds always have. Playwright\'s Linux arm64 Chromium is the usual culprit; install real Chrome or a distro Chromium instead.'
-                    : 'Present.');
+            const missingCodecs = [!stack.video && 'H.264', !stack.audio && 'AAC'].filter(Boolean).join(' or ');
+            add('codecs', 'H.264 and AAC available', !missingCodecs,
+                missingCodecs
+                    ? `This build has no ${missingCodecs}, which Chrome-branded builds always have; Playwright's Linux arm64 Chromium is the usual one without. Not fatal by itself: what matters is ${decides}.`
+                    : 'Present.',
+                true);
 
             if (consumer) {
                 // the path the fetches ride, so the verdict is about the gate they meet
@@ -682,7 +702,7 @@ export function registerBrowserRoutes(router) {
         } catch (err) {
             // a post-connect failure must not contradict the already-recorded connect row
             if (!client) {
-                add('connect', 'Endpoint reachable', false, err.message);
+                add('connect', connectLabel, false, err.message);
             } else {
                 add('error', 'Test failed', false, err.message);
             }
@@ -756,7 +776,7 @@ export function registerBrowserRoutes(router) {
             // A dead or navigated-away page must not poison every later request.
             if (endpoint) await closeWarmPage(endpoint, consumer);
             console.warn(`[provider-services] browser fetch for ${consumer.id} failed:`, err.message);
-            res.status(err.statusCode || 502).json({ ok: false, error: err.message });
+            res.status(err.statusCode || 502).json({ ok: false, error: err.message, ...(err.code === 'NO_BROWSER' ? { code: err.code } : {}) });
         }
     });
 

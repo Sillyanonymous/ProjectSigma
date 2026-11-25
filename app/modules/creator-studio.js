@@ -4,7 +4,7 @@ import CoreAPI from './core-api.js';
 import { CHAT_PURIFY_CONFIG } from './providers/provider-utils.js';
 import { cardValuesEqual } from './card-fields.js';
 import { syncRangeFill, syncFieldAvailability } from './chats/window.js';
-import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldCardLabel, canRetry, retryAskText, fieldEditKey, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
+import { propKey, stripBlocks, createPromptStore, promptChipsHtml, promptsEditorHtml, settingSelectHtml, paintPanelStatus, LIVE_FORMATTING_FIELD, paintPanelReply, closePanelStream, carryPanelReply, scrollPin, redrawTranscript, readerState, restoreReaderState, markKnownEmpty, createReviewState, createPressGuard, fieldProposalCardHtml, fieldCardLabel, canRetry, retryAskText, fieldEditKey, reviewFailedHtml, reviewNudgeHtml, reviewBlockHtml, syncReviewChrome, repaintReviewCard, createLivePainter, createPictureTray, picturesHtml, openPictures, connectionSight, wirePanelComposer, followConnectionWrites } from './ai-panel.js';
 
 const esc = (s) => CoreAPI.escapeHtml(s);
 const nf = (n) => Number(n || 0).toLocaleString();
@@ -668,14 +668,7 @@ function onSettingInput(el) {
 
 // the line under the transcript: the messages so far and the next send's size
 function paintStatus() {
-    const statusEl = document.getElementById('ccsStatus');
-    if (!statusEl) return;
-    const tok = _context?.budget?.tokens;
-    const bits = [];
-    if (_messages.length) bits.push(`${_messages.length} msg${_messages.length === 1 ? '' : 's'}`);
-    if (tok) bits.push(`~${nf(tok)} tok next`);
-    statusEl.textContent = bits.join(' · ');
-    statusEl.classList.toggle('hidden', !bits.length);
+    paintPanelStatus(document.getElementById('ccsStatus'), _messages.length, _context?.budget?.tokens);
 }
 
 function render() {

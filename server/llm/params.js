@@ -5,6 +5,9 @@ import { badRequest } from './errors.js';
 const NEUTRAL_PARAMS = ['temperature', 'topP', 'topK', 'maxTokens', 'stop',
     'presencePenalty', 'frequencyPenalty', 'seed', 'reasoning', 'json'];
 
+// an effort is the host's own word, sent as-is: hosts name levels differently (none, minimal, xhigh, max), so only the shape is checked
+const EFFORT_WORD = /^[a-z0-9_-]{1,32}$/;
+
 const NUMERIC = new Set(['temperature', 'topP', 'topK', 'maxTokens', 'presencePenalty', 'frequencyPenalty', 'seed']);
 
 // body params + the flat fields -> one neutral params object; an unknown key is a 400, typos never vanish
@@ -29,7 +32,7 @@ export function normalizeParams(body) {
     if (params.json !== undefined && typeof params.json !== 'boolean') throw badRequest("param 'json' must be a boolean");
     if (params.reasoning !== undefined) {
         const effort = params.reasoning?.effort;
-        if (!['low', 'medium', 'high'].includes(effort)) throw badRequest("param 'reasoning.effort' must be low|medium|high");
+        if (typeof effort !== 'string' || !EFFORT_WORD.test(effort)) throw badRequest("param 'reasoning.effort' must be one word of 1 to 32 lowercase letters, digits, _ or -");
     }
     return params;
 }

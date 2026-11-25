@@ -79,6 +79,11 @@ export function listImageMediaPage(db, afterId, limit) {
         .map(r => ({ id: r.id, charId: r.char_id, file: r.file }));
 }
 
+/** How many image rows that walk pages through, counted before it starts. */
+export function countImageMedia(db) {
+    return db.prepare("SELECT COUNT(*) FROM media WHERE kind = 'image'").pluck().get();
+}
+
 /** Existing row with the same bytes for this character, or null. */
 export function findMediaByContent(db, charId, contentHash) {
     const row = db.prepare('SELECT * FROM media WHERE char_id = ? AND content_hash = ?').get(charId, contentHash);

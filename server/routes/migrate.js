@@ -12,6 +12,7 @@ import { sseOpen, sseWrite } from '../llm/sse.js';
 import { readJsonFile } from '../lib/json-file.js';
 import { killTree } from '../lib/kill-tree.js';
 import { httpError } from '../lib/http-error.js';
+import { parseProgressLine } from '../importer/progress-line.js';
 
 // The ST migration wizard, into the caller's own library only. a child process, since the engine is synchronous
 
@@ -19,7 +20,9 @@ export const migrateRouter = Router();
 
 const CLI = fileURLToPath(new URL('../importer/migrate-st.js', import.meta.url));
 const LOG_RING = 200;
-let _run = null; // { mode, target, source, startedAt, proc, lines, done }
+// the raw findings a report hands the wizard for its bug-report disclosure; the file keeps them all
+const FINDING_LINES = 200;
+let _run = null; // { mode, target, source, startedAt, options, proc, lines, progress, done }
 // a plan's child reads the library a run would write, so the two never overlap
 let _plan = null; // { target }
 
@@ -59,21 +62,34 @@ function reportPathFor(target, mode) {
 
 // the wizard names its report migration-run-<stamp> and the CLI migration-report-<stamp>: the stamp alone orders them
 const REPORT_PREFIX = /^migration-(?:run|report)-/;
+const FINALIZE_PREFIX = /^migration-finalize-/;
 
-function newestReport(target) {
+// a report as the wizard reads it: the run's counts and what to say about them, the check's findings counted, grouped and capped
+function reportView(data, file) {
+    if (!data) return null;
+    const v = data.verify;
+    return {
+        file, at: data.at ?? null, mode: data.mode ?? null, counts: data.counts ?? null, summary: data.summary ?? null,
+        unmatchedChatDirs: Array.isArray(data.unmatchedChatDirs) ? data.unmatchedChatDirs : [],
+        groupChats: Array.isArray(data.groupChats) ? data.groupChats.length : 0,
+        ...(data.mode === 'finalize' ? { ok: !!data.ok, purged: data.purged ?? 0 } : {}),
+        verify: v ? { mode: v.mode ?? null, checked: v.checked ?? null, findings: (v.findings || []).length, groups: Array.isArray(v.groups) ? v.groups : [], lines: (v.findings || []).slice(0, FINDING_LINES) } : null,
+    };
+}
+
+function newestReport(target, prefix = REPORT_PREFIX) {
     let root;
     try { root = userPaths(target).root; } catch { return null; }
     if (!fs.existsSync(root)) return null;
-    const stampOf = (f) => f.replace(REPORT_PREFIX, '');
-    const files = fs.readdirSync(root).filter(f => REPORT_PREFIX.test(f) && f.endsWith('.json'));
+    const stampOf = (f) => f.replace(prefix, '');
+    const files = fs.readdirSync(root).filter(f => prefix.test(f) && f.endsWith('.json'));
     if (!files.length) return null;
     const file = files.reduce((newest, f) => (stampOf(f) > stampOf(newest) ? f : newest));
-    const data = readJsonFile(path.join(root, file));
-    return data ? { file, at: data.at ?? null, mode: data.mode ?? null, counts: data.counts ?? null, summary: data.summary ?? null, verify: data.verify ? { mode: data.verify.mode ?? null, checked: data.verify.checked ?? null, findings: (data.verify.findings || []).length } : null } : null;
+    return reportView(readJsonFile(path.join(root, file)), file);
 }
 
 function spawnCli(source, args) {
-    return spawn(process.execPath, [CLI, source, ...args], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    return spawn(process.execPath, [CLI, source, ...args, '--progress-lines'], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
 }
 
 // one line at a time off a pipe, whatever chunking the pipe uses
@@ -88,9 +104,10 @@ function lineReader(stream, onLine) {
     stream.on('end', () => { if (buf.trim()) onLine(buf.replace(/\r$/, '')); buf = ''; });
 }
 
+// now is the server's clock, so a reader on another device measures the elapsed time and a step's silence against it
 function runningView() {
     if (!_run) return null;
-    return { mode: _run.mode, target: _run.target, source: _run.source, startedAt: _run.startedAt, lines: _run.lines.slice(-LOG_RING) };
+    return { mode: _run.mode, target: _run.target, source: _run.source, startedAt: _run.startedAt, now: Date.now(), options: _run.options, lines: _run.lines.slice(-LOG_RING), progress: [..._run.progress.values()] };
 }
 
 // one run per server; another account learns only that it is busy
@@ -137,14 +154,23 @@ migrateRouter.post('/plan', (req, res) => {
 
 function streamRun(req, res, mode, args, target, source) {
     if (_run || _plan) return busyAnswer(req, res);
-    const report = mode === 'run' ? reportPathFor(target, 'run') : null;
-    const proc = spawnCli(source, report ? [...args, '--report', report] : args);
-    _run = { mode, target, source, startedAt: Date.now(), proc, lines: [], done: false };
+    const report = reportPathFor(target, mode);
+    const proc = spawnCli(source, [...args, '--report', report]);
+    const run = { mode, target, source, startedAt: Date.now(), options: { warmThumbs: args.includes('--warm-thumbs') }, proc, lines: [], progress: new Map(), done: false };
+    _run = run;
     sseOpen(res);
-    sseWrite(res, 'started', { mode, target, source, startedAt: _run.startedAt });
+    sseWrite(res, 'started', { mode, target, source, startedAt: run.startedAt, options: run.options });
+    // a marked line is a step's progress: the latest per step is kept for a reader who comes back, never logged
     const push = (line) => {
-        _run.lines.push(line);
-        if (_run.lines.length > LOG_RING) _run.lines.splice(0, _run.lines.length - LOG_RING);
+        const record = parseProgressLine(line);
+        if (record) {
+            const at = { ...record, at: Date.now() };
+            run.progress.set(record.step, at);
+            sseWrite(res, 'progress', at);
+            return;
+        }
+        run.lines.push(line);
+        if (run.lines.length > LOG_RING) run.lines.splice(0, run.lines.length - LOG_RING);
         sseWrite(res, 'line', { line });
     };
     lineReader(proc.stdout, push);
@@ -161,8 +187,7 @@ function streamRun(req, res, mode, args, target, source) {
         refreshFtsIfOpen(target);
         // the child's SQL skipped every store's report, so the whole library is announced once, from no tab
         runWithRequest({ clientId: null }, () => emitChange(req.db, { entity: 'library', op: 'changed', mode }));
-        const payload = { mode, target, code, cancelled, report: null, state: migrationState(target) };
-        if (report) payload.report = readJsonFile(report) ? newestReport(target) : null;
+        const payload = { mode, target, code, cancelled, report: reportView(readJsonFile(report), path.basename(report)), state: migrationState(target) };
         sseWrite(res, 'done', payload);
         res.end();
     });
@@ -193,5 +218,5 @@ migrateRouter.post('/cancel', (req, res) => {
 
 migrateRouter.get('/status', (req, res) => {
     const target = targetOf(req, { targetHandle: req.query.targetHandle });
-    res.json({ target, busy: !!_run || !!_plan, running: ownsRun(req) ? runningView() : null, lastReport: newestReport(target), state: migrationState(target) });
+    res.json({ target, busy: !!_run || !!_plan, running: ownsRun(req) ? runningView() : null, lastReport: newestReport(target), lastFinalize: newestReport(target, FINALIZE_PREFIX), state: migrationState(target) });
 });

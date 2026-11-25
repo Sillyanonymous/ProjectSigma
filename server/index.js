@@ -50,6 +50,8 @@ import { llmRouter } from './routes/llm.js';
 import { buildOpenApiSpec, API_VERSION } from './openapi.js';
 import { init as initProviderServices } from './services/provider-services.js';
 import { extensionsRouter } from './routes/extensions.js';
+import { appUpdateRouter } from './routes/app-update.js';
+import { trackWork } from './lib/app-update.js';
 import { listExtensions, resolveServedFile } from './lib/extensions.js';
 import { mountServerExtensions } from './lib/extensions-server.js';
 import { registerProviderNamespace } from './lib/provider-namespaces.js';
@@ -145,6 +147,8 @@ export async function createApp() {
     app.use('/api/admin', requireAdmin, adminRouter);
     // the gate: every /api surface registered below this line requires a user
     app.use('/api', requireUser);
+    // the writes in flight, so an update never restarts the server under one
+    app.use('/api', trackWork);
 
     // the SillyTavern migration wizard: any signed-in user, into their own library only
     app.use('/api/migrate', migrateRouter);
@@ -158,6 +162,7 @@ export async function createApp() {
     app.use('/api/playlists', playlistsRouter);
     app.use('/api/versions', versionsRouter);
     app.use('/api/extensions', extensionsRouter);
+    app.use('/api/app', appUpdateRouter);
     // the change feed answers on the server's upgrade event (attachFeed); a plain GET says so
     app.get('/api/feed', (req, res) => res.status(426).json({ error: 'the change feed is a WebSocket: connect with an upgrade' }));
 

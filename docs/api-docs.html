@@ -75,7 +75,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
     <header>
         <h1>Project Σ API</h1>
         <div class="version">API version 1 &middot; OpenAPI 3.0.3 &middot; live spec at <code>/api/openapi.json</code></div>
-        <p class="intro">DB-native character library server. Clients do zero heavy lifting: querying, filtering, sorting, and windowing all happen server-side. All timestamps are unix milliseconds. Every collection GET says what it answers in its x-collection: a page ({items, total, limit, nextCursor}: 100 rows unless limit asks, at most 1000 unless the operation names its own numbers, a limit outside them refused by name; a reader that needs the whole set walks nextCursor with after, and count=false skips the total), the whole set as a plain array or document with what bounds it. info.version is the API's own version (apiVersion on /api/health): it moves only when a route is removed or a shape a client reads changes. From the first public release on, an operation marked deprecated here leaves in a later release, and a form a list still answers until a later API version is named in its x-collection deprecated, with that version in until. Multi-user mode (server.yaml multiUser: true) gates every user surface behind an HttpOnly SameSite=Strict session cookie from /api/auth/login; single-user mode needs no auth and everything resolves to the default user. A 401 that means &quot;sign in&quot; carries X-CL-Auth: required. A 401 without it is no request to sign in: a refused login or password change under /api/auth, or a site's refusal a provider route passes through (a wrong password at a site's login, an expired site token). A request may send X-UTC-Offset, the reader's clock in minutes east of UTC, and X-Time-Zone, its IANA zone (Europe/Paris): the time macros a prompt or a sent message holds ({{time}}, {{date}}) answer in the offset, and a stored date written without a zone (a message's createdAt, {{idle_duration}}) is read in the zone, else at the offset, else in the server's own.</p>
+        <p class="intro">DB-native character library server. Clients do zero heavy lifting: querying, filtering, sorting, and windowing all happen server-side. All timestamps are unix milliseconds. Every collection GET says what it answers in its x-collection: a page ({items, total, limit, nextCursor}: 100 rows unless limit asks, at most 1000 unless the operation names its own numbers, a limit outside them refused by name; a reader that needs the whole set walks nextCursor with after, and count=false skips the total), the whole set as a plain array or document with what bounds it. info.version is the API's own version (apiVersion on /api/health): it moves only when a route is removed or a shape a client reads changes. From the first public release on, an operation marked deprecated here leaves in a later release, and a form a list still answers until a later API version is named in its x-collection deprecated, with that version in until. Multi-user mode (server.yaml multiUser: true) gates every user surface behind an HttpOnly SameSite=Strict session cookie from /api/auth/login; single-user mode needs no auth and everything resolves to the default user. A 401 that means &quot;sign in&quot; carries X-CL-Auth: required. A 401 without it is no request to sign in: a refused login or password change under /api/auth, or a site's refusal a provider route passes through (a wrong password at a site's login, an expired site token). While the app updates itself, from its merge to its restart, every write (a non-GET request outside /api/app/update, extension routes included) is answered 503 with words: try it again after the reload. A request may send X-UTC-Offset, the reader's clock in minutes east of UTC, and X-Time-Zone, its IANA zone (Europe/Paris): the time macros a prompt or a sent message holds ({{time}}, {{date}}) answer in the offset, and a stored date written without a zone (a message's createdAt, {{idle_duration}}) is read in the zone, else at the offset, else in the server's own.</p>
     </header>
     <nav><a href="#tag-characters">characters</a><a href="#tag-media">media</a><a href="#tag-backgrounds">backgrounds</a><a href="#tag-chats">chats</a><a href="#tag-assistant">assistant</a><a href="#tag-creator">creator</a><a href="#tag-worlds">worlds</a><a href="#tag-library">library</a><a href="#tag-tags">tags</a><a href="#tag-llm">llm</a><a href="#tag-extensions">extensions</a><a href="#tag-auth">auth</a><a href="#tag-admin">admin</a><a href="#tag-infra">infra</a><a href="#schemas">schemas</a></nav>
 
@@ -5807,7 +5807,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/migrate/run</span>
-            <span class="summary-text">Run the SillyTavern migration as a child of the server, the log streamed. One run at a time; a dropped stream never stops it (GET /migrate/status keeps the tail). Options: excludeTags, only, sample, warmThumbs, verify (full | fast | off)</span>
+            <span class="summary-text">Run the SillyTavern migration as a child of the server, the log and each step's progress streamed. One run at a time; a dropped stream never stops it (GET /migrate/status keeps the tail and the latest progress of every step). Options: excludeTags, only, sample, warmThumbs, verify (full | fast | off)</span>
         </summary>
         <div class="op-body">
 
@@ -5848,7 +5848,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
             <td></td>
-            <td>text/event-stream: started {mode, target, source, startedAt}, line {line}, done {mode, target, code, cancelled, report, state}, error {message, kind}</td>
+            <td>text/event-stream: started {mode, target, source, startedAt, options}, line {line}, progress {step, label, done, total, unit, sources?, sizes?, at} (a step's count; steps read, worlds, characters, chats, rest, check, then thumbs and gallery-thumbs when asked, each from done 0 to its total, the total standing from its first record; sources and sizes on the thumbnail steps say what the total counts), done {mode, target, code, cancelled, report, state} (code 0 done, 1 the tool stopped, 2 some cards could not be read, 3 the check found differences; report as GET /migrate/status answers lastReport), error {message, kind}</td>
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -5891,7 +5891,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
             <td><span class="code code-2xx">200</span></td>
             <td></td>
-            <td>text/event-stream: started, line, done, error</td>
+            <td>text/event-stream: started, line, progress (steps check, then purge), done (code 3 when the final check found differences and nothing was removed; its report carries ok, purged and the check as GET /migrate/status answers lastFinalize), error</td>
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -5932,7 +5932,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-get">GET</span>
             <span class="path">/api/migrate/status</span>
-            <span class="summary-text">The run in flight with the tail of its log, the newest report, and what the caller's home already knows (finalized, verified)</span>
+            <span class="summary-text">The run in flight with the tail of its log and the latest progress of each step, the newest run and finalize reports, and what the caller's home already knows (finalized, verified)</span>
         </summary>
         <div class="op-body">
 
@@ -8849,7 +8849,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/llm/models</span>
-            <span class="summary-text">Same list, probing an editor DRAFT: overrides (kind, baseUrl, apiKey, model) overlay the stored profile for this call only, nothing is saved, and the stored key stands in when the draft key is blank. Overrides ride the body so a key never lands in a query string</span>
+            <span class="summary-text">Same list, probing an editor DRAFT: overrides (kind, baseUrl, apiKey, model and params, the params checked as a save checks them) overlay the stored profile for this call only, nothing is saved, and the stored key stands in when the draft key is blank. Overrides ride the body so a key never lands in a query string</span>
         </summary>
         <div class="op-body">
 
@@ -8874,7 +8874,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </tr><tr>
             <td><span class="code code-4xx">400</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
-            <td>unknown kind / draft without a base URL</td>
+            <td>unknown kind / draft without a base URL / a draft param a save refuses</td>
         </tr><tr>
             <td><span class="code code-5xx">502</span></td>
             <td><a class="ref" href="#schema-Error">Error</a></td>
@@ -8887,7 +8887,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/llm/test</span>
-            <span class="summary-text">Connection probe: a 1-token real chat under a 15s ceiling. Always 200; the body carries the verdict. overrides (kind, baseUrl, apiKey, model) overlay the stored profile for this call only, the way the model probe takes a draft, so what is on screen is what gets tested and a key is checked before it is saved; the stored key stands in when the draft key is blank</span>
+            <span class="summary-text">Connection probe: a 1-token real chat under a 15s ceiling. Always 200; the body carries the verdict. overrides (kind, baseUrl, apiKey, model and params) overlay the stored profile for this call only, the way the model probe takes a draft, so what is on screen is what gets tested and a key is checked before it is saved; the stored key stands in when the draft key is blank</span>
         </summary>
         <div class="op-body">
 
@@ -8947,7 +8947,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-post">POST</span>
             <span class="path">/api/llm/chat</span>
-            <span class="summary-text">Server-side LLM call via a profile (keys never reach clients). Neutral params (temperature, topP, topK, maxTokens, stop, presencePenalty, frequencyPenalty, seed, reasoning{effort}, json) are translated per adapter; profile defaults merge under request params; flat temperature/maxTokens stay accepted. stream=false: normalized {content, reasoning?, finishReason, usage?, profileId}. stream=true: SSE with events chunk({text}|{reasoning}) / done({finishReason, usage?}) / error({kind, message}) - typed even mid-stream. Retries are bounded and pre-first-token only; streams are reaped on token INACTIVITY, not request age; aborting the request observably disconnects the upstream</span>
+            <span class="summary-text">Server-side LLM call via a profile (keys never reach clients). Neutral params (temperature, topP, topK, maxTokens, stop, presencePenalty, frequencyPenalty, seed, reasoning{effort}, json) are translated per adapter, reasoning.effort being one word of 1 to 32 lowercase letters, digits, _ or - that the host receives as-is (none, minimal, low, medium, high, xhigh and max are the common ones, and a model that does not take a level refuses it); profile defaults merge under request params; flat temperature/maxTokens stay accepted. stream=false: normalized {content, reasoning?, finishReason, usage?, profileId}. stream=true: SSE with events chunk({text}|{reasoning}) / done({finishReason, usage?}) / error({kind, message}) - typed even mid-stream. Retries are bounded and pre-first-token only; streams are reaped on token INACTIVITY, not request age; aborting the request observably disconnects the upstream</span>
         </summary>
         <div class="op-body">
 
@@ -9675,7 +9675,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
 
     <section id="tag-infra">
         <h2>infra</h2>
-        <p class="tag-desc">Health, thumbnails, proxy, provider services</p>
+        <p class="tag-desc">Health, the app's own updates, thumbnails, proxy, provider services</p>
 
     <details class="op" id="op-get--api-health">
         <summary>
@@ -9693,6 +9693,161 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
             <td><span class="code code-2xx">200</span></td>
             <td>object</td>
             <td>OK</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-get--api-app-update">
+        <summary>
+            <span class="method m-get">GET</span>
+            <span class="path">/api/app/update</span>
+            <span class="summary-text">The app's own update state (admin): the install type, the running version, what the last check found and whether this install can update itself. Held in memory, so checkedAt is null until a check runs after a restart</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-post--api-app-update">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/app/update</span>
+            <span class="summary-text">Update a git clone to the newest commit of its branch (admin). Refused with the reason when an update is already starting or running, or waits for a restart, or the install has local edits, a history that cannot move forward, nothing newer, or work a restart would cut (a backup, a job over many characters, an extension job, a write still running). Otherwise it answers 202 at once and goes on: every library is backed up (unless backup is false), the branch moves forward, and a server started by the launcher restarts on the new version; one started another way waits for a restart (restartNeeded). Each phase is announced as appUpdate records</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+            <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">application/json</code><div><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>backup</code></td>
+            <td>boolean</td>
+            <td>back up every library first; true when absent</td>
+        </tr></tbody></table></div></div>
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">202</span></td>
+            <td>object</td>
+            <td>the state, updating</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>a docker or zip install, which updates by hand, or a backup that is not true or false</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr><tr>
+            <td><span class="code code-4xx">409</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>refused: the reason names what blocks it</td>
+        </tr><tr>
+            <td><span class="code code-5xx">502</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>the repository could not be reached</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-post--api-app-update-check">
+        <summary>
+            <span class="method m-post">POST</span>
+            <span class="path">/api/app/update/check</span>
+            <span class="summary-text">Ask what is newer now (admin): a clone fetches its branch and reads the version it names, a container or a download asks GitHub's newest release; the notes of every release between come along; a check younger than maxAge milliseconds answers as it is, and a second ask joins the one running. It never changes the install</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+            <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">application/json</code><div><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>maxAge</code></td>
+            <td>number</td>
+            <td>answer the last check as it is when it is younger than this many milliseconds; 0 or absent always asks</td>
+        </tr></tbody></table></div></div>
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>maxAge not a number of 0 or more</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-put--api-app-update-skip">
+        <summary>
+            <span class="method m-put">PUT</span>
+            <span class="path">/api/app/update/skip</span>
+            <span class="summary-text">Remember a version not to be told about again, for the whole server (admin); null forgets it</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+            <div class="sect"><span class="sect-label">Request body</span> <code class="ctype">application/json</code><div><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+        <tr>
+            <td><code>version</code> <span class="req">required</span></td>
+            <td>string | null</td>
+            <td></td>
+        </tr></tbody></table></div></div>
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr><tr>
+            <td><span class="code code-4xx">400</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>no version, or one that is not a version</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
+        </tr></tbody></table></div>
+        </div>
+    </details>
+
+    <details class="op" id="op-delete--api-app-update-failure">
+        <summary>
+            <span class="method m-delete">DELETE</span>
+            <span class="path">/api/app/update/failure</span>
+            <span class="summary-text">Let go of a failed update for the whole server (admin), so no tab shows it again; a running update is untouched. Answers the state</span>
+        </summary>
+        <div class="op-body">
+
+
+
+
+
+            <div class="sect"><span class="sect-label">Responses</span><table><tbody><tr>
+            <td><span class="code code-2xx">200</span></td>
+            <td>object</td>
+            <td>OK</td>
+        </tr><tr>
+            <td><span class="code code-4xx">403</span></td>
+            <td><a class="ref" href="#schema-Error">Error</a></td>
+            <td>admin required</td>
         </tr></tbody></table></div>
         </div>
     </details>
@@ -9725,7 +9880,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         </summary>
         <div class="op-body">
 
-            <p class="desc">Upgrade to a WebSocket and every committed write to your library arrives as it lands, whichever client or server code made it. The server speaks JSON messages and ignores anything sent to it: {type: &quot;hello&quot;, clientId, handle} once; {type: &quot;changes&quot;, records} per batch, each record {entity, op, ids?, all?, fields?, origin, ...} naming what changed by id (entity and op are one of assistantSession created/updated/deleted, attachment created/deleted, background created/updated/deleted, backgroundBinding updated/deleted, backup updated, character created/updated/deleted, chat created/updated/deleted, document updated/deleted, extension updated, extensionJob updated/deleted, library changed, llmProfile created/updated/deleted, maintenance updated, media created/updated/deleted, mediaJob updated/deleted, message created/updated/deleted, persona created/updated/deleted, playlist created/updated/deleted, preset created/updated/deleted, regexConsent updated, regexScript created/updated/deleted, setting updated, studioSession created/updated/deleted, tag updated/deleted, tagRun created/deleted, user created/updated/deleted, version updated/deleted, world created/updated/deleted, worldEntry created/updated/deleted, worldLink updated; all: true, with no ids, when the write spanned more rows than a record names (a whole set, or characters past a thousand); origin is the client id the writing request sent as X-CL-Client, so a tab can skip its own, and null for what an extension wrote through its own routes or listeners; extension, on a record an extension reported for a write to its own tables, is that extension's id, its fields named &lt;id&gt;.&lt;name&gt;: the entity's own data did not change; to, on a tag or lorebook rename, is the name it has now, the old one in ids: a tag merge is the merged tag's deleted record with to the surviving tag's spelling, a tag delete carries no to, and a binding sweep that re-pointed a lorebook is a worldLink record naming the old name as world beside to); and {type: &quot;resync&quot;} when a slow connection fell behind, after which a client re-reads what it shows. The feed carries no history: after a reconnect, re-read. user records reach admins only. The connection closes with 4001 when the session ends (a password change, a disabled account).</p>
+            <p class="desc">Upgrade to a WebSocket and every committed write to your library arrives as it lands, whichever client or server code made it. The server speaks JSON messages and ignores anything sent to it: {type: &quot;hello&quot;, clientId, handle} once; {type: &quot;changes&quot;, records} per batch, each record {entity, op, ids?, all?, fields?, origin, ...} naming what changed by id (entity and op are one of appUpdate updated, assistantSession created/updated/deleted, attachment created/deleted, background created/updated/deleted, backgroundBinding updated/deleted, backup updated, character created/updated/deleted, chat created/updated/deleted, document updated/deleted, extension updated, extensionJob updated/deleted, library changed, llmProfile created/updated/deleted, maintenance updated, media created/updated/deleted, mediaJob updated/deleted, message created/updated/deleted, persona created/updated/deleted, playlist created/updated/deleted, preset created/updated/deleted, regexConsent updated, regexScript created/updated/deleted, setting updated, studioSession created/updated/deleted, tag updated/deleted, tagRun created/deleted, user created/updated/deleted, version updated/deleted, world created/updated/deleted, worldEntry created/updated/deleted, worldLink updated; all: true, with no ids, when the write spanned more rows than a record names (a whole set, or characters past a thousand); origin is the client id the writing request sent as X-CL-Client, so a tab can skip its own, and null for what an extension wrote through its own routes or listeners; extension, on a record an extension reported for a write to its own tables, is that extension's id, its fields named &lt;id&gt;.&lt;name&gt;: the entity's own data did not change; to, on a tag or lorebook rename, is the name it has now, the old one in ids: a tag merge is the merged tag's deleted record with to the surviving tag's spelling, a tag delete carries no to, and a binding sweep that re-pointed a lorebook is a worldLink record naming the old name as world beside to); and {type: &quot;resync&quot;} when a slow connection fell behind, after which a client re-reads what it shows. The feed carries no history: after a reconnect, re-read. user records reach admins only. The connection closes with 4001 when the session ends (a password change, a disabled account).</p>
 
             <div class="sect"><span class="sect-label">Parameters</span><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th><th>Description</th></tr></thead><tbody>
         <tr>
@@ -9833,7 +9988,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <summary>
             <span class="method m-get">GET</span>
             <span class="path">/thumbs/warm</span>
-            <span class="summary-text">Progress of the thumbnail pre-warm</span>
+            <span class="summary-text">Progress of the thumbnail pre-warm: total counts every thumbnail (two widths per portrait, one per gallery picture) before the first is made, and done counts the ones already there as they are found</span>
         </summary>
         <div class="op-body">
 
@@ -12072,7 +12227,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); border-radiu
         <tr>
             <td><code>params</code></td>
             <td>object</td>
-            <td>neutral default generation params; request params override per call</td>
+            <td>neutral default generation params; request params override per call. reasoning.effort is one word the host receives as-is</td>
         </tr>
         <tr>
             <td><code>pos</code></td>

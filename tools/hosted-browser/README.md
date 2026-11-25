@@ -42,8 +42,8 @@ The gotchas worth knowing before you debug them yourself:
 - **seccomp.** The script keeps chromium's own sandbox (no `--no-sandbox`), which Docker's default
   seccomp profile blocks. Relaxing seccomp is the safer of the two ways to make it start.
 - **`shm_size`.** The 64m default kills chromium in ways that look like a driver fault.
-- **Codecs.** The browser test requires H.264 and AAC. Debian's `chromium` has them on arm64;
-  Playwright's arm64 Chromium does not.
+- **Codecs.** The browser test warns when H.264 or AAC is missing. Debian's `chromium` has them on
+  arm64; Playwright's arm64 Chromium does not. A warning only: the Cloudflare check decides.
 - **The profile is where the logins live.** Keep it on a volume writable by the uid you run as, or
   every redeploy signs the browser out and the failure reads like a Cloudflare problem.
 - **GPU passthrough is optional**, and off by default. Software rendering can pass; press **Test**

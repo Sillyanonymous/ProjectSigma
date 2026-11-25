@@ -46,7 +46,7 @@ export interface ClientExtension {
 /** What init is handed: api 2, the part promised not to break casually. */
 export interface ExtensionContext {
     /** The host's extension api, '<major>.<minor>': the minor counts the batches of doors added within the major. */
-    readonly apiVersion: '2.10';
+    readonly apiVersion: '2.11';
     /** Your row in the server's inventory: its reading of your manifest.json. */
     readonly manifest: ManifestRow;
     /** The facade the app's own modules use, every function it exports; not typed here. What you register through onViewEnter, onViewExit, onCharactersDeleted, storeWatch or onJob answers its removal and is undone when you are switched off; a notifications section from registerNotificationSection answers its node and is taken out then too, or sooner by removeNotificationSection(id); its id is yours alone, held under your extension's name, so it never replaces the app's section or another extension's. */
@@ -229,7 +229,7 @@ export interface ExtensionProviders {
 }
 
 export interface ExtensionBrowser {
-    /** A same-origin fetch inside the hosted browser through a consumer your server half registered by this name; throws an AbortError when signal aborts. */
+    /** A same-origin fetch inside the hosted browser through a consumer your server half registered by this name; throws an AbortError when signal aborts, and an Error with code 'NO_BROWSER' when no browser is installed to start (its message says how to add one). */
     fetch(name: string, path: string, opts?: { headers?: Record<string, string>; method?: 'GET' | 'POST'; jsonBody?: object; timeoutMs?: number; signal?: AbortSignal | null }): Promise<{ status: number; body: string; retryAfter: string }>;
 }
 
@@ -1057,7 +1057,8 @@ export interface LlmParams {
     presencePenalty?: number;
     frequencyPenalty?: number;
     seed?: number;
-    reasoning?: { effort: 'low' | 'medium' | 'high' };
+    /** The host's own word, sent as-is: none, minimal, low, medium, high, xhigh and max are the common ones; any word of 1 to 32 lowercase letters, digits, _ or - is taken. */
+    reasoning?: { effort: string };
     json?: boolean;
 }
 
@@ -1561,6 +1562,7 @@ export interface Pipelines {
 
 /** Every entity a change record names, with the ops it is reported under. */
 export interface ChangeVocabulary {
+    appUpdate: 'updated';
     assistantSession: 'created' | 'updated' | 'deleted';
     attachment: 'created' | 'deleted';
     background: 'created' | 'updated' | 'deleted';

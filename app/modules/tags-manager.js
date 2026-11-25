@@ -866,6 +866,7 @@ function startInlineRename(row, tag) {
     input.autocomplete = 'one-time-code';
     input.className = 'cl-input tgm-rename-input';
     input.value = tag;
+    input.dataset.escapeOwn = '';
 
     let finished = false;
     const finish = (commit) => {
@@ -1556,15 +1557,11 @@ export function init() {
         if (document.getElementById('tagsManagerModal')?.classList.contains('visible') && !runInProgress) switchTab(activeTab);
     });
 
-    // tier 8; the global Escape is capture-phase, so the close fn cancels an active rename instead of closing
+    // tier 8; an inline rename owns its Escape (data-escape-own), so a first Escape or back cancels it before this runs
     window.registerOverlay?.({
         id: 'tagsManagerModal',
         tier: 8,
-        close: () => {
-            const rename = document.querySelector('#tagsManagerModal .tgm-rename-input');
-            if (rename) { rename.blur(); return; }
-            closeModal();
-        },
+        close: () => closeModal(),
         visible: (el) => el.classList.contains('visible'),
     });
 

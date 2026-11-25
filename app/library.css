@@ -7552,8 +7552,72 @@ html.cl-mobile .char-portrait-container.editing-unlocked .portrait-edit-overlay 
 }
 .cl-confirm-note-danger i { color: var(--cl-error-pale); }
 
+/* a change of one value to another, the new one leading the eye (a version, a name) */
+.cl-confirm-fromto {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    font-size: var(--font-md);
+    font-variant-numeric: tabular-nums;
+}
+.cl-confirm-fromto-from { color: var(--text-faint); }
+.cl-confirm-fromto-to { color: var(--text-primary); font-weight: 700; }
+.cl-confirm-fromto i { color: var(--accent); font-size: var(--font-sm); }
+.cl-confirm-overlay .cl-confirm-message > .cl-confirm-fromto { margin-bottom: var(--space-xs); }
+
+/* a long text in its own inset panel: it scrolls, the dialog around it does not */
+.cl-confirm-overlay .cl-confirm-message > .cl-confirm-notes-block { margin-top: var(--space-md); }
+.cl-confirm-notes-title {
+    margin-bottom: var(--space-xs);
+    color: var(--text-faint);
+    font-size: var(--font-xs);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.cl-confirm-notes {
+    max-height: 360px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--cl-shade-30);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+}
+.cl-confirm-notes-version {
+    color: var(--text-primary);
+    font-size: var(--font-md);
+    font-weight: 700;
+}
+.cl-confirm-notes-version:not(:first-child) {
+    margin-top: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--glass-border);
+}
+.cl-confirm-notes-heading { margin-top: var(--space-sm); color: var(--text-primary); font-weight: 600; }
+.cl-confirm-notes-text { margin-top: var(--space-2xs); }
+.cl-confirm-notes ul { margin: var(--space-2xs) 0 0; padding-left: var(--space-lg); }
+.cl-confirm-notes li + li { margin-top: var(--space-2xs); }
+.cl-confirm-notes-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    margin-top: var(--space-xs);
+    color: var(--accent);
+    font-size: var(--font-sm);
+    text-decoration: none;
+}
+.cl-confirm-notes-link:hover { text-decoration: underline; }
+.cl-confirm-notes-link i { font-size: var(--font-xs); }
+html.cl-mobile .cl-confirm-notes { max-height: 260px; }
+
 /* outside the scrolling body, so the switch holding the buttons stays in view however long the message */
 .cl-confirm-overlay .cl-confirm-acks { flex-shrink: 0; }
+.cl-confirm-switch-hint { margin: 0 0 var(--space-xs); color: var(--text-faint); font-size: var(--font-xs); line-height: 1.4; }
 
 /* a statement the reader switches on before the confirm button works */
 .cl-confirm-ack {
@@ -8845,7 +8909,7 @@ html.cl-mobile .persona-edit-desc { font-size: var(--mobile-input-size); }
 
 /* CT's cookie is one line: pin it to the buttons' height (glass-input's 80px min stretched the
    toggle), still resizable. */
-#settingsCtCookie {
+.settings-input-group > textarea.cl-masked-field {
     min-height: 0;
     height: 38px;
     padding: var(--space-sm) var(--space-md);
@@ -9958,6 +10022,35 @@ html.cl-mobile .cl-cwin-fold-summary {
 .mig-result.is-ok { color: var(--cl-success-pale); }
 .mig-result.is-bad { color: var(--cl-error-pale); }
 .mig-groups { display: flex; flex-direction: column; gap: var(--space-2xs); }
+/* a verb's steps and bar (the shared step list) under its band, then how it ended in words */
+.mig-out {
+    margin-top: var(--space-sm);
+    padding: var(--space-md);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--cl-shade-15);
+    font-size: var(--font-sm);
+}
+/* a count too long for the row (the check's) drops under its step's name */
+.mig-out .cl-step-name { flex-wrap: wrap; }
+/* a name quoted as it is spelled: a double space or one at either end is the point */
+.mig-name { white-space: pre-wrap; }
+.mig-out-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.mig-out-title { font-size: var(--font-md); font-weight: 600; color: var(--text-primary); min-width: 0; }
+.mig-out.is-ok .mig-out-title { color: var(--cl-success-pale); }
+.mig-out.is-warn .mig-out-title { color: var(--cl-warning-pale); }
+.mig-out.is-bad .mig-out-title { color: var(--cl-error-pale); }
+.mig-elapsed { flex-shrink: 0; color: var(--text-faint); font-size: var(--font-sm); font-variant-numeric: tabular-nums; }
+.mig-progress:not([hidden]) + .mig-summary { margin-top: var(--space-md); }
+.mig-summary { font-size: var(--font-sm); color: var(--text-secondary); }
+.mig-summary b { color: var(--text-primary); font-weight: 600; }
+.mig-summary-list, .mig-findings { display: flex; flex-direction: column; gap: var(--space-xs); margin: 0; padding-left: var(--space-lg); }
+.mig-findings { margin-top: var(--space-sm); }
+.mig-finding-do { color: var(--text-faint); }
+.mig-out-lead { margin: 0 0 var(--space-sm); }
+.mig-out-lead:last-child { margin-bottom: 0; }
+.mig-summary .bk-list-wrap, .mig-log-wrap { margin-top: var(--space-md); }
+.mig-summary .bk-list-wrap + .mig-out-lead { margin-top: var(--space-sm); }
 .bk-restore-note {
     display: flex;
     gap: var(--space-sm);
@@ -12424,9 +12517,23 @@ html.cl-mobile .cl-ai-empty i {
     font-size: var(--font-2xs);
 }
 
+/* a word longer than the narrow field shows it is cut once the reader leaves it */
+.cl-ai-conn-ov-row input[type="search"]:not(:focus) { text-overflow: ellipsis; }
+
 .cl-ai-conn-ov-row input[type="checkbox"] {
     width: auto;
     accent-color: var(--accent);
+}
+
+/* a phone: each override a full-size field, and each row a full-height target, the label toggling its checkbox */
+html.cl-mobile .cl-ai-conn-ov-row {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+
+html.cl-mobile .cl-ai-conn-ov-row input:not([type="checkbox"]),
+html.cl-mobile .cl-ai-conn-ov-row select {
+    min-height: var(--touch-target-min);
 }
 
 /* @canonical cl-kbd */

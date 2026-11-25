@@ -103,7 +103,8 @@ export function upsertImportedCharacter(db, { card, fav, updateLocked = false, l
     const now = Date.now();
     // a card silent on extensions.world leaves the binding alone (exports embed it only with a head); a replace ignores the key
     const hasWorldKey = typeof card?.data?.extensions?.world === 'string' && !resolved?.keepOpState;
-    const primaryWorld = hasWorldKey ? card.data.extensions.world.trim() : '';
+    // the ST migration hands over the stored name of a book it renamed (resolved.worldName)
+    const primaryWorld = hasWorldKey ? (resolved?.worldName?.(card.data.extensions.world) ?? card.data.extensions.world).trim() : '';
     toStoredForm(card);
 
     return db.transaction(() => {

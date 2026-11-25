@@ -4,6 +4,7 @@ import { rewritePresetRules, PRESET_LOREBOOK_FIELDS } from './documents-store.js
 import { encodeCursor, decodeCursor } from './cursor.js';
 import { caseFold, ftsWordsQuery, textMatch } from './rule-filters.js';
 import { entryUid } from '../lib/world-entry.js';
+import { crc32 } from '../lib/png-card.js';
 import { httpError } from '../lib/http-error.js';
 
 // Worlds are rows + entry rows; the ST-shaped doc ({ entries: {uid: entry}, ...meta })
@@ -13,15 +14,8 @@ import { httpError } from '../lib/http-error.js';
 const ENTRY_UPSERT_SQL = `INSERT INTO world_entries (world_name, uid, data) VALUES (?, ?, ?)
     ON CONFLICT(world_name, uid) DO UPDATE SET data = excluded.data WHERE data IS NOT excluded.data`;
 
-/** A world written whole; expect 'absent' refuses a taken name (any case), 'placeholder' a filled book. false when refused. */
-export function upsertWorld(db, name, data, { imported = false, expect = null } = {}) {
-    const now = Date.now();
-    const doc = data && typeof data === 'object' ? data : {};
-    const entries = doc.entries && typeof doc.entries === 'object' ? doc.entries : {};
-    const meta = { ...doc };
-    delete meta.entries;
-
-    // every entry gets a numeric uid: ST keys pass through, foreign keys (uuid strings) remap onto free uids in key order
+// every entry gets a numeric uid: ST keys pass through, foreign keys (uuid strings) remap onto free uids in key order
+function resolveEntries(entries) {
     const resolved = [];
     const pending = [];
     for (const [key, entry] of Object.entries(entries)) {
@@ -34,6 +28,18 @@ export function upsertWorld(db, name, data, { imported = false, expect = null } 
         resolved.push([next, { ...entry, uid: next }]);
         next++;
     }
+    return resolved;
+}
+
+/** A world written whole; expect 'absent' refuses a taken name (any case), 'placeholder' a filled book. false when refused. */
+export function upsertWorld(db, name, data, { imported = false, expect = null } = {}) {
+    const now = Date.now();
+    const doc = data && typeof data === 'object' ? data : {};
+    const entries = doc.entries && typeof doc.entries === 'object' ? doc.entries : {};
+    const meta = { ...doc };
+    delete meta.entries;
+
+    const resolved = resolveEntries(entries);
 
     // entry_count and the rows land together, counted from the ROWS so duplicate uids cant inflate it
     return db.transaction(() => {
@@ -303,6 +309,32 @@ export function getWorld(db, name) {
         entries[String(e.uid)] = JSON.parse(e.data);
     }
     return { name: row.name, data: { ...meta, entries }, entryCount: row.entry_count, updatedAt: row.updated_at, placeholder: !!row.placeholder, source: getWorldSource(db, name) };
+}
+
+// the entries as a write stores them and a read composes them (by uid), so a file keyed by name matches its stored copy
+const worldHash = (data) => {
+    const entries = data?.entries && typeof data.entries === 'object' ? data.entries : {};
+    return crc32(Buffer.from(JSON.stringify(Object.fromEntries(resolveEntries(entries).sort(([a], [b]) => a - b))), 'utf8'));
+};
+
+/**
+ * A book under its trimmed name, as link writers trim: absent or placeholder takes it, same entries reuse it, else the next free "Name (N)".
+ * @param {(name: string) => boolean} [opts.replaces] a held name this import writes over in place (a migration re-run heals its own)
+ * @returns {string} the name the book is stored under
+ */
+export function importWorld(db, rawName, data, { replaces = null } = {}) {
+    const name = String(rawName ?? '').trim() || String(rawName ?? '');
+    if (replaces?.(name)) { upsertWorld(db, name, data, { imported: true }); return name; }
+    const existing = getWorld(db, name);
+    // a placeholder is the slot this book was waited for in: fill it, never mint "Name (2)"
+    if (!existing || existing.placeholder) { upsertWorld(db, name, data, { imported: true }); return name; }
+    if (worldHash(existing.data) === worldHash(data)) return name;
+    for (let n = 2; ; n++) {
+        const candidate = `${name} (${n})`;
+        const clash = getWorld(db, candidate);
+        if (!clash) { upsertWorld(db, candidate, data, { imported: true }); return candidate; }
+        if (worldHash(clash.data) === worldHash(data)) return candidate;
+    }
 }
 
 // a placeholder stops being one once it holds an entry; emptying a real book never re-flags it

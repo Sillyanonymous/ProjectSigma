@@ -1,0 +1,12 @@
+/* The update's progress dialog; its steps and bar are the shared step list (step-progress.css) */
+.upd-progress {
+    width: min(480px, 100%);
+}
+
+.upd-progress .cl-modal-footer { align-items: center; }
+
+.upd-keep {
+    margin-right: auto;
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+}

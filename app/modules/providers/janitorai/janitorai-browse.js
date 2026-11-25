@@ -8,7 +8,7 @@ import {
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
 import { janitoraiSessionStatus } from '../janitor-session.js';
-import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, buildProviderNotice, definitionFailedNotice } from '../provider-utils.js';
+import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, HOSTED_BROWSER_GUIDE, buildProviderNotice, definitionFailedNotice } from '../provider-utils.js';
 import {
     HAMPTER_PAGE_SIZE,
     HAMPTER_SORTS,
@@ -445,9 +445,11 @@ function handleLoadError(err, append, grid) {
     }
     if (code === 'HAMPTER_BLOCKED' && append) {
         jaCurrentPage = Math.max(1, jaCurrentPage - 1);
-        showToast(err?.browserError
-            ? 'The browser endpoint did not answer, so this page could not load. Check it under Settings > Online > Hosted Browser and press Test.'
-            : 'Cloudflare blocked this page load. Check the browser under Settings > Online > Hosted Browser: press Test there, then Check janitorai.com under JanitorAI, to see what is failing.', 'warning', 6000);
+        showToast(err?.browserErrorCode === 'NO_BROWSER'
+            ? err.browserError
+            : err?.browserError
+                ? 'The browser endpoint did not answer, so this page could not load. Check it under Settings > Online > Hosted Browser and press Test.'
+                : 'Cloudflare blocked this page load. Check the browser under Settings > Online > Hosted Browser: press Test there, then Check janitorai.com under JanitorAI, to see what is failing.', 'warning', 6000);
         return;
     }
 
@@ -469,21 +471,26 @@ function handleLoadError(err, append, grid) {
             `;
             return;
         }
-        // Surface the browser-endpoint failure, not the direct-leg fallback's Cloudflare 403.
-        const endpointDown = !!err?.browserError;
-        const noBrowser = code === 'HAMPTER_BLOCKED' && !hasBrowserEndpoint();
+        // the endpoint's failure, not the fallback's 403; a browser never installed says the service's words (how to add one)
+        const notInstalled = err?.browserErrorCode === 'NO_BROWSER';
+        const endpointDown = !!err?.browserError && !notInstalled;
+        const noBrowser = notInstalled || (code === 'HAMPTER_BLOCKED' && !hasBrowserEndpoint());
         renderBrowseError(grid, {
             provider: 'janitorai',
             error: err,
             title: endpointDown ? 'Could not reach the browser' : (noBrowser ? 'JanitorAI needs a browser' : undefined),
-            message: endpointDown
-                ? `The browser endpoint in Settings did not answer (${err.browserError}), so this fell back to a direct request, which Cloudflare refused. Start the built-in browser or fix the endpoint, then press Test.`
-                : noBrowser
-                    ? 'Cloudflare refuses every request that is not a real browser. Start the built-in browser under Settings > Online > Hosted Browser, or point Project Σ at one you run yourself.'
-                    : `Load failed: ${err.message}`,
+            message: notInstalled
+                ? err.browserError
+                : endpointDown
+                    ? `The browser endpoint in Settings did not answer (${err.browserError}), so this fell back to a direct request, which Cloudflare refused. Start the built-in browser or fix the endpoint, then press Test.`
+                    : noBrowser
+                        ? 'Cloudflare refuses every request that is not a real browser. Start the built-in browser under Settings > Online > Hosted Browser, or point Project Σ at one you run yourself.'
+                        : `Load failed: ${err.message}`,
             view: jaMode,
             flags: { nsfw: jaNsfwEnabled, following: jaMode === 'following', managedBrowser: getBrowserMode() === 'managed', hasEndpoint: !!getBrowserEndpoint() },
-            guide: (endpointDown || noBrowser)
+            guide: notInstalled
+                ? HOSTED_BROWSER_GUIDE
+                : (endpointDown || noBrowser)
                 ? { label: 'How the JanitorAI browser works', section: 'online/janitorai' }
                 : undefined,
             retry: () => view.reload({ force: true }),
@@ -962,12 +969,14 @@ async function fetchAndPopulateDetails(hit, token) {
         let detail = null;
         let failCode = '';
         let failBrowserError = '';
+        let failNotInstalled = false;
         let failClassified = '';
         try {
             detail = await fetchJanitoraiCharacter(charId);
         } catch (e) {
             failCode = e?.code || '';
             failBrowserError = e?.browserError || '';
+            failNotInstalled = e?.browserErrorCode === 'NO_BROWSER';
             // Cloudflare keeps the bespoke press-Test copy below; other classifications (waiting
             // room, proxy disabled) surface verbatim.
             failClassified = (e?.classified && !/^Cloudflare/.test(e.message || '')) ? (e.message || '') : '';
@@ -991,10 +1000,13 @@ async function fetchAndPopulateDetails(hit, token) {
                         ? 'JanitorAI is rate limiting. Wait a moment, then reopen this character.'
                         : failClassified
                             ? `${failClassified}.`
-                            : failBrowserError
-                                ? 'The browser endpoint did not answer, so the definition could not be fetched. Check it under Settings > Online > Hosted Browser and press Test.'
-                                : 'Cloudflare blocked the definition fetch. Check the browser under Settings > Online > Hosted Browser: press Test there, then Check janitorai.com under JanitorAI, to see what is failing.';
-                descEl.innerHTML = definitionFailedNotice(limited ? '' : 'Importing uses the same request, so it will not work until this does.', msg);
+                            : failNotInstalled
+                                ? failBrowserError
+                                : failBrowserError
+                                    ? 'The browser endpoint did not answer, so the definition could not be fetched. Check it under Settings > Online > Hosted Browser and press Test.'
+                                    : 'Cloudflare blocked the definition fetch. Check the browser under Settings > Online > Hosted Browser: press Test there, then Check janitorai.com under JanitorAI, to see what is failing.';
+                descEl.innerHTML = definitionFailedNotice(limited ? '' : 'Importing uses the same request, so it will not work until this does.', msg,
+                    failNotInstalled && !gated && !limited && !failClassified ? HOSTED_BROWSER_GUIDE : undefined);
             }
             hideSections(['janitoraiCharScenarioSection', 'janitoraiCharFirstMsgSection', 'janitoraiCharExamplesSection', 'janitoraiCharLorebookSection']);
             setImportButtonState(view.isHitInLibrary(hit), false, 'unavailable');

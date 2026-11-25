@@ -25,6 +25,15 @@ export function aiConnectionStreams(surface) {
     return !!window.aiConnectionStreams?.(surface);
 }
 
+/**
+ * One reasoning-effort control: the common levels, then Custom with a word field; the value lives on the block's [data-effort-value]
+ * @param {Element} block holds [data-effort-select], [data-effort-row] with [data-effort-word], and [data-effort-value]
+ * @param {{ inheritLabel: string, rememberAs?: string }} opts rememberAs names the field, so a word typed survives a redraw
+ */
+export function mountEffortPicker(block, opts) {
+    window.mountEffortPicker?.(block, opts);
+}
+
 export function callLLM(messages, opts) {
     return window.callLLM?.(messages, opts);
 }
@@ -2095,6 +2104,7 @@ export default {
     getLlmSettings,
     mountAiConnectionBlock,
     aiConnectionStreams,
+    mountEffortPicker,
     callLLM,
     callLLMStream,
     consumeLlmSse,

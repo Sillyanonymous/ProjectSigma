@@ -2,8 +2,6 @@
 // IS the folder name, checked on every listing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { config, userPaths } from '../config.js';
 import { settingValue, patchSettings } from '../db/settings-store.js';
 import { emitChange, ownerOf, SERVER_SCOPE } from '../db/changes.js';
@@ -16,13 +14,12 @@ import { readZipIndex, readZipEntryAsync, quoteName } from './zip.js';
 import { assertSlugId } from './ext-contract.js';
 import { httpError } from './http-error.js';
 import { nextTurn } from './steps.js';
-
-const execFileP = promisify(execFile);
+import { GIT_TIMEOUT_MS, runGit, gitOut, gitWords, withRepo } from './git.js';
 
 // 2 to 60 characters: the id rides the store document key `ext-<id>`, whose grammar stops at 64
 export const EXT_ID_RE = /^[a-z0-9][a-z0-9-]{1,59}$/;
 // the extension api both halves speak, '<major>.<minor>': the minor moves with each batch of new doors, the major on a break
-export const SERVER_EXT_API_VERSION = '2.10';
+export const SERVER_EXT_API_VERSION = '2.11';
 
 /**
  * An api version as [major, minor]: a whole number from 1 is that major's .0, a 'major.minor' string
@@ -380,12 +377,8 @@ function installedDir(id) {
     return dir;
 }
 
-const GIT_TIMEOUT_MS = 120000;
 // a stage this old was cut off by a crash or a kill: a clone gives up long before, an archive unpacks in one call
 const STALE_INSTALL_MS = 5 * GIT_TIMEOUT_MS;
-
-// prompts off: a repository asking for a sign-in fails at once, never a prompt on the server's desktop
-const runGit = (args) => execFileP('git', args, { timeout: GIT_TIMEOUT_MS, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } });
 
 // an install is staged in a dot folder beside the installs, so a bad one never occupies the tree
 function stagingDir() {
@@ -514,21 +507,6 @@ export async function installFromZip(zipPath) {
 // ========================================
 // UPDATES
 // ========================================
-
-// git's own words for a failure, without the command line or its hints
-function gitWords(e) {
-    const lines = String(e?.stderr || e?.message || e).split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^hint:/.test(l) && !/^Command failed:/.test(l));
-    return lines.join(' ') || 'git failed';
-}
-const gitOut = async (args) => String((await runGit(args)).stdout).trim();
-
-// one git call at a time per install: a check and an update never touch one repository together
-const _repoLocks = new Map();
-function withRepo(id, fn) {
-    const run = (_repoLocks.get(id) || Promise.resolve()).then(fn, fn);
-    _repoLocks.set(id, run.catch(() => { /* the caller hears the failure; the next in line only waits for it */ }));
-    return run;
-}
 
 // the inventory's row for an install, so an update is held to the same checks a listing is
 const installedRow = (id) => listExtensions().find(r => r.id === String(id) && !r.bundled) || null;

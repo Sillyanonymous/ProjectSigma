@@ -1,0 +1,111 @@
+/* The step list and the bar of what runs now, under it (step-progress.js): the app update's dialog and the migration wizard */
+.cl-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.cl-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+}
+
+.cl-step-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    margin-top: 1px;
+    text-align: center;
+    color: var(--text-faint);
+}
+
+.cl-step.is-done .cl-step-icon { color: var(--cl-success); }
+.cl-step.is-active .cl-step-icon { color: var(--accent); }
+.cl-step.is-failed .cl-step-icon { color: var(--cl-error-bright); }
+.cl-step.is-warn .cl-step-icon { color: var(--cl-warning-pale); }
+
+.cl-step-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cl-step-name {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.cl-step.is-waiting .cl-step-name,
+.cl-step.is-skipped .cl-step-name {
+    color: var(--text-faint);
+    font-weight: 400;
+}
+
+.cl-step-count {
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cl-step-sub {
+    margin-top: var(--space-2xs);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-step.is-failed .cl-step-sub { color: var(--cl-error-pale); }
+.cl-step.is-warn .cl-step-sub { color: var(--cl-warning-pale); }
+
+/* what runs now, under the steps */
+.cl-progress-now {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--glass-border);
+}
+
+.cl-progress-now-text {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-progress-now.is-failed .cl-progress-now-text { margin-top: 0; color: var(--text-primary); }
+.cl-progress-eta { color: var(--text-faint); white-space: nowrap; }
+
+.cl-progress-hint {
+    margin-top: var(--space-xs);
+    color: var(--text-faint);
+    font-size: var(--font-sm);
+}
+
+/* a wait with no measure moves without claiming a share */
+.cl-progress-now.is-busy .import-progress-fill {
+    width: 35%;
+    animation: clStepBusy 1.4s ease-in-out infinite;
+}
+
+@keyframes clStepBusy {
+    from { left: -35%; }
+    to { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cl-progress-now.is-busy .import-progress-fill {
+        width: 100%;
+        opacity: 0.5;
+        animation: none;
+    }
+}

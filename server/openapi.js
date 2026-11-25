@@ -83,6 +83,32 @@ const EXT_UPDATES = { type: 'object', properties: {
         error: { ...STR, description: 'why the repository could not be asked' },
     } } },
 } };
+const APP_UPDATE = { type: 'object', properties: {
+    installType: { type: 'string', enum: ['git', 'docker', 'zip'], description: 'how this install was made: a git clone updates from here, a container or a download updates by hand' },
+    version: { ...STR, description: 'the version the server runs' },
+    checkedAt: { type: 'number', nullable: true, description: 'when the last check ended, epoch ms; null before the first' },
+    checking: { type: 'boolean', description: 'a check is running now' },
+    error: { ...STR, nullable: true, description: 'why the last check could not answer' },
+    latest: { type: 'object', nullable: true, description: 'the newest version found: for a clone the one its branch names, otherwise the newest release', properties: {
+        version: STR, url: { ...STR, nullable: true, description: 'its release page' }, publishedAt: { ...STR, nullable: true },
+    } },
+    releases: { type: 'array', description: 'every published release newer than the running version, up to latest, newest first: what an update brings', items: { type: 'object', properties: {
+        version: STR, notes: { ...STR, description: "the release's notes, markdown" }, url: { ...STR, nullable: true }, publishedAt: { ...STR, nullable: true },
+    } } },
+    available: { type: 'boolean', description: 'latest is newer than the running version' },
+    skipped: { ...STR, nullable: true, description: 'the version an admin chose not to hear about, for the whole server' },
+    canUpdate: { type: 'boolean', description: 'POST /api/app/update would start: a clone with something newer that can move forward cleanly' },
+    refusal: { ...STR, nullable: true, description: 'why a clone cannot update itself (local edits, a history that cannot move forward, no branch)' },
+    launcher: { type: 'boolean', description: 'the server was started by the launcher, which starts it again after an update' },
+    updating: { type: 'object', nullable: true, properties: {
+        phase: { type: 'string', enum: ['backup', 'updating', 'restarting'] }, toVersion: STR, startedAt: INT, backup: { type: 'boolean', description: 'every library is backed up first' },
+        backups: { type: 'array', description: 'during the backup phase, each library\'s copy as it goes', items: { type: 'object', properties: { handle: STR, status: { type: 'string', enum: ['queued', 'running', 'done', 'failed', 'cancelled'] }, phase: { ...STR, nullable: true }, done: { type: 'number', description: 'bytes copied so far' }, total: { type: 'number', nullable: true, description: "the library's size" } } } },
+        backedUp: { type: 'array', description: 'after the backup phase, what each library\'s backup came to', items: { type: 'object', properties: { handle: STR, bytes: { type: 'number', nullable: true } } } },
+    } },
+    failed: { ...STR, nullable: true, description: 'why the last update stopped; the install stayed as it was' },
+    restartNeeded: { type: 'object', nullable: true, description: 'the update is in place and waits for a restart (a server started without the launcher)', properties: { version: STR } },
+    lastUpdate: { type: 'object', nullable: true, description: 'the last update made from here', properties: { from: STR, to: STR, fromVersion: STR, toVersion: STR, at: INT, backups: { type: 'array', items: { type: 'object', properties: { handle: STR, file: STR } } } } },
+} };
 // the keys the native shape gives a message, refused on a stored row (they would be exported as JSONL)
 const RESERVED_KEYS_REFUSED = 'an element carrying seq or raw (the native shape\'s keys: send each message\'s raw)';
 
@@ -179,6 +205,8 @@ export function buildOpenApiSpec(version) {
                 + 'carries X-CL-Auth: required. A 401 without it is no request to sign in: a refused login or password '
                 + 'change under /api/auth, or a site\'s refusal a provider route passes through (a wrong password at a '
                 + 'site\'s login, an expired site token). '
+                + 'While the app updates itself, from its merge to its restart, every write (a non-GET request outside '
+                + '/api/app/update, extension routes included) is answered 503 with words: try it again after the reload. '
                 + 'A request may send X-UTC-Offset, the reader\'s clock in minutes east of UTC, and X-Time-Zone, '
                 + 'its IANA zone (Europe/Paris): the time macros a prompt or a sent message holds ({{time}}, '
                 + '{{date}}) answer in the offset, and a stored date written without a zone (a message\'s '
@@ -198,11 +226,42 @@ export function buildOpenApiSpec(version) {
             { name: 'extensions', description: 'Installed extensions: list, switch on or off, install, update and remove; their background jobs and their own routes' },
             { name: 'auth', description: 'Sessions + accounts (multi-user mode)' },
             { name: 'admin', description: 'User management (admin accounts only)' },
-            { name: 'infra', description: 'Health, thumbnails, proxy, provider services' },
+            { name: 'infra', description: "Health, the app's own updates, thumbnails, proxy, provider services" },
         ],
         paths: {
             '/api/health': {
                 get: { tags: ['infra'], summary: 'Liveness + the package version + apiVersion (the HTTP contract\'s own, info.version here) + multiUser flag + spec pointer', responses: { 200: json({ type: 'object' }) } },
+            },
+            '/api/app/update': {
+                get: {
+                    tags: ['infra'], summary: "The app's own update state (admin): the install type, the running version, what the last check found and whether this install can update itself. Held in memory, so checkedAt is null until a check runs after a restart",
+                    responses: { 200: json(APP_UPDATE), 403: err('admin required') },
+                },
+                post: {
+                    tags: ['infra'], summary: "Update a git clone to the newest commit of its branch (admin). Refused with the reason when an update is already starting or running, or waits for a restart, or the install has local edits, a history that cannot move forward, nothing newer, or work a restart would cut (a backup, a job over many characters, an extension job, a write still running). Otherwise it answers 202 at once and goes on: every library is backed up (unless backup is false), the branch moves forward, and a server started by the launcher restarts on the new version; one started another way waits for a restart (restartNeeded). Each phase is announced as appUpdate records",
+                    requestBody: body({ type: 'object', properties: { backup: { type: 'boolean', description: 'back up every library first; true when absent' } } }),
+                    responses: { 202: json(APP_UPDATE, 'the state, updating'), 400: err('a docker or zip install, which updates by hand, or a backup that is not true or false'), 403: err('admin required'), 409: err('refused: the reason names what blocks it'), 502: err('the repository could not be reached') },
+                },
+            },
+            '/api/app/update/check': {
+                post: {
+                    tags: ['infra'], summary: "Ask what is newer now (admin): a clone fetches its branch and reads the version it names, a container or a download asks GitHub's newest release; the notes of every release between come along; a check younger than maxAge milliseconds answers as it is, and a second ask joins the one running. It never changes the install",
+                    requestBody: body({ type: 'object', properties: { maxAge: { type: 'number', description: 'answer the last check as it is when it is younger than this many milliseconds; 0 or absent always asks' } } }),
+                    responses: { 200: json(APP_UPDATE), 400: err('maxAge not a number of 0 or more'), 403: err('admin required') },
+                },
+            },
+            '/api/app/update/skip': {
+                put: {
+                    tags: ['infra'], summary: 'Remember a version not to be told about again, for the whole server (admin); null forgets it',
+                    requestBody: body({ type: 'object', required: ['version'], properties: { version: { ...STR, nullable: true } } }),
+                    responses: { 200: json(APP_UPDATE), 400: err('no version, or one that is not a version'), 403: err('admin required') },
+                },
+            },
+            '/api/app/update/failure': {
+                delete: {
+                    tags: ['infra'], summary: 'Let go of a failed update for the whole server (admin), so no tab shows it again; a running update is untouched. Answers the state',
+                    responses: { 200: json(APP_UPDATE), 403: err('admin required') },
+                },
             },
             '/api/openapi.json': {
                 get: { tags: ['infra'], summary: 'This document', responses: { 200: json({ type: 'object' }) } },
@@ -1299,9 +1358,9 @@ export function buildOpenApiSpec(version) {
             '/api/migrate/run': {
                 post: {
                     tags: ['library'],
-                    summary: 'Run the SillyTavern migration as a child of the server, the log streamed. One run at a time; a dropped stream never stops it (GET /migrate/status keeps the tail). Options: excludeTags, only, sample, warmThumbs, verify (full | fast | off)',
+                    summary: 'Run the SillyTavern migration as a child of the server, the log and each step\'s progress streamed. One run at a time; a dropped stream never stops it (GET /migrate/status keeps the tail and the latest progress of every step). Options: excludeTags, only, sample, warmThumbs, verify (full | fast | off)',
                     requestBody: body({ type: 'object', required: ['path'], properties: { path: STR, only: { type: 'array', items: STR }, sample: INT, excludeTags: { type: 'array', items: STR }, warmThumbs: { type: 'boolean' }, verify: { type: 'string', enum: ['full', 'fast', 'off'] } } }),
-                    responses: { 200: { description: 'text/event-stream: started {mode, target, source, startedAt}, line {line}, done {mode, target, code, cancelled, report, state}, error {message, kind}' }, 400: err('no characters/ under the path, or a targetHandle naming another account'), 409: err('a migration or a plan is already running: the caller\'s own run with its tail, anything else without details') },
+                    responses: { 200: { description: 'text/event-stream: started {mode, target, source, startedAt, options}, line {line}, progress {step, label, done, total, unit, sources?, sizes?, at} (a step\'s count; steps read, worlds, characters, chats, rest, check, then thumbs and gallery-thumbs when asked, each from done 0 to its total, the total standing from its first record; sources and sizes on the thumbnail steps say what the total counts), done {mode, target, code, cancelled, report, state} (code 0 done, 1 the tool stopped, 2 some cards could not be read, 3 the check found differences; report as GET /migrate/status answers lastReport), error {message, kind}' }, 400: err('no characters/ under the path, or a targetHandle naming another account'), 409: err('a migration or a plan is already running: the caller\'s own run with its tail, anything else without details') },
                 },
             },
             '/api/migrate/finalize': {
@@ -1309,7 +1368,7 @@ export function buildOpenApiSpec(version) {
                     tags: ['library'],
                     summary: 'Finalize the migration: one last verify, then the SillyTavern-era identity records are purged (one-way; a later run into the same library is refused). Streamed like a run',
                     requestBody: body({ type: 'object', required: ['path'], properties: { path: STR, verify: { type: 'string', enum: ['full', 'fast', 'off'] }, force: { type: 'boolean' } } }),
-                    responses: { 200: { description: 'text/event-stream: started, line, done, error' }, 400: err('no characters/ under the path, or a targetHandle naming another account'), 409: err('a migration or a plan is already running: the caller\'s own run with its tail, anything else without details') },
+                    responses: { 200: { description: 'text/event-stream: started, line, progress (steps check, then purge), done (code 3 when the final check found differences and nothing was removed; its report carries ok, purged and the check as GET /migrate/status answers lastFinalize), error' }, 400: err('no characters/ under the path, or a targetHandle naming another account'), 409: err('a migration or a plan is already running: the caller\'s own run with its tail, anything else without details') },
                 },
             },
             '/api/migrate/cancel': {
@@ -1322,8 +1381,8 @@ export function buildOpenApiSpec(version) {
             '/api/migrate/status': {
                 get: {
                     tags: ['library'],
-                    summary: 'The run in flight with the tail of its log, the newest report, and what the caller\'s home already knows (finalized, verified)',
-                    responses: { 200: json({ type: 'object', properties: { target: STR, busy: { type: 'boolean', description: 'a migration is running on this server, any account; running carries its details only when it is the caller\'s own' }, running: { type: 'object', nullable: true, properties: { mode: STR, target: STR, source: STR, startedAt: { type: 'number' }, lines: { type: 'array', items: STR } } }, lastReport: { type: 'object', nullable: true }, state: { type: 'object', properties: { finalized: { type: 'object', nullable: true }, verified: { type: 'object', nullable: true } } } } }) },
+                    summary: 'The run in flight with the tail of its log and the latest progress of each step, the newest run and finalize reports, and what the caller\'s home already knows (finalized, verified)',
+                    responses: { 200: json({ type: 'object', properties: { target: STR, busy: { type: 'boolean', description: 'a migration is running on this server, any account; running carries its details only when it is the caller\'s own' }, running: { type: 'object', nullable: true, properties: { mode: STR, target: STR, source: STR, startedAt: { type: 'number' }, now: { type: 'number', description: 'the server\'s clock as it answered, to measure startedAt and each record\'s at against' }, options: { type: 'object', properties: { warmThumbs: { type: 'boolean' } } }, lines: { type: 'array', items: STR }, progress: { type: 'array', description: 'the latest record of each step so far, in the order the steps began', items: { type: 'object', properties: { step: STR, label: STR, done: INT, total: INT, unit: STR, sources: INT, sizes: INT, at: { type: 'number' } } } } } }, lastReport: { type: 'object', nullable: true, description: '{file, at, mode, counts, summary, unmatchedChatDirs, groupChats, verify: {mode, checked, findings (a count), groups [{kind, count}], lines (the first findings as written)}}; a finding kind is card, card-data, lore, chat, gallery, version, world, persona, other, purity or structure' }, lastFinalize: { type: 'object', nullable: true, description: 'the newest finalize\'s report, the same shape with ok and purged' }, state: { type: 'object', properties: { finalized: { type: 'object', nullable: true }, verified: { type: 'object', nullable: true } } } } }) },
                 },
             },
             '/api/backup': {
@@ -1831,29 +1890,29 @@ export function buildOpenApiSpec(version) {
                     responses: { 200: json({ type: 'array', items: { type: 'object', properties: { id: STR, contextLength: INT, vision: { type: 'boolean', description: 'whether the model sees pictures, present only when the endpoint\'s list says' } } } }), 502: err('upstream/list failure with kind') },
                 },
                 post: {
-                    tags: ['llm'], summary: 'Same list, probing an editor DRAFT: overrides (kind, baseUrl, apiKey, model) overlay the stored profile for this call only, nothing is saved, and the stored key stands in when the draft key is blank. Overrides ride the body so a key never lands in a query string',
-                    requestBody: body({ type: 'object', properties: { profileId: { ...STR, description: 'omit = first profile' }, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR } } } }, false),
-                    responses: { 200: json({ type: 'array', items: { type: 'object', properties: { id: STR, contextLength: INT, vision: { type: 'boolean', description: 'whether the model sees pictures, present only when the endpoint\'s list says' } } } }), 400: err('unknown kind / draft without a base URL'), 502: err('upstream/list failure with kind') },
+                    tags: ['llm'], summary: 'Same list, probing an editor DRAFT: overrides (kind, baseUrl, apiKey, model and params, the params checked as a save checks them) overlay the stored profile for this call only, nothing is saved, and the stored key stands in when the draft key is blank. Overrides ride the body so a key never lands in a query string',
+                    requestBody: body({ type: 'object', properties: { profileId: { ...STR, description: 'omit = first profile' }, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR, params: { type: 'object', description: 'the draft\'s neutral params, checked as a save checks them (a bad one is a bad_request)' } } } } }, false),
+                    responses: { 200: json({ type: 'array', items: { type: 'object', properties: { id: STR, contextLength: INT, vision: { type: 'boolean', description: 'whether the model sees pictures, present only when the endpoint\'s list says' } } } }), 400: err('unknown kind / draft without a base URL / a draft param a save refuses'), 502: err('upstream/list failure with kind') },
                 },
             },
             '/api/llm/test': {
                 post: {
-                    tags: ['llm'], summary: 'Connection probe: a 1-token real chat under a 15s ceiling. Always 200; the body carries the verdict. overrides (kind, baseUrl, apiKey, model) overlay the stored profile for this call only, the way the model probe takes a draft, so what is on screen is what gets tested and a key is checked before it is saved; the stored key stands in when the draft key is blank',
-                    requestBody: body({ type: 'object', properties: { profileId: STR, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR } } } }, false),
+                    tags: ['llm'], summary: 'Connection probe: a 1-token real chat under a 15s ceiling. Always 200; the body carries the verdict. overrides (kind, baseUrl, apiKey, model and params) overlay the stored profile for this call only, the way the model probe takes a draft, so what is on screen is what gets tested and a key is checked before it is saved; the stored key stands in when the draft key is blank',
+                    requestBody: body({ type: 'object', properties: { profileId: STR, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR, params: { type: 'object', description: 'the draft\'s neutral params, checked as a save checks them (a bad one is a bad_request)' } } } } }, false),
                     responses: { 200: json({ type: 'object' }, '{ok} | {ok: false, kind, error, timedOut}') },
                 },
             },
             '/api/llm/test-vision': {
                 post: {
                     tags: ['llm'], summary: 'Sight probe: shows the model two small pictures of one colour each and asks it to name both, under a 60s ceiling, through the draft as the connection probe takes one. Always 200; the body carries the verdict: sees true when it names both in order; false with a reason when the kind cannot carry pictures, the endpoint refused them (its words) or the answer missed them (what it said); null when the call could not be made or came back empty. Nothing is stored: a saved answer is the profile\'s vision',
-                    requestBody: body({ type: 'object', properties: { profileId: STR, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR } } } }, false),
+                    requestBody: body({ type: 'object', properties: { profileId: STR, overrides: { type: 'object', properties: { kind: STR, baseUrl: STR, apiKey: STR, model: STR, params: { type: 'object', description: 'the draft\'s neutral params, checked as a save checks them (a bad one is a bad_request)' } } } } }, false),
                     responses: { 200: json({ type: 'object' }, '{sees: true} | {sees: false, reason: kind|refused|answer, error?, said?} | {sees: null, kind, error}') },
                 },
             },
             '/api/llm/chat': {
                 post: {
                     tags: ['llm'],
-                    summary: "Server-side LLM call via a profile (keys never reach clients). Neutral params (temperature, topP, topK, maxTokens, stop, presencePenalty, frequencyPenalty, seed, reasoning{effort}, json) are translated per adapter; profile defaults merge under request params; flat temperature/maxTokens stay accepted. stream=false: normalized {content, reasoning?, finishReason, usage?, profileId}. stream=true: SSE with events chunk({text}|{reasoning}) / done({finishReason, usage?}) / error({kind, message}) - typed even mid-stream. Retries are bounded and pre-first-token only; streams are reaped on token INACTIVITY, not request age; aborting the request observably disconnects the upstream",
+                    summary: "Server-side LLM call via a profile (keys never reach clients). Neutral params (temperature, topP, topK, maxTokens, stop, presencePenalty, frequencyPenalty, seed, reasoning{effort}, json) are translated per adapter, reasoning.effort being one word of 1 to 32 lowercase letters, digits, _ or - that the host receives as-is (none, minimal, low, medium, high, xhigh and max are the common ones, and a model that does not take a level refuses it); profile defaults merge under request params; flat temperature/maxTokens stay accepted. stream=false: normalized {content, reasoning?, finishReason, usage?, profileId}. stream=true: SSE with events chunk({text}|{reasoning}) / done({finishReason, usage?}) / error({kind, message}) - typed even mid-stream. Retries are bounded and pre-first-token only; streams are reaped on token INACTIVITY, not request age; aborting the request observably disconnects the upstream",
                     requestBody: body({ type: 'object', properties: { profileId: { ...STR, description: 'omit = first profile' }, messages: { type: 'array', items: { type: 'object', properties: { role: STR, content: STR, images: { type: 'array', description: "pictures the model reads with this message, on the user's messages only and on a kind whose capabilities include vision; each is shrunk to a long edge of at most 1568 px, turned upright and stripped of metadata before it is sent. At most 100 a call", items: { type: 'object', properties: { data: { ...STR, description: 'the picture\'s bytes, base64 or a data URL (at most 20 MB)' }, ref: { type: 'object', description: 'a picture of this account instead: avatar (a character\'s portrait by its id), media (a gallery image by its id), persona (a persona\'s picture by its id) or attachment (a chat\'s or a studio session\'s own picture by its id)', properties: { kind: { type: 'string', enum: ['avatar', 'media', 'persona', 'attachment'] }, id: STR } } } } } } } }, model: STR, params: { type: 'object' }, stream: { type: 'boolean' }, temperature: { type: 'number' }, maxTokens: INT }, required: ['messages'] }),
                     responses: { 200: json({ type: 'object' }, 'normalized result, or text/event-stream when stream=true'), 400: err('no profile / bad body / unknown param / an image the call cannot carry'), 502: err('upstream error with kind'), 504: err('timeout') },
                 },
@@ -2096,7 +2155,7 @@ export function buildOpenApiSpec(version) {
 
             '/thumbs/warm': {
                 post: { tags: ['infra'], summary: 'Start a background pre-warm of the avatar thumbnail tiers the client renders (192/512), so a freshly migrated library does not pay every resize on first scroll. One run per user; 409 while one is running', responses: { 200: json({ type: 'object' }, '{ok, started}'), 409: err('already running') } },
-                get: { tags: ['infra'], summary: 'Progress of the thumbnail pre-warm', responses: { 200: json({ type: 'object', properties: { running: { type: 'boolean' }, done: INT, total: INT, failed: INT } }) } },
+                get: { tags: ['infra'], summary: 'Progress of the thumbnail pre-warm: total counts every thumbnail (two widths per portrait, one per gallery picture) before the first is made, and done counts the ones already there as they are found', responses: { 200: json({ type: 'object', properties: { running: { type: 'boolean' }, phase: STR, done: INT, total: INT, failed: INT, generated: INT, cached: INT } }) } },
             },
             '/thumbs/avatar/{id}': {
                 get: { tags: ['infra'], summary: 'Avatar thumbnail (webp, on-demand, disk-cached; s clamps to the nearest of 96/192/384/512/768/1280/1920)', parameters: [pathId(), p('s', INT, 'target size, px')], responses: { 200: { description: 'image/webp' }, 400: err('bad id'), 404: err('avatar not found') } },
@@ -2580,7 +2639,7 @@ export function buildOpenApiSpec(version) {
                         baseUrl: STR, model: STR, hasKey: { type: 'boolean' },
                         keyHint: { ...STR, nullable: true, description: 'the last four characters of the stored key when it is twelve or longer, so two keys can be told apart on screen; null otherwise' },
                         contextSize: { type: 'integer', nullable: true, description: 'token window this connection declares; overrides the global chat budget, null uses it' }, vision: { type: 'boolean', nullable: true, description: 'whether the model sees pictures: true, false, or null when not checked; a call carrying pictures to a connection set false is refused' }, maxImages: { type: 'integer', nullable: true, description: 'the most pictures the host takes in one request; a chat prompt over it sends the oldest as text, null is no limit' },
-                        params: { type: 'object', description: 'neutral default generation params; request params override per call' },
+                        params: { type: 'object', description: 'neutral default generation params; request params override per call. reasoning.effort is one word the host receives as-is' },
                         pos: INT,
                     },
                 },

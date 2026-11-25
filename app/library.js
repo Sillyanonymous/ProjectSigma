@@ -1218,6 +1218,10 @@ const DEFAULT_SETTINGS = {
     preloadLibrary: true,
     // an admin hears when an installed extension has a newer version; off, nothing asks a repository unasked
     notifyExtensionUpdates: false,
+    // an admin hears when a newer Project Σ is out; off, GitHub is asked only by Check Now
+    notifyAppUpdates: true,
+    // Update Now backs up every library first unless the admin last chose not to
+    appUpdateBackup: true,
 };
 
 // The shipped place and size of every window that has one, in percent; keyed like windowGeometry,
@@ -1360,6 +1364,101 @@ function aiConnectionStreams(surface) {
     return !(stored && typeof stored === 'object' && stored.streaming === false);
 }
 
+// the common levels; any other word rides Custom and goes to the host as typed, the server checking only its shape
+const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+// never a word: the sanitiser keeps only a-z 0-9 _ -
+const EFFORT_CUSTOM = '*custom';
+const effortWord = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
+// the last word typed per field, for the page's life: a view redrawn after a save mounts a fresh picker
+const effortTyped = new Map();
+
+/**
+ * One reasoning-effort control; its value lives on [data-effort-value], a hidden input the site reads and writes like any field.
+ * @param {Element} block holds [data-effort-select], [data-effort-row] with [data-effort-word], and [data-effort-value]
+ * @param {{ inheritLabel: string, rememberAs?: string }} opts the empty entry's label (also the placeholder); rememberAs names the field across redraws
+ */
+function mountEffortPicker(block, { inheritLabel, rememberAs = '' }) {
+    const carrier = block?.querySelector('[data-effort-value]');
+    const select = block?.querySelector('[data-effort-select]');
+    const row = block?.querySelector('[data-effort-row]');
+    const input = row?.querySelector('[data-effort-word]');
+    if (!carrier || !select || !input || carrier._effortPicker) return;
+    let native = null;
+    for (let o = carrier; o && !native?.get; o = Object.getPrototypeOf(o)) native = Object.getOwnPropertyDescriptor(o, 'value');
+    const current = () => native.get.call(carrier);
+    const listed = (w) => w === '' || REASONING_LEVELS.includes(w);
+    const memo = rememberAs || null;
+    let typed = (memo && effortTyped.get(memo)) || '';
+    const remember = (w) => { typed = w; if (memo) effortTyped.set(memo, w); };
+
+    select.innerHTML = [['', inheritLabel], ...REASONING_LEVELS.map(l => [l, l]), [EFFORT_CUSTOM, 'Custom…']]
+        .map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
+    input.placeholder = inheritLabel.toLowerCase();
+
+    const paint = () => {
+        const w = current();
+        // through the instance accessor, so a custom select's trigger follows
+        select.value = listed(w) ? w : EFFORT_CUSTOM;
+        row.hidden = listed(w);
+        if (!listed(w)) { input.value = w; remember(w); }
+    };
+    const commit = (w) => {
+        if (w === current()) return;
+        native.set.call(carrier, w);
+        carrier.dispatchEvent(new Event('input', { bubbles: true }));
+        carrier.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    Object.defineProperty(carrier, 'value', {
+        get() { return native.get.call(this); },
+        set(v) { native.set.call(this, effortWord(v)); paint(); },
+        configurable: true,
+    });
+
+    // the parts are internal: only the carrier speaks to the site, so a site never sees the Custom sentinel
+    const quiet = (e) => e.stopPropagation();
+    // a native select steps through its entries on the arrow keys, each step a change: only a pick moves focus
+    let stepping = false;
+    select.addEventListener('keydown', () => { stepping = true; setTimeout(() => { stepping = false; }); });
+    select.addEventListener('input', quiet);
+    select.addEventListener('change', (e) => {
+        quiet(e);
+        if (select.value !== EFFORT_CUSTOM) { row.hidden = true; commit(select.value); return; }
+        row.hidden = false;
+        // a word typed earlier comes back as the setting; with none, the field shows the level in force, so nothing changes
+        if (typed) { input.value = typed; commit(typed); } else input.value = current();
+        if (stepping) return;
+        // in the pick's own handler: a phone raises its keyboard only for a focus made during the tap. Selected, so typing replaces it
+        input.focus();
+        input.select();
+        // a keyboard pick on a converted select hands focus back to its trigger as the menu shuts
+        const trigger = select._customSelect?.trigger;
+        if (trigger) setTimeout(() => { if (input.ownerDocument.activeElement === trigger && !row.hidden) { input.focus(); input.select(); } });
+    });
+    // Escape clears a search field, and the blur after it would store the inherit entry; inside an overlay data-escape-keeps does this
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.preventDefault(); });
+    // a phone keyboard mid-word owns the text until the word is done; the caret stays where it was
+    const clean = () => {
+        const raw = input.value;
+        const next = effortWord(raw);
+        if (next === raw) return;
+        const caret = effortWord(raw.slice(0, input.selectionStart ?? raw.length)).length;
+        input.value = next;
+        input.setSelectionRange(caret, caret);
+    };
+    input.addEventListener('input', (e) => { quiet(e); if (!e.isComposing) clean(); });
+    input.addEventListener('compositionend', clean);
+    input.addEventListener('change', (e) => {
+        quiet(e);
+        const w = effortWord(input.value);
+        if (w && !listed(w)) remember(w);
+        commit(w);
+        // an empty field is the inherit entry and a listed word its own entry: the screen says what is stored
+        if (listed(w)) paint();
+    });
+    carrier._effortPicker = true;
+    paint();
+}
+
 /**
  * One connection chooser for every AI surface: overrides ride requests as params and never write
  * the profile. Persists under aiProfile.<surface>.
@@ -1385,12 +1484,15 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, onStream
                 <label class="cl-ai-conn-ov-row">Temperature
                     <input type="number" step="0.05" min="0" max="2" data-ov="temperature" placeholder="profile">
                 </label>
-                <label class="cl-ai-conn-ov-row">Reasoning
-                    <select data-ov="reasoningEffort">
-                        <option value="">Profile</option><option value="low">Low</option>
-                        <option value="medium">Medium</option><option value="high">High</option>
-                    </select>
-                </label>
+                <div data-effort>
+                    <label class="cl-ai-conn-ov-row">Reasoning
+                        <select data-effort-select></select>
+                    </label>
+                    <label class="cl-ai-conn-ov-row" data-effort-row hidden>Custom level
+                        <input type="search" data-effort-word data-escape-keeps maxlength="32" autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+                    </label>
+                    <input type="hidden" data-ov="reasoningEffort" data-effort-value>
+                </div>
                 <label class="cl-ai-conn-ov-row">Max reply tokens
                     <input type="number" min="1" step="256" data-ov="maxTokens" placeholder="profile">
                 </label>
@@ -1403,6 +1505,7 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, onStream
     const select = host.querySelector('.cl-ai-conn-select');
     const ovBtn = host.querySelector('.cl-ai-conn-ov-btn');
     const ovPanel = host.querySelector('.cl-ai-conn-ov-panel');
+    if (ovPanel) mountEffortPicker(ovPanel.querySelector('[data-effort]'), { inheritLabel: 'Profile', rememberAs: KEY });
     // A toolbar hands over a panelHost below its row, so opening the panel never rearranges the row.
     if (panelHost && ovPanel) {
         ovPanel.classList.add('cl-ai-conn-ov-band');
@@ -1472,7 +1575,7 @@ async function mountAiConnectionBlock(host, { surface, onChange = null, onStream
                 const next = { ...(stored().overrides || {}) };
                 const raw = el.value;
                 if (raw === '' || raw == null) delete next[k];
-                else next[k] = el.tagName === 'SELECT' ? raw : Number(raw);
+                else next[k] = el.type === 'number' ? Number(raw) : raw;
                 save({ overrides: next });
             });
         });
@@ -2360,15 +2463,14 @@ function openSettingsFrom({ section } = {}) {
 }
 
 /**
- * Clicks the gear, then the section's nav item: the gear's handler repopulates the credential
- * inputs that Save writes back raw.
+ * Clicks the gear (its handler refills every field), then the section's nav item; an open dialog only moves, keeping what was typed.
  * @param {string} section
  * @returns {Promise<boolean>} true once the section is on screen; false without the settings button
  */
 function openSettingsToSectionNow(section) {
     const btn = document.getElementById('gallerySettingsBtn');
     if (!btn) return Promise.resolve(false);
-    btn.click();
+    if (!document.getElementById('gallerySettingsModal')?.classList.contains('visible')) btn.click();
     return new Promise(resolve => setTimeout(() => {
         if (section) document.querySelector(`.settings-nav-item[data-section="${section}"]`)?.click();
         resolve(true);
@@ -4355,7 +4457,34 @@ function buildConfirmContentHtml(blocks) {
             case 'switch': {
                 // a choice the answer carries along (its onChange hears each flip); an ack gates, this never does
                 const t = String(b.text ?? '');
-                if (t) out.push(`<label class="cl-confirm-ack cl-confirm-switch"><input type="checkbox" class="cl-switch-input" data-confirm-switch="${escapeHtml(b.key ?? '')}"${b.checked ? ' checked' : ''}><span class="cl-switch" aria-hidden="true"></span><span>${escapeHtml(t)}</span></label>`);
+                const hint = b.hint ? `<div class="cl-confirm-switch-hint">${escapeHtml(b.hint)}</div>` : '';
+                if (t) out.push(`<label class="cl-confirm-ack cl-confirm-switch"><input type="checkbox" class="cl-switch-input" data-confirm-switch="${escapeHtml(b.key ?? '')}"${b.checked ? ' checked' : ''}><span class="cl-switch" aria-hidden="true"></span><span>${escapeHtml(t)}</span></label>${hint}`);
+                break;
+            }
+            case 'fromTo': {
+                const from = String(b.from ?? '');
+                const to = String(b.to ?? '');
+                if (from || to) out.push(`<div class="cl-confirm-fromto"><span class="cl-confirm-fromto-from">${escapeHtml(from)}</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i><span class="cl-confirm-fromto-to">${escapeHtml(to)}</span></div>`);
+                break;
+            }
+            case 'notes': {
+                // a long text in a panel of its own height, scrolling inside itself, so the lines above and the buttons stay in view
+                const parts = (Array.isArray(b.items) ? b.items : []).map(it => {
+                    if (!it || typeof it !== 'object') return '';
+                    if (it.kind === 'list') {
+                        const li = (Array.isArray(it.items) ? it.items : []).map(x => `<li>${escapeHtml(x)}</li>`).join('');
+                        return li ? `<ul>${li}</ul>` : '';
+                    }
+                    const t = String(it.text ?? '');
+                    if (!t) return '';
+                    const kind = ['version', 'heading'].includes(it.kind) ? it.kind : 'text';
+                    return `<div class="cl-confirm-notes-${kind}">${escapeHtml(t)}</div>`;
+                }).join('');
+                if (!parts) break;
+                const title = b.title ? `<div class="cl-confirm-notes-title">${escapeHtml(b.title)}</div>` : '';
+                const url = typeof b.link?.url === 'string' && /^https:\/\//i.test(b.link.url) ? b.link.url : '';
+                const link = url ? `<a class="cl-confirm-notes-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(b.link.label || url)} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>` : '';
+                out.push(`<div class="cl-confirm-notes-block">${title}<div class="cl-confirm-notes" tabindex="0">${parts}</div>${link}</div>`);
                 break;
             }
             case 'note': {
@@ -18118,10 +18247,12 @@ function openUserGuide(section = '') {
 
 document.getElementById('userGuideBtn')?.addEventListener('click', () => openUserGuide());
 
-// the DataCat settings hint, at the guide's DataCat notes
-document.getElementById('hampterGuideLink')?.addEventListener('click', (e) => {
+// a link or button into the user guide (a Settings hint, a provider notice), at the section its data-guide-link names
+document.addEventListener('click', (e) => {
+    const link = e.target.closest?.('[data-guide-link]');
+    if (!link) return;
     e.preventDefault();
-    openUserGuide('online/datacat');
+    openUserGuide(link.dataset.guideLink);
 });
 
 // ==============================================
@@ -19465,8 +19596,10 @@ document.getElementById('thumbWarmBtn')?.addEventListener('click', async (e) => 
             if (!resp.ok) throw new Error(`server returned ${resp.status}`);
             const p = await resp.json();
             if (!p.running) {
-                setStatus(p.total === 0 ? 'Nothing missing' : `${p.total - p.failed} generated${p.failed ? `, ${p.failed} failed` : ''}`);
-                showToast(p.total === 0 ? 'All thumbnails already exist' : `Generated ${p.total - p.failed} thumbnails`, 'success');
+                // total counts every thumbnail, the ones already made too
+                const made = p.generated ?? 0;
+                setStatus(!made && !p.failed ? 'Nothing missing' : `${made} generated${p.failed ? `, ${p.failed} failed` : ''}`);
+                showToast(!made && !p.failed ? 'All thumbnails already exist' : `Generated ${made} thumbnails`, 'success');
                 break;
             }
             setStatus(`${p.done}/${p.total}...`);
@@ -23195,21 +23328,34 @@ function hasOpenOverlay(except = []) {
     return false;
 }
 
+/** The inline edit an Escape from el belongs to (a field marked data-escape-own cancels on its own Escape), or null. */
+function fieldOwningEscape(el) {
+    return el?.closest?.('[data-escape-own]') || null;
+}
+
 document.addEventListener('keydown', (e) => {
     // Shift+Escape is the conversation's stop, never a close
     if (e.key !== 'Escape' || e.shiftKey) return;
     const top = getTopmostOverlay();
     if (top) {
+        // an inline edit in the dialog cancels first, before its blur would save it; the next Escape closes the dialog
+        const owner = fieldOwningEscape(e.target);
+        if (owner && top.el.contains(owner)) return;
         e.stopPropagation();
+        // a search field clears itself on Escape; one whose blur stores it opts out, or the close would store the emptied text
+        if (e.target.matches?.('input[type="search"][data-escape-keeps]')) e.preventDefault();
         // a view is no dialog: Escape in one of its fields leaves the field, the next one closes the view
         if (top.reg.viewLevel && top.el.contains(e.target) && e.target.matches?.('input, textarea, select, [contenteditable], [contenteditable="true"]')) {
             e.target.blur();
             return;
         }
+        // a field whose blur stores it hands its text over first, or the close reads the dialog without it
+        if (e.target.matches?.('[data-escape-keeps]')) e.target.dispatchEvent(new Event('change', { bubbles: true }));
         top.reg.close(top.el);
     }
 }, true);
 window.hasOpenOverlay = hasOpenOverlay;
+window.fieldOwningEscape = fieldOwningEscape;
 window.overlayIsAbove = _overlayIsAbove;
 window.isOverlayVisible = _isOverlayVisible;
 
@@ -23388,6 +23534,7 @@ window.diffSplitView = diffSplitView;
 window.getLlmSettings = getLlmSettings;
 window.mountAiConnectionBlock = mountAiConnectionBlock;
 window.aiConnectionStreams = aiConnectionStreams;
+window.mountEffortPicker = mountEffortPicker;
 
 // Runtime tokens: a module writes into the token LAYER, never inline styles, which would outrank
 // user Custom CSS.

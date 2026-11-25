@@ -6,6 +6,7 @@ export const SERVER_SCOPE = 'server.db';
 
 // every entity a report may name with its ops: the feed's vocabulary and the store guards' names
 export const CHANGE_VOCABULARY = Object.freeze(Object.fromEntries(Object.entries({
+    appUpdate: ['updated'],
     assistantSession: ['created', 'updated', 'deleted'],
     attachment: ['created', 'deleted'],
     background: ['created', 'updated', 'deleted'],
@@ -39,8 +40,8 @@ export const CHANGE_VOCABULARY = Object.freeze(Object.fromEntries(Object.entries
 }).map(([entity, ops]) => [entity, Object.freeze(ops)])));
 export const CHANGE_ENTITIES = Object.freeze(Object.keys(CHANGE_VOCABULARY));
 
-// what a library store write reports; user, library, extension, extensionJob, backup and maintenance are announced outside one
-export const LIBRARY_WRITE_ENTITIES = Object.freeze(CHANGE_ENTITIES.filter(e => !['user', 'library', 'extension', 'extensionJob', 'backup', 'maintenance'].includes(e)));
+// what a library store write reports; user, library, extension, extensionJob, backup, maintenance and appUpdate are announced outside one
+export const LIBRARY_WRITE_ENTITIES = Object.freeze(CHANGE_ENTITIES.filter(e => !['user', 'library', 'extension', 'extensionJob', 'backup', 'maintenance', 'appUpdate'].includes(e)));
 
 const requestContext = new AsyncLocalStorage();
 // db handle -> { owner, frames }

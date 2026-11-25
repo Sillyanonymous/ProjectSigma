@@ -1,17 +1,15 @@
 // The notifications center's extension updates section: installed extensions whose repository holds a newer version, for an admin who asked to hear.
 import { registerFeedPatcher } from './feed.js';
+import { adminCheck } from './admin-check.js';
 
 // the switch promises a check a day at most; a tab left open looks again every hour whether one is due
-const DAY_MS = 24 * 60 * 60 * 1000;
 const LOOK_EVERY_MS = 60 * 60 * 1000;
 
 let _shell = null;
 let _node = null;
 // only an admin can update, so only an admin's tab hears; the server answers anyone else 403
-let _admin = false;
+let _watch = null;
 let _state = { checkedAt: null, checking: false, extensions: [] };
-// the last read or check sent wins, so an answer overtaken by a later one is dropped
-let _readSeq = 0;
 
 const notifyOn = () => _shell?.getSetting('notifyExtensionUpdates') === true;
 
@@ -29,47 +27,22 @@ function adopt(answer) {
     _shell.onChange?.(_state);
 }
 
+// the section's two requests, handed to the shared check
+const readCall = () => _shell.apiRequest('/extensions/updates', 'GET');
+const askExtensionCheck = (maxAge) => _shell.apiRequest('/extensions/updates/check', 'POST', { maxAge });
+
 /** Read the last check and repaint. */
-export async function readUpdates() {
-    const seq = ++_readSeq;
-    try {
-        const resp = await _shell.apiRequest('/extensions/updates', 'GET');
-        if (resp.status === 403) { _admin = false; return; }
-        if (!resp.ok) return;
-        const answer = await resp.json();
-        if (seq !== _readSeq) return;
-        _admin = true;
-        adopt(answer);
-    } catch { /* the next extension record or a resync reads again */ }
-}
+export const readUpdates = () => _watch.read();
 
 /**
  * Ask the server to check every install's repository now, or answer a check younger than maxAge; it never updates.
  * @param {{ maxAge?: number }} [opts] milliseconds
  * @returns {Promise<object|null>} the server's answer, null for an account that cannot update
  */
-export async function checkUpdates({ maxAge = 0 } = {}) {
-    if (!_admin) return null;
-    const seq = ++_readSeq;
-    _state = { ..._state, checking: true };
-    _shell.onChange?.(_state);
-    try {
-        const answer = await _shell.readAnswer(await _shell.apiRequest('/extensions/updates/check', 'POST', { maxAge }));
-        if (seq === _readSeq) adopt(answer);
-        return answer;
-    } catch (e) {
-        if (seq === _readSeq) { _state = { ..._state, checking: false }; _shell.onChange?.(_state); }
-        throw e;
-    }
-}
+export const checkUpdates = (opts) => _watch.check(opts);
 
 /** With the switch on, a check a day old or never made is made now; answers whether it asked. */
-export async function lookIfDue(now = Date.now()) {
-    if (!_admin || !notifyOn() || _state.checking) return false;
-    if (_state.checkedAt && now - _state.checkedAt < DAY_MS) return false;
-    try { await checkUpdates({ maxAge: DAY_MS }); } catch { /* the next look asks again */ }
-    return true;
-}
+export const lookIfDue = (now) => _watch.lookIfDue(now);
 
 /** The section's state for the shell's button: a notice while the switch is on and an update waits, never an alarm. */
 function sectionStatus() {
@@ -112,6 +85,11 @@ function renderSection(el) {
 /** Contribute the section and read the last check: shell carries apiRequest, readAnswer, getSetting, escapeHtml, showToast, openExtensions, the notification calls, onChange and document. */
 export async function startExtensionUpdates(shell) {
     _shell = shell;
+    _watch = adminCheck({
+        readAnswer: shell.readAnswer, read: readCall, ask: askExtensionCheck, adopt,
+        onChecking: (checking) => { _state = { ..._state, checking }; shell.onChange?.(_state); },
+        isOn: notifyOn, checkedAt: () => _state.checkedAt,
+    });
     const doc = shell.document ?? globalThis.document;
     _node = shell.registerNotificationSection({ id: 'extension-updates', getStatus: sectionStatus, onOpen: (node) => renderSection(node) });
     _node?.addEventListener('click', (e) => { if (e.target.closest('[data-ext-updates-open]')) shell.openExtensions(); });
@@ -141,7 +119,7 @@ export async function startExtensionUpdates(shell) {
         }
     });
     await readUpdates();
-    if (!_admin) return;
+    if (!_watch.isAdmin()) return;
     void lookIfDue();
     const timer = setInterval(() => void lookIfDue(), LOOK_EVERY_MS);
     timer.unref?.();

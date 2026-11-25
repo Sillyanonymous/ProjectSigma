@@ -162,6 +162,9 @@ export function createElement(tag) {
         // no layout: a scroll into view is recorded with its options, a focus as the element that took it
         scrollIntoView(opts) { el.scrolledInto = opts ?? true; },
         focus() { el.focused = true; },
+        // a text field's selection, as offsets into its value
+        select() { el.selectionStart = 0; el.selectionEnd = String(el.value ?? '').length; },
+        setSelectionRange(start, end) { el.selectionStart = start; el.selectionEnd = end; },
         _listeners: listeners,
     };
     el.dataset = new Proxy({}, {

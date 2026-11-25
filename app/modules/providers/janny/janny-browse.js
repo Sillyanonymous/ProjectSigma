@@ -6,7 +6,7 @@ import {
     libraryFeatureRows, libraryBadgeHtml, libraryCardClass, setFilterCount,
 } from '../browse-view.js';
 import CoreAPI from '../../core-api.js';
-import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, hasBrowserEndpoint, buildProviderNotice, definitionFailedNotice } from '../provider-utils.js';
+import { IMG_PLACEHOLDER, formatNumber, BROWSE_PURIFY_CONFIG, skeletonLines, hideSections, deferRender, deferCall, isMobileMode, importThroughCommand, renderBrowseError, HOSTED_BROWSER_GUIDE, hasBrowserEndpoint, buildProviderNotice, definitionFailedNotice } from '../provider-utils.js';
 import {
     JANNY_IMAGE_BASE,
     jannyCharacterUrl,
@@ -432,11 +432,13 @@ async function fetchAndPopulateDetails(hit, token, signal = null) {
         if (!provider) return;
 
         let charData = null;
+        let notInstalled = '';
         try {
-            const data = await provider.fetchMetadata(jannyFullPath(charId, hit.name), { signal });
+            const data = await provider.fetchDetails(jannyFullPath(charId, hit.name), { signal });
             if (data) charData = data;
         } catch (e) {
-            console.warn('[JannyBrowse] Detail fetch failed:', e.message);
+            if (e?.browserErrorCode === 'NO_BROWSER') notInstalled = e.browserError;
+            if (e?.name !== 'AbortError') console.warn('[JannyBrowse] Detail fetch failed:', e.message);
         }
 
         // Stale check - user may have opened a different card
@@ -447,7 +449,9 @@ async function fetchAndPopulateDetails(hit, token, signal = null) {
             const descEl = document.getElementById('jannyCharDescription');
             if (descSection && descEl) {
                 descSection.hidden = false;
-                descEl.innerHTML = hasBrowserEndpoint()
+                descEl.innerHTML = notInstalled
+                    ? definitionFailedNotice('Importing now would save a card with no definition or greeting.', notInstalled, HOSTED_BROWSER_GUIDE)
+                    : hasBrowserEndpoint()
                     ? definitionFailedNotice('Under Settings, Online, JannyAI press Check jannyai.com to see what is failing. Importing now would save a card with no definition or greeting.', 'The Hosted Browser could not fetch this card\'s definition.')
                     : buildProviderNotice({
                         kind: 'info',

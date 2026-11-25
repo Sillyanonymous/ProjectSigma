@@ -23,25 +23,182 @@ async function tidySearchIndexNow() {
     return readAnswer(await apiRequest('/maintenance/search-index/tidy', 'POST'));
 }
 
-// the run and the finalize stream their log line by line and end with the done frame
-async function migrateStream(resp, onLine) {
+// the run and the finalize stream their log line by line and each step's progress, and end with the done frame
+async function migrateStream(resp, onLine, onProgress) {
     if (!resp.ok) return readAnswer(resp);
     let done = null;
     await consumeLlmSse(resp, { onEvent: (ev) => {
         if (ev.started) onLine?.(`migrating into ${ev.started.target} from ${ev.started.source}`);
         if (ev.line) onLine?.(ev.line.line);
+        if (ev.progress) onProgress?.(ev.progress);
         if (ev.done) done = ev.done;
     } });
     if (!done) throw new Error('the migration stream ended without a result');
     return done;
 }
 
-async function migrateRun(opts, onLine) {
-    return migrateStream(await apiRequest('/migrate/run', 'POST', opts), onLine);
+async function migrateRun(opts, onLine, onProgress) {
+    return migrateStream(await apiRequest('/migrate/run', 'POST', opts), onLine, onProgress);
 }
 
-async function migrateFinalize(opts, onLine) {
-    return migrateStream(await apiRequest('/migrate/finalize', 'POST', opts), onLine);
+async function migrateFinalize(opts, onLine, onProgress) {
+    return migrateStream(await apiRequest('/migrate/finalize', 'POST', opts), onLine, onProgress);
+}
+
+// The migration wizard's words: its steps and bar, its summary and its findings, each a pure reading.
+
+// each verb's steps as the reader reads them, keyed as the tool's progress records are
+const MIG_STEPS = {
+    run: [['read', 'Read the folder'], ['worlds', 'Lorebooks'], ['characters', 'Characters and their pictures'], ['chats', 'Chats'],
+        ['rest', 'Versions and the rest'], ['check', 'Check the result'], ['thumbs', 'Portrait thumbnails'], ['gallery-thumbs', 'Gallery thumbnails']],
+    finalize: [['check', 'Final check'], ['purge', 'Remove the SillyTavern-era records']],
+};
+// a step this long without a record is said out loud, the run still going
+const MIG_STALL_MS = 120000;
+const MIG_NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five'];
+
+const migNum = (n) => (Number.isFinite(n) ? n.toLocaleString() : '0');
+const migCount = (n, one, many = `${one}s`) => `${migNum(n)} ${n === 1 ? one : many}`;
+
+/** How long a run has taken, in words. */
+function migElapsed(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m} min ${s % 60} s` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/**
+ * The step list and the bar for a verb, from the latest record of each step.
+ * @param {Map<string, {done: number, total: number, unit: string, label?: string, sources?: number, sizes?: number, at: number, first: {t: number, done: number}}>} seen
+ * @param {{now: number, startedAt: number, ended?: {code: number|null, cancelled: boolean, at: number}|null, timeLeft?: Function}} at
+ */
+function migrationProgressView(mode, options, seen, { now, startedAt, ended = null, timeLeft = () => '' }) {
+    const thumbs = (key) => key === 'thumbs' || key === 'gallery-thumbs';
+    const defs = MIG_STEPS[mode].filter(([key]) => !thumbs(key) || options?.warmThumbs || seen.has(key));
+    // a step the tool sent and the list does not know joins at its end, under the tool's own name
+    for (const [key, r] of seen) if (!defs.some(([k]) => k === key)) defs.push([key, r.label || key]);
+    const current = defs.map(([key]) => seen.has(key)).lastIndexOf(true);
+    const stopped = ended && (ended.cancelled || ![0, 2, 3].includes(ended.code));
+    const steps = defs.map(([key, name], i) => {
+        const r = seen.get(key);
+        let state = !r ? (ended || i < current ? 'skipped' : 'waiting') : i < current || ended ? 'done' : 'active';
+        if (r && ended && i === current && stopped) state = ended.cancelled ? 'skipped' : 'failed';
+        if (r && ended && ((ended.code === 3 && key === 'check') || (ended.code === 2 && key === 'characters'))) state = 'warn';
+        const count = r?.unit && r.total ? `${migNum(Math.min(r.done, r.total))} of ${migNum(r.total)} ${r.unit}` : '';
+        const sub = key === 'thumbs' && r?.sources != null
+            ? `${MIG_NUMBER_WORDS[r.sizes] ?? migNum(r.sizes)} size${r.sizes === 1 ? '' : 's'} for each of ${migCount(r.sources, 'portrait')}`
+            : key === 'gallery-thumbs' ? 'Pictures only: videos and sounds get no thumbnail' : '';
+        return { key, name, state, count, sub };
+    });
+    let bar = { kind: 'none', pct: 0, what: '', eta: '', hint: '' };
+    if (!ended) {
+        const [key, name] = current >= 0 ? defs[current] : [null, 'Starting'];
+        const r = key && seen.get(key);
+        bar = r?.total
+            ? { kind: 'measured', pct: Math.min(100, Math.round(r.done / r.total * 100)), what: `${name}: ${migNum(Math.min(r.done, r.total))} of ${migNum(r.total)}${r.unit ? ` ${r.unit}` : ''}`, eta: timeLeft(r.first, r.done, r.total, now), hint: '' }
+            : { kind: 'busy', pct: 0, what: name, eta: '', hint: '' };
+        const quiet = now - (r?.at ?? startedAt);
+        if (quiet >= MIG_STALL_MS) bar.hint = `No news from this step for ${Math.floor(quiet / 60000)} minutes. Large libraries can be slow here; the run is still going.`;
+    }
+    return { steps, bar, elapsed: `Elapsed ${migElapsed((ended?.at ?? now) - startedAt)}` };
+}
+
+// each kind of finding the check reports, in words, with what to do about it
+const MIG_FINDING_WORDS = {
+    card: (n) => [`${migCount(n, 'card')} did not come across.`, 'Run the migration again: it brings over what is missing and leaves the rest as it is.'],
+    'card-data': (n) => [`${n === 1 ? '1 detail of a character differs from its SillyTavern card' : `${migNum(n)} details of characters differ from their SillyTavern cards`} (the text, tags, favorites or the site a card came from).`, 'Run the migration again to bring the cards back in line.'],
+    lore: (n) => [`${migCount(n, 'link')} between characters, chats or personas and their lorebooks did not come across under the same name.`, 'Run the migration again to heal them.'],
+    chat: (n) => [`${migCount(n, 'difference')} in chats: a chat or some of its messages are not as SillyTavern has them.`, 'Run the migration again: chats are brought over again in place.'],
+    gallery: (n) => [`${migCount(n, 'gallery file')} did not come across.`, 'Run the migration again to bring them over.'],
+    version: (n) => [`${migCount(n, 'saved version')} did not come across.`, 'Run the migration again to bring them over.'],
+    world: (n) => [`${migCount(n, 'difference')} in lorebooks: a lorebook or some of its entries are not as SillyTavern has them.`, 'Run the migration again: lorebooks are brought over again in place.'],
+    persona: (n) => [`${migCount(n, 'persona detail')} did not come across (a persona, its picture, or which one is in use).`, 'Run the migration again to bring them over.'],
+    other: (n) => [`${migCount(n, 'difference')} in playlists, saved prompts, filter presets or custom CSS.`, 'Run the migration again to bring them over.'],
+    purity: (n) => [`${migCount(n, 'character record')} still ${n === 1 ? 'carries' : 'carry'} details only SillyTavern uses.`, 'This should not happen: send the full log with a bug report.'],
+    structure: (n) => [`${migCount(n, 'count')} in the library's database ${n === 1 ? 'is' : 'are'} out of step.`, 'This should not happen: send the full log with a bug report.'],
+};
+
+/** What the check found, grouped in words with what to do, and the lines as the tool wrote them under a disclosure. */
+function migrationFindingsHtml(verify, esc) {
+    const groups = (verify?.groups || []).filter(g => g?.count > 0);
+    const items = groups.map(({ kind, count }) => {
+        const [what, todo] = (MIG_FINDING_WORDS[kind] || ((n) => [`${migCount(n, 'other difference')}.`, 'Send the full log with a bug report.']))(count);
+        return `<li class="mig-finding"><span>${esc(what)}</span> <span class="mig-finding-do">${esc(todo)}</span></li>`;
+    });
+    const lines = verify?.lines || [];
+    const more = (verify?.findings || 0) > lines.length ? `<div class="mig-log-line">The first ${migNum(lines.length)}; the report in your library folder lists all ${migNum(verify.findings)}.</div>` : '';
+    return `${items.length ? `<ul class="mig-findings">${items.join('')}</ul>` : ''}
+        ${lines.length ? `<details class="bk-list-wrap"><summary class="bk-list-summary">The differences as the tool wrote them</summary><div class="mig-log">${lines.map(l => `<div class="mig-log-line">${esc(l)}</div>`).join('')}${more}</div></details>` : ''}`;
+}
+
+/** A run's summary in plain words, from its report. */
+function migrationSummaryHtml(report, esc) {
+    const s = report?.summary;
+    if (!s) return '';
+    const q = (name) => `<span class="mig-name">"${esc(name)}"</span>`;
+    const li = [];
+    let chars = `<b>${migCount((s.imported || 0) + (s.copies || 0) + (s.healed || 0), 'character')}</b> brought across.`;
+    if (s.copies) chars += s.copies === 1 ? ' 1 is a copy: a card your SillyTavern folder had twice (the same card saved again); both kept as separate characters.'
+        : ` ${migNum(s.copies)} are copies: cards your SillyTavern folder had twice (the same card saved again); both kept as separate characters.`;
+    if (s.healed) chars += ` ${migNum(s.healed)} ${s.healed === 1 ? 'was' : 'were'} already in this library from an earlier run, updated in place instead of added again.`;
+    li.push(chars);
+    let media = `<b>${migCount(s.mediaImported || 0, 'picture or other file', 'pictures and other files')}.</b>`;
+    if (s.mediaSkipped) media += ` ${migNum(s.mediaSkipped)} skipped: the same file was already there for that character, from an earlier run or found twice in SillyTavern's gallery folders. Nothing was lost.`;
+    li.push(media);
+    // the rest of the estate, each part only when the run brought any
+    const rest = [
+        s.worlds && `<b>${migCount(s.worlds, 'lorebook')}</b>`,
+        s.charLoreLinks && `${migCount(s.charLoreLinks, 'link')} between characters and books`,
+        s.globalWorlds && `${migNum(s.globalWorlds)} switched on for every chat`,
+        s.chats && `<b>${migCount(s.chats, 'chat')}</b>`,
+        s.versionSnapshots && `<b>${migCount(s.versionSnapshots, 'saved version')}</b> of ${migCount(s.versionChars || 0, 'character')}`,
+        s.personas && `<b>${migCount(s.personas, 'persona')}</b>`,
+        s.playlists && migCount(s.playlists, 'playlist'),
+    ].filter(Boolean);
+    if (rest.length) li.push(`${rest.join(', ')}.`);
+    const renamed = Array.isArray(s.worldsRenamed) ? s.worldsRenamed : [];
+    if (renamed.length) li.push(`<b>${migCount(renamed.length, 'lorebook')} renamed</b>: another file had the same name apart from spaces, so ${renamed.slice(0, 5).map(r => `${q(r.from)} is now ${q(r.to)}`).join(', ')}${renamed.length > 5 ? ` and ${migNum(renamed.length - 5)} more` : ''}.`);
+    const unmatched = report.unmatchedChatDirs || [];
+    if (unmatched.length) li.push(`<b>${migCount(unmatched.length, 'chat folder')} matched no character</b> (${unmatched.slice(0, 5).map(q).join(', ')}${unmatched.length > 5 ? ` and ${migNum(unmatched.length - 5)} more` : ''}): ${unmatched.length === 1 ? 'its' : 'their'} chats stay in SillyTavern, untouched.`);
+    if (report.groupChats) li.push(`${migCount(report.groupChats, 'group chat file')} stay in SillyTavern: group chats do not come across.`);
+    const empty = (report.counts?.noCard || 0) + (Array.isArray(s.skipped) ? s.skipped.length : 0);
+    if (empty) li.push(`${migCount(empty, 'card file')} hold no character and ${empty === 1 ? 'was' : 'were'} left out.`);
+    if (report.counts?.excluded) li.push(`${migCount(report.counts.excluded, 'card')} left out by the tags you chose.`);
+    const errors = Array.isArray(s.errors) ? s.errors : [];
+    if (errors.length) li.push(`<b>${migCount(errors.length, 'item')} could not be read</b>: ${errors.slice(0, 10).map(e => `${q(e.file || e.world || '')} (${esc(e.error || '')})`).join(', ')}${errors.length > 10 ? ` and ${migNum(errors.length - 10)} more` : ''}. Everything else came across; check these in SillyTavern, then run the migration again.`);
+    const v = report.verify;
+    const check = !v ? 'Check: skipped.'
+        : !v.findings ? `<b>Check: ${migCount(v.checked || 0, 'thing')} compared, all match.</b>`
+            : `<b>Check: ${migCount(v.findings, 'difference')} found</b> in ${migCount(v.checked || 0, 'thing')} compared.`;
+    return `<ul class="mig-summary-list">${li.map(x => `<li>${x}</li>`).join('')}<li>${check}</li></ul>${v?.findings ? migrationFindingsHtml(v, esc) : ''}`;
+}
+
+/**
+ * How a verb ended, in words: its title, its tone and what to show; an exit code never reaches the screen.
+ * @param {{code?: number|null, cancelled?: boolean, report?: object|null, error?: string}} done
+ * @param {string[]} tail the log's last lines, for a stop nobody asked for
+ */
+function migrationOutcome(mode, done, tail, esc) {
+    const fin = mode === 'finalize';
+    if (done.error) return { title: done.error, tone: 'bad', html: '' };
+    if (done.cancelled) return { title: fin ? 'Finalize cancelled' : 'Migration cancelled', tone: '', html: '<p class="mig-out-lead">Run it again any time: every character heals in place, nothing duplicates.</p>' };
+    const report = done.report;
+    if (fin && done.code === 0) return { title: 'Finalized', tone: 'ok', html: `<p class="mig-out-lead">The SillyTavern-era records are gone${report?.purged ? ` (${migNum(report.purged)})` : ''}: your migrated characters behave exactly like ones made here.</p>` };
+    if (fin && done.code === 3) {
+        const n = report?.verify?.findings || 0;
+        return { title: 'Finalize stopped before removing anything', tone: 'warn', html: `<p class="mig-out-lead">The final check found ${migCount(n, 'difference')}.</p>${migrationFindingsHtml(report?.verify, esc)}<p class="mig-out-lead">Then finalize again.</p>` };
+    }
+    if (!fin && [0, 2, 3].includes(done.code)) {
+        const title = done.code === 3 ? 'Migration finished; the check found differences' : done.code === 2 ? 'Migration finished; some items could not be read' : 'Migration finished';
+        return { title, tone: done.code === 0 ? 'ok' : 'warn', html: migrationSummaryHtml(report, esc) };
+    }
+    const last = (tail || []).filter(Boolean);
+    return {
+        title: fin ? 'Finalize stopped unexpectedly' : 'The migration stopped unexpectedly',
+        tone: 'bad',
+        html: `<p class="mig-out-lead">${fin ? 'Finalize did not finish; try it again when you are ready.' : 'Nothing is lost: run it again and every character heals in place.'}${last.length ? ' Its last words:' : ''}</p>${last.length ? `<div class="mig-log">${last.map(l => `<div class="mig-log-line">${esc(l)}</div>`).join('')}</div>` : ''}`,
+    };
 }
 
 // The keys a Save writes: the ones whose input moved since open and that the store doesnt
@@ -53,6 +210,18 @@ function settingsSaveDiff(opened, now, stored) {
         if (!same(value, opened?.[key]) && !same(value, stored(key))) changed[key] = value;
     }
     return changed;
+}
+
+// Drafts with a Save of their own (an editor, a pasted credential): the dialog's Save writes each changed one, its close names them
+const settingsDrafts = [];
+function addSettingsDraft(draft) { settingsDrafts.push(draft); }
+function changedSettingsDrafts() { return settingsDrafts.filter(d => d.changed()); }
+
+// what the close's question lists: each changed draft by name, then the dialog's own settings as a count
+function unsavedEditsList(drafts, settingsCount) {
+    const items = drafts.map(d => d.label());
+    if (settingsCount) items.push(settingsCount === 1 ? '1 setting' : `${settingsCount} settings`);
+    return items;
 }
 
 // Settings holding what the reader wrote rather than picked; Restore Defaults names each one
@@ -114,6 +283,17 @@ async function saveServiceCredential(send, { settingKey, value, what }) {
     setSetting(settingKey, value);
     showToast(`${what} saved`, 'success');
     return true;
+}
+
+// a credential pasted beside its own Save is a draft until stored; no settingKey for a paste the field never shows back
+function addCredentialDraft(input, label, settingKey, save) {
+    const stored = () => (settingKey ? getSetting(settingKey) || '' : '');
+    addSettingsDraft({
+        label: () => label,
+        changed: () => { const typed = input.value.trim(); return !!typed && typed !== stored(); },
+        save,
+        discard: () => { input.value = stored(); },
+    });
 }
 
 // Settings > Media's credentials handed to the service, a refusal thrown in its words
@@ -374,6 +554,7 @@ function setupSettingsModal() {
     const autoTidySearchIndexCheckbox = document.getElementById('settingsSearchIndexAutoTidy');
     const preloadLibraryCheckbox = document.getElementById('settingsPreloadLibrary');
     const extNotifyUpdatesCheckbox = document.getElementById('settingsExtNotifyUpdates');
+    const appNotifyUpdatesCheckbox = document.getElementById('settingsNotifyAppUpdates');
 
     if (!settingsBtn || !settingsModal) return;
 
@@ -1042,22 +1223,11 @@ function setupSettingsModal() {
         if (settingsModal.classList.contains('visible')) refreshSearchIndexPanel();
     });
 
-    // The SillyTavern migration wizard: the plan on Check, the run and finalize over the streamed log,
-    // the log ring re-read on open.
+    // The SillyTavern migration wizard: the plan on Check, the run and finalize followed step by step, each ending in a summary in words.
     const migPath = document.getElementById('migPath');
-    const migLog = document.getElementById('migLog');
     const migResult = document.getElementById('migResult');
     const migRunBtn = document.getElementById('migRunBtn');
     const migFinBtn = document.getElementById('migFinalizeBtn');
-    const migLine = (text) => {
-        if (!migLog) return;
-        const d = document.createElement('div');
-        d.className = 'mig-log-line';
-        d.textContent = text;
-        migLog.appendChild(d);
-        migLog.hidden = false;
-        migLog.scrollTop = migLog.scrollHeight;
-    };
     const migList = (id) => (document.getElementById(id)?.value || '').split(',').map(s => s.trim()).filter(Boolean);
     const migOpts = () => ({
         path: migPath?.value.trim() || '',
@@ -1066,6 +1236,7 @@ function setupSettingsModal() {
         sample: Number(document.getElementById('migSample')?.value) || undefined,
         warmThumbs: document.getElementById('migWarmThumbs')?.checked === true,
     });
+    // the panel's own line: a Check refused, another account's run
     const migShowResult = (text, kind) => {
         if (!migResult) return;
         migResult.textContent = text;
@@ -1083,8 +1254,9 @@ function setupSettingsModal() {
             tone = 'is-ok';
         } else if (lastReport?.summary) {
             const v = lastReport.verify;
+            const s = lastReport.summary;
             when = `Last run ${new Date(lastReport.at).toLocaleString()}`;
-            detail = `${lastReport.summary.imported} imported, ${lastReport.summary.healed} healed, ${lastReport.summary.copies} copies; verify ${v ? (v.findings ? `${v.findings} finding(s)` : 'clean') : 'skipped'}.`;
+            detail = `${migCount((s.imported || 0) + (s.copies || 0) + (s.healed || 0), 'character')} brought across; ${v ? (v.findings ? `the check found ${migCount(v.findings, 'difference')}` : 'the check found everything in place') : 'the check was skipped'}.`;
             tone = v?.findings ? 'is-warn' : 'is-ok';
         } else {
             when = migRunBtn?.disabled ? 'Check a folder first.' : 'Nothing has been migrated into this library yet.';
@@ -1098,17 +1270,167 @@ function setupSettingsModal() {
         migStepDone('migStepFinalize', state?.finalized);
         if (migFinBtn) migFinBtn.disabled = !!state?.finalized || !lastReport?.summary;
     };
+
+    // the verb on screen: its area, the latest record of each step, its log, and a timer for the elapsed time and a silence
+    let migLive = null;
+    let migPollTimer = null;
+    const MIG_POLL_MS = 2000;
+    const MIG_TAIL = 6;
+    const migQ = (area, name) => area.querySelector(`[data-mig-${name}]`);
+    const migAreaOf = (mode) => {
+        const area = document.getElementById(mode === 'finalize' ? 'migFinOut' : 'migRunOut');
+        if (area && !migQ(area, 'steps')) {
+            area.innerHTML = `
+                <div class="mig-out-head"><span class="mig-out-title" data-mig-title></span><span class="mig-elapsed" data-mig-elapsed></span></div>
+                <div class="mig-progress" data-mig-progress>${window.StepProgress.blockHtml('mig')}</div>
+                <div class="mig-summary" data-mig-summary hidden></div>
+                <details class="bk-list-wrap mig-log-wrap" data-mig-logwrap hidden>
+                    <summary class="bk-list-summary">Show the full log</summary>
+                    <div class="mig-log" data-mig-log></div>
+                </details>`;
+        }
+        return area;
+    };
+    const migLogLines = (area, lines) => {
+        const log = migQ(area, 'log');
+        for (const text of lines) {
+            const d = document.createElement('div');
+            d.className = 'mig-log-line';
+            d.textContent = text;
+            log.appendChild(d);
+        }
+        if (lines.length) migQ(area, 'logwrap').hidden = false;
+    };
+    const migLogLine = (text) => {
+        if (!migLive) return;
+        migLive.lines.push(text);
+        migLogLines(migLive.area, [text]);
+    };
+    const migRedraw = () => {
+        const live = migLive;
+        if (!live) return;
+        const v = migrationProgressView(live.mode, live.options, live.seen, { now: Date.now(), startedAt: live.startedAt, ended: live.ended, timeLeft: window.StepProgress.timeLeft });
+        migQ(live.area, 'title').textContent = live.ended ? live.outcome.title : live.mode === 'finalize' ? 'Finalizing' : 'Migrating';
+        migQ(live.area, 'elapsed').textContent = v.elapsed;
+        live.area.classList.remove('is-ok', 'is-warn', 'is-bad');
+        if (live.outcome?.tone) live.area.classList.add(`is-${live.outcome.tone}`);
+        window.StepProgress.paint(live.area, 'mig', { steps: v.steps, bar: v.bar, failed: live.outcome?.tone === 'bad' }, escapeHtml);
+    };
+    // a record as it arrives: the time its step began counting is kept, for the time left
+    const migAdopt = (live, r, at) => {
+        const prev = live.seen.get(r.step);
+        if (prev && prev.done === r.done && prev.total === r.total) return;
+        live.seen.set(r.step, { ...r, at, first: prev?.first ?? { t: at, done: r.done } });
+    };
+    const migRecord = (r) => {
+        if (!migLive || migLive.ended) return;
+        migAdopt(migLive, r, Date.now());
+        migRedraw();
+    };
+    // a run going: the band says so, not the state it started from (its steps and bar are under it)
+    const migPaintRunning = () => {
+        const el = document.getElementById('migState');
+        if (el) el.textContent = 'Migrating into this library';
+        const sub = document.getElementById('migStateSub');
+        if (sub) sub.textContent = 'Its steps follow below; you can close Settings and come back.';
+        document.getElementById('migRunBand')?.classList.remove('is-ok', 'is-warn');
+    };
+    // the server's clock is folded onto this tab's, so a run followed from another device measures right
+    const migFollow = (mode, { options = {}, startedAt = Date.now(), progress = [], lines = [], serverNow = null, stream = false } = {}) => {
+        if (migLive?.timer) clearInterval(migLive.timer);
+        clearTimeout(migPollTimer);
+        const offset = serverNow ? Date.now() - serverNow : 0;
+        const area = migAreaOf(mode);
+        migLive = { mode, area, options, seen: new Map(), startedAt: startedAt + offset, serverStartedAt: startedAt, ended: null, outcome: null, lines: [...lines], stream, timer: setInterval(migRedraw, 1000) };
+        for (const r of progress) migAdopt(migLive, r, r.at + offset);
+        area.hidden = false;
+        migQ(area, 'progress').hidden = false;
+        migQ(area, 'summary').hidden = true;
+        migQ(area, 'summary').innerHTML = '';
+        migQ(area, 'log').innerHTML = '';
+        migQ(area, 'logwrap').hidden = true;
+        migLogLines(area, lines);
+        if (mode === 'run') migPaintRunning();
+        migRedraw();
+    };
+    const migEnd = (mode, done) => {
+        const live = migLive;
+        if (!live || live.mode !== mode || live.ended) return;
+        clearInterval(live.timer);
+        live.timer = null;
+        live.ended = { code: done.code ?? null, cancelled: !!done.cancelled, at: Date.now() };
+        live.outcome = migrationOutcome(mode, done, live.lines.slice(-MIG_TAIL), escapeHtml);
+        const summary = migQ(live.area, 'summary');
+        summary.innerHTML = live.outcome.html;
+        summary.hidden = !live.outcome.html;
+        migRedraw();
+    };
+    // a verb's end read off its report, for one this panel followed through status: the report says what the exit code said
+    const migCodeOf = (mode, report, state) => {
+        if (mode === 'finalize') return state?.finalized ? 0 : report && !report.ok ? 3 : 1;
+        if (!report?.summary) return 1;
+        return report.verify?.findings ? 3 : report.summary.errors?.length ? 2 : 0;
+    };
+    // a run this tab does not hold the stream of moves its bar from status until it ends
+    const migPoll = async () => {
+        migPollTimer = null;
+        const live = migLive;
+        if (!live || live.stream || live.ended) return;
+        let s;
+        try { s = await migrateStatus(); } catch { migPollTimer = setTimeout(migPoll, MIG_POLL_MS * 2); return; }
+        if (migLive !== live) return;
+        if (s.running && s.running.mode === live.mode) {
+            const offset = Date.now() - s.running.now;
+            for (const r of s.running.progress || []) migAdopt(live, r, r.at + offset);
+            const tail = s.running.lines || [];
+            if (tail.at(-1) !== live.lines.at(-1)) {
+                live.lines = [...tail];
+                migQ(live.area, 'log').innerHTML = '';
+                migLogLines(live.area, tail);
+            }
+            migRedraw();
+            migPollTimer = setTimeout(migPoll, MIG_POLL_MS);
+            return;
+        }
+        const newest = live.mode === 'finalize' ? s.lastFinalize : s.lastReport;
+        // a report older than this run is the one before it: a run that wrote none stopped (cancelled elsewhere, the tool gone)
+        const report = newest && Number(newest.at) >= live.serverStartedAt ? newest : null;
+        migEnd(live.mode, { code: migCodeOf(live.mode, report, s.state), cancelled: false, report });
+        migPaintState(s.state, s.lastReport);
+    };
+    // a verb that ended before this panel opened: its summary under its step, the steps themselves gone with the run
+    const migShowPast = (mode, report, state) => {
+        const area = migAreaOf(mode);
+        const outcome = migrationOutcome(mode, { code: migCodeOf(mode, report, state), cancelled: false, report }, [], escapeHtml);
+        area.hidden = false;
+        migQ(area, 'progress').hidden = true;
+        migQ(area, 'logwrap').hidden = true;
+        migQ(area, 'title').textContent = outcome.title;
+        migQ(area, 'elapsed').textContent = report?.at ? new Date(report.at).toLocaleString() : '';
+        area.classList.remove('is-ok', 'is-warn', 'is-bad');
+        if (outcome.tone) area.classList.add(`is-${outcome.tone}`);
+        const summary = migQ(area, 'summary');
+        summary.innerHTML = outcome.html;
+        summary.hidden = !outcome.html;
+    };
     async function refreshMigratePanel() {
         if (!document.getElementById('settingsMigrateGroup')) return;
         try {
             const s = await migrateStatus();
             migPaintState(s.state, s.lastReport);
             if (s.running) {
-                migShowResult(`A migration ${s.running.mode} is running (since ${new Date(s.running.startedAt).toLocaleTimeString()}); the log below is its tail.`, 'busy');
-                if (migLog) migLog.innerHTML = '';
-                for (const l of s.running.lines) migLine(l);
+                migShowResult('', null);
+                // this tab's own stream already follows it
+                if (!(migLive?.stream && !migLive.ended && migLive.mode === s.running.mode)) {
+                    migFollow(s.running.mode, { options: s.running.options, startedAt: s.running.startedAt, progress: s.running.progress, lines: s.running.lines, serverNow: s.running.now });
+                    migPollTimer = setTimeout(migPoll, MIG_POLL_MS);
+                }
             } else if (s.busy) {
                 migShowResult('Another migration is running on this server; Check and Run wait until it finishes.', 'busy');
+            } else if (!migLive) {
+                if (s.lastReport?.summary) migShowPast('run', s.lastReport, s.state);
+                const fin = s.lastFinalize;
+                if (fin && !fin.ok && !s.state?.finalized && (!s.lastReport || fin.at > s.lastReport.at)) migShowPast('finalize', fin, s.state);
             }
         } catch (err) {
             migShowResult(`Could not read the migration state: ${err.message}`, 'bad');
@@ -1165,12 +1487,12 @@ function setupSettingsModal() {
         migRunBtn.classList.add('cl-btn-primary');
         migRunBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run the Migration';
     };
-    const migStream = async (verb, label) => {
+    const migStream = async (verb, mode) => {
         if (!migRunBtn) return;
         // Close is a finished run on display, not a busy verb: the next verb clears it
         if (migRunBtn.dataset.runState === 'done') migResetVerb();
         if (migRunBtn.dataset.runState) return;
-        if (migLog) { migLog.innerHTML = ''; migLog.hidden = true; }
+        const opts = migOpts();
         setRunVerb(migRunBtn, 'running');
         migRunBtn.onclick = async () => {
             setRunVerb(migRunBtn, 'stopping');
@@ -1179,34 +1501,33 @@ function setupSettingsModal() {
         if (migFinBtn) migFinBtn.disabled = true;
         const runIcon = document.getElementById('migRunIcon');
         if (runIcon) runIcon.className = 'fa-solid fa-circle-notch fa-spin settings-band-icon';
+        migShowResult('', null);
+        migFollow(mode, { options: { warmThumbs: mode === 'run' && opts.warmThumbs }, stream: true });
         try {
-            migShowResult(`${label} running...`, 'busy');
-            const done = await verb(migOpts(), migLine);
-            const ok = done.code === 0 && !done.cancelled;
-            const v = done.report?.verify;
-            migShowResult(done.cancelled ? 'Cancelled. Run it again any time: every character heals in place, nothing duplicates.'
-                : ok ? `${label} finished${v ? (v.findings ? ` with ${v.findings} verify finding(s); the report in the library folder says where` : ', verified clean') : ''}.`
-                    : `${label} failed (exit code ${done.code}); the log says where.`, done.cancelled ? null : ok ? 'ok' : 'bad');
-            migPaintState(done.state, done.report || null);
+            const done = await verb(opts, migLogLine, migRecord);
+            migEnd(mode, done);
+            // a finalize answers its own report, not a run's: the band is re-read from status below
+            migPaintState(done.state, mode === 'run' ? done.report : null);
             // every surface re-reads what the child wrote through the feed's library record, which has no tab
             // as its origin: this tab included
         } catch (err) {
-            migShowResult(err.message, 'bad');
+            migEnd(mode, { error: err.message });
         } finally {
+            if (migLive?.mode === mode) migLive.stream = false;
             setRunVerb(migRunBtn, 'done');
             migRunBtn.onclick = migResetVerb;
             if (runIcon) runIcon.className = 'fa-solid fa-circle-play settings-band-icon';
             refreshMigratePanel();
         }
     };
-    migRunBtn?.addEventListener('click', () => { if (!migRunBtn.dataset.runState) migStream(migrateRun, 'Migration'); });
+    migRunBtn?.addEventListener('click', () => { if (!migRunBtn.dataset.runState) migStream(migrateRun, 'run'); });
     migFinBtn?.addEventListener('click', async () => {
         const go = await showConfirm({
             title: 'Finalize the migration?',
-            message: 'One last verify, then the SillyTavern-era identity records are purged so migrated characters are indistinguishable from native ones. This is one-way: afterwards the migration cannot be re-run into this library without duplicating everything.',
+            message: 'One last check, then the SillyTavern-era identity records are purged so migrated characters are indistinguishable from native ones. This is one-way: afterwards the migration cannot be re-run into this library without duplicating everything.',
             icon: 'fa-solid fa-flag-checkered', confirmLabel: 'Finalize', danger: true,
         });
-        if (go) migStream(migrateFinalize, 'Finalize');
+        if (go) migStream(migrateFinalize, 'finalize');
     });
 
     settingsBtn.onclick = () => {
@@ -1790,6 +2111,7 @@ function setupSettingsModal() {
         if (preloadLibraryCheckbox) preloadLibraryCheckbox.checked = getSetting('preloadLibrary') !== false;
         refreshSearchIndexPanel();
         if (extNotifyUpdatesCheckbox) extNotifyUpdatesCheckbox.checked = getSetting('notifyExtensionUpdates') === true;
+        if (appNotifyUpdatesCheckbox) appNotifyUpdatesCheckbox.checked = getSetting('notifyAppUpdates') !== false;
         refreshMigratePanel();
 
         // Provider Order & Defaults
@@ -2545,16 +2867,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
         // the pronouns block answers its own presses and typing, as in the Personas window
         editor.addEventListener('click', (e) => { const btn = e.target.closest('[data-cpp-act="pronoun-preset"]'); if (btn) window.Personas.applyPronounPreset(btn); });
         editor.addEventListener('input', (e) => { if (e.target.matches?.('[data-cpp-pronoun]')) window.Personas.syncPronounPreset(e.target); });
-        // the personas panel's own verbs (modules/personas.js): one set of writes for both surfaces
-        editor.querySelector('.persona-save').addEventListener('click', async () => {
-            const name = editor.querySelector('.persona-edit-name').value;
-            const description = editor.querySelector('.persona-edit-desc').value;
-            const pronouns = window.Personas.readPronouns(editor);
-            if (!(await window.Personas.write(personaEditingId, { name, description, pronouns }))) return;
-            personaEditingId = null;
-            personaEditor = null;
-            await renderPersonaList();
-        });
+        editor.querySelector('.persona-save').addEventListener('click', savePersonaEditor);
         editor.querySelector('.persona-delete')?.addEventListener('click', async () => {
             if (!personaEditingId || !(await window.Personas.remove(persona))) return;
             personaEditingId = null;
@@ -2562,6 +2875,27 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             await renderPersonaList();
         });
     }
+
+    // the personas panel's own verbs (modules/personas.js): one set of writes for both surfaces
+    async function savePersonaEditor() {
+        const editor = personaEditor;
+        if (!editor) return true;
+        const name = editor.querySelector('.persona-edit-name').value;
+        const description = editor.querySelector('.persona-edit-desc').value;
+        const pronouns = window.Personas.readPronouns(editor);
+        if (!(await window.Personas.write(personaEditingId, { name, description, pronouns }))) return false;
+        personaEditingId = null;
+        personaEditor = null;
+        await renderPersonaList();
+        return true;
+    }
+
+    addSettingsDraft({
+        label: () => (personaEditingId ? `The persona "${personaEditor.querySelector('.persona-edit-name').value.trim() || 'unnamed'}"` : 'The new persona'),
+        changed: () => !!personaEditor && personaEditorState(personaEditor) !== personaEditor.dataset.opened,
+        save: savePersonaEditor,
+        discard: () => { personaEditor?.remove(); personaEditingId = null; personaEditor = null; },
+    });
 
     // read on every open: an extension switched on since adds a kind
     async function initLlmProfilesPanel() {
@@ -2629,6 +2963,13 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
         renderLlmProfilesList();
         host.scrollIntoView({ block: 'nearest' });
     }
+
+    addSettingsDraft({
+        label: () => `The connection "${llmEditor.collect().name}"`,
+        changed: () => !!llmEditor?.isDirty(),
+        save: () => llmEditor.save(),
+        discard: () => llmEditor?.close({ force: true }),
+    });
 
     // straight to the editor: its name field is where the name goes
     on('llmProfileAddBtn', 'click', async () => {
@@ -2707,16 +3048,22 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     async function closeSettingsDialog() {
         if (!settingsModal.classList.contains('visible')) return true;
         const unsaved = unsavedSettings();
-        if (Object.keys(unsaved).length) {
+        const drafts = changedSettingsDrafts();
+        const keys = Object.keys(unsaved);
+        if (keys.length || drafts.length) {
             const ok = await showConfirm({
                 title: 'Discard unsaved edits?',
-                message: 'Some settings changed here have not been saved. Discard them?',
+                content: [
+                    { type: 'text', text: 'Not saved yet:' },
+                    { type: 'list', items: unsavedEditsList(drafts, keys.length) },
+                ],
                 confirmLabel: 'Discard',
                 cancelLabel: 'Keep Editing',
                 danger: true,
             });
             if (!ok) return false;
-            applySettingsToPage(new Set(Object.keys(unsaved)));
+            if (keys.length) applySettingsToPage(new Set(keys));
+            drafts.forEach(d => d.discard());
         }
         closeModal();
         return true;
@@ -2927,6 +3274,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             autoTidySearchIndex: autoTidySearchIndexCheckbox ? autoTidySearchIndexCheckbox.checked : true,
             preloadLibrary: preloadLibraryCheckbox ? preloadLibraryCheckbox.checked : true,
             notifyExtensionUpdates: extNotifyUpdatesCheckbox ? extNotifyUpdatesCheckbox.checked : false,
+            notifyAppUpdates: appNotifyUpdatesCheckbox ? appNotifyUpdatesCheckbox.checked : true,
             ...readHistoryCountsFromUI(),
             ...readProviderOrderFromUI(),
             infiniteScroll: readInfiniteScrollFromUI(),
@@ -2949,7 +3297,16 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     }
 
     const doSaveSettings = async () => {
+        // each draft's save says its own refusal, and the dialog stays open on everything left
+        for (const draft of changedSettingsDrafts()) {
+            if (!(await draft.save())) return;
+        }
         const changed = unsavedSettings();
+        // the provider list is one control: a moved switch writes the order as shown, which tells a provider switched on from a new one
+        if ('disabledProviders' in changed) {
+            const order = readProviderOrderFromUI().providerOrder;
+            if (JSON.stringify(order) !== JSON.stringify(getSetting('providerOrder') ?? null)) changed.providerOrder = order;
+        }
         if (Object.keys(changed).length) {
             setSettings(changed);
             // a refused save is said by settingsSaveFailed, and the dialog stays open on the edits
@@ -3310,6 +3667,59 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
             if (el && health?.version) el.textContent = `v${health.version}`;
         })
         .catch(() => { /* html fallback text stays */ });
+    // The Updates band: the app update state as the notifications module read it, so the band and the bell say the same
+    let appUpdate = null;
+    const INSTALL_WORDS = { git: 'This install is a git clone, so it can update itself', docker: 'A container install: an update is a rebuild', zip: 'A downloaded install: an update is a new download' };
+    const APP_PHASE_WORDS = { backup: 'Backing up every library', updating: 'Updating', restarting: 'Restarting the server' };
+    function paintAppUpdatesBand() {
+        const group = document.getElementById('appUpdatesGroup');
+        const band = document.getElementById('appUpdatesBand');
+        const icon = document.getElementById('appUpdatesIcon');
+        const check = document.getElementById('appCheckUpdatesBtn');
+        const action = document.getElementById('appUpdateActionBtn');
+        if (group) group.hidden = !appUpdate?.admin;
+        if (!band || !icon || !check || !action || !appUpdate?.admin) return;
+        const s = appUpdate.state || {};
+        const busy = !!s.checking || !!s.updating;
+        check.disabled = busy;
+        check.innerHTML = s.checking ? '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking' : '<i class="fa-solid fa-arrows-rotate"></i> Check Now';
+        band.classList.remove('is-ok', 'is-warn');
+        const paint = (glyph, when, sub, state = null, verb = null, label = '') => {
+            icon.className = `fa-solid ${glyph} settings-band-icon`;
+            bkSet('appUpdatesWhen', when);
+            bkSet('appUpdatesSub', sub);
+            if (state) band.classList.add(state);
+            action.hidden = !verb;
+            action.dataset.verb = verb || '';
+            action.textContent = label;
+            // one primary per band: the action when there is one, else Check Now
+            check.classList.toggle('cl-btn-primary', !verb);
+            check.classList.toggle('cl-btn-secondary', !!verb);
+        };
+        if (s.updating) return paint('fa-circle-notch fa-spin', `Updating to v${s.updating.toVersion}`, APP_PHASE_WORDS[s.updating.phase] || 'Updating');
+        if (s.restartNeeded) return paint('fa-power-off', `v${s.restartNeeded.version} is in place`, 'Restart the server to finish the update', 'is-warn');
+        if (s.failed) return paint('fa-triangle-exclamation', 'The update stopped', `${s.failed}. Nothing was changed`, 'is-warn');
+        if (s.checking) return paint('fa-circle-notch fa-spin', 'Checking for updates', 'Asking GitHub');
+        const installed = INSTALL_WORDS[s.installType] || '';
+        if (!s.checkedAt) return paint('fa-cloud-arrow-down', 'Not checked yet', installed);
+        const when = `Checked ${bkAgo(s.checkedAt)}`;
+        if (s.error) return paint('fa-triangle-exclamation', when, `Could not check: ${s.error}`, 'is-warn');
+        if (s.available && s.latest) {
+            const sub = [`You have v${s.version}`, s.refusal, s.skipped === s.latest.version ? 'skipped in the notifications' : ''].filter(Boolean).join(' · ');
+            if (s.installType !== 'git') return paint('fa-circle-arrow-up', `v${s.latest.version} is available`, sub, null, 'how', 'How to Update');
+            return paint('fa-circle-arrow-up', `v${s.latest.version} is available`, sub, s.refusal ? 'is-warn' : null, s.canUpdate ? 'now' : null, 'Update Now');
+        }
+        const last = s.lastUpdate?.toVersion === s.version ? ` · updated from v${s.lastUpdate.fromVersion} ${bkAgo(s.lastUpdate.at)}` : '';
+        paint('fa-circle-check', when, `v${s.version} is the newest${last}`, 'is-ok');
+    }
+    document.addEventListener('cl-app-update-changed', (e) => { appUpdate = e.detail || null; paintAppUpdatesBand(); });
+    document.getElementById('appCheckUpdatesBtn')?.addEventListener('click', () => document.dispatchEvent(new CustomEvent('cl-app-update-check')));
+    document.getElementById('appUpdateActionBtn')?.addEventListener('click', (e) => {
+        const verb = e.currentTarget.dataset.verb;
+        if (verb) document.dispatchEvent(new CustomEvent('cl-app-update-verb', { detail: verb }));
+    });
+    // the switch takes effect at once, as the extension updates' one beside the Extensions list does
+    appNotifyUpdatesCheckbox?.addEventListener('change', () => setSetting('notifyAppUpdates', appNotifyUpdatesCheckbox.checked));
     // The repository row: a link once a public repo exists, the pending hint until then.
     const repoHint = document.getElementById('clRepoHint');
     if (repoHint && PUBLIC_REPO_URL) {
@@ -3415,14 +3825,16 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     wireSecretToggle(toggleCivitaiKeyVisibilityBtn, civitaiApiKeyInputEl);
 
     if (saveCivitaiKeyBtn && civitaiApiKeyInputEl) {
-        saveCivitaiKeyBtn.onclick = async () => {
+        const saveCivitaiKeyNow = async () => {
             const key = (civitaiApiKeyInputEl.value || '').trim();
             if (!key) {
                 showToast('Enter a key first', 'warning');
-                return;
+                return false;
             }
-            await saveServiceCredential(() => sendCivitaiKey(key), { settingKey: 'civitaiApiKey', value: key, what: 'Civitai key' });
+            return saveServiceCredential(() => sendCivitaiKey(key), { settingKey: 'civitaiApiKey', value: key, what: 'Civitai key' });
         };
+        saveCivitaiKeyBtn.onclick = saveCivitaiKeyNow;
+        addCredentialDraft(civitaiApiKeyInputEl, 'The Civitai key', 'civitaiApiKey', saveCivitaiKeyNow);
     }
 
     if (clearCivitaiKeyBtn) {
@@ -3483,14 +3895,16 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
     wireSecretToggle(togglePixivCookieVisibilityBtn, pixivCookieInputEl);
 
     if (savePixivCookieBtn && pixivCookieInputEl) {
-        savePixivCookieBtn.onclick = async () => {
+        const savePixivCookieNow = async () => {
             const cookie = (pixivCookieInputEl.value || '').trim();
             if (!cookie) {
                 showToast('Paste your PHPSESSID first', 'warning');
-                return;
+                return false;
             }
-            await saveServiceCredential(() => sendPixivCookie(cookie), { settingKey: 'pixivCookie', value: cookie, what: 'Pixiv login' });
+            return saveServiceCredential(() => sendPixivCookie(cookie), { settingKey: 'pixivCookie', value: cookie, what: 'Pixiv login' });
         };
+        savePixivCookieBtn.onclick = savePixivCookieNow;
+        addCredentialDraft(pixivCookieInputEl, 'The Pixiv login', 'pixivCookie', savePixivCookieNow);
     }
 
     if (clearPixivCookieBtn) {
@@ -3562,9 +3976,9 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
 
     wireSecretToggle(toggleDatacatJanitoraiTokenBtn, datacatJanitoraiTokenInputEl);
     if (saveDatacatJanitoraiTokenBtn && datacatJanitoraiTokenInputEl) {
-        saveDatacatJanitoraiTokenBtn.onclick = async () => {
+        const saveDatacatJanitoraiTokenNow = async () => {
             const raw = (datacatJanitoraiTokenInputEl.value || '').trim();
-            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return; }
+            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return false; }
             const original = saveDatacatJanitoraiTokenBtn.innerHTML;
             saveDatacatJanitoraiTokenBtn.disabled = true;
             saveDatacatJanitoraiTokenBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
@@ -3575,16 +3989,20 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                     updateDatacatJanitoraiStatus();
                     if (res.hasRefresh) showToast(`DataCat is now signed in to JanitorAI${res.email ? ' as ' + res.email : ''}`, 'success');
                     else showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-...-auth-token cookie for a lasting login.', 'warning', 9000);
-                } else {
-                    showToast(res?.error || 'Could not save the session', 'error');
+                    return true;
                 }
+                showToast(res?.error || 'Could not save the session', 'error');
+                return false;
             } catch (err) {
                 showToast(`Login error: ${err.message}`, 'error');
+                return false;
             } finally {
                 saveDatacatJanitoraiTokenBtn.disabled = false;
                 saveDatacatJanitoraiTokenBtn.innerHTML = original;
             }
         };
+        saveDatacatJanitoraiTokenBtn.onclick = saveDatacatJanitoraiTokenNow;
+        addCredentialDraft(datacatJanitoraiTokenInputEl, 'DataCat\'s JanitorAI login', null, saveDatacatJanitoraiTokenNow);
     }
     if (clearDatacatJanitoraiTokenBtn) {
         clearDatacatJanitoraiTokenBtn.onclick = () => {
@@ -3606,7 +4024,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
         const status = window.janitoraiSessionStatus?.() || { loggedIn: !!getSetting('janitoraiToken') };
         if (!status.loggedIn) return set('inactive', 'fa-circle', 'Not logged in');
         // Without a refresh token the session lapses in ~3h; browser sign-in always returns one.
-        if (status.hasRefresh === false) return set('active', 'fa-triangle-exclamation', `Logged in${status.email ? ' as ' + status.email : ''} (expires in ~3h, sign in again for a lasting session)`);
+        if (status.hasRefresh === false) return set('active', 'fa-triangle-exclamation', `Logged in${status.email ? ' as ' + status.email : ''} (expires in ~3h; paste the full cookie for a lasting session)`);
         set('active', 'fa-circle-check', `Logged in${status.email ? ' as ' + status.email : ''}`);
     }
     updateJanitoraiStatus();
@@ -3619,9 +4037,9 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
 
     wireSecretToggle(toggleJanitoraiTokenBtn, janitoraiTokenInputEl);
     if (saveJanitoraiTokenBtn && janitoraiTokenInputEl) {
-        saveJanitoraiTokenBtn.onclick = async () => {
+        const saveJanitoraiTokenNow = async () => {
             const raw = (janitoraiTokenInputEl.value || '').trim();
-            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return; }
+            if (!raw) { showToast('Paste your sb-...-auth-token cookie value first', 'warning'); return false; }
             const original = saveJanitoraiTokenBtn.innerHTML;
             saveJanitoraiTokenBtn.disabled = true;
             saveJanitoraiTokenBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
@@ -3641,16 +4059,20 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                     if (!res.hasRefresh) showToast('Logged in, but no refresh token was in that value; this session expires in ~3h. Copy the whole sb-...-auth-token cookie for a lasting login.', 'warning', 9000);
                     else if (inBrowser) showToast(`Signed in to JanitorAI${who}; the browser is signed in too`, 'success');
                     else showToast(`Signed in to JanitorAI${who}. Browsing works, but the browser could not be signed in, so character extraction may not. Check that the browser is running and the service is up to date.`, 'warning', 12000);
-                } else {
-                    showToast(res?.error || 'Could not save the session', 'error');
+                    return true;
                 }
+                showToast(res?.error || 'Could not save the session', 'error');
+                return false;
             } catch (err) {
                 showToast(`Login error: ${err.message}`, 'error');
+                return false;
             } finally {
                 saveJanitoraiTokenBtn.disabled = false;
                 saveJanitoraiTokenBtn.innerHTML = original;
             }
         };
+        saveJanitoraiTokenBtn.onclick = saveJanitoraiTokenNow;
+        addCredentialDraft(janitoraiTokenInputEl, 'The JanitorAI token', null, saveJanitoraiTokenNow);
     }
 
     if (clearJanitoraiTokenBtn) {
@@ -3780,7 +4202,7 @@ const EXT_CONTRIBUTION_LABELS = { 'chat.window': 'a chat window', 'chat.action':
                 ? `Running (${d.browser || 'browser'}), stops after ${d.idleStopMinutes || 10} min idle`
                 : (d.binary
                     ? 'Not started. It starts by itself when something needs it.'
-                    : 'No Chrome, Chromium or Edge found on this machine.');
+                    : (d.missing || 'No browser found on this machine.'));
             browserManagedStatusEl.innerHTML = `<i class="fa-solid fa-circle"></i> ${escapeHtml(label)}`;
             if (browserManagedStopBtn) browserManagedStopBtn.disabled = !running;
         } catch {

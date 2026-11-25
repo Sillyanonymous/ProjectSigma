@@ -135,6 +135,7 @@ function classifiedHampterError(fallback, res) {
     err.classified = !!classified;
     err.bodySnippet = (res.body || '').slice(0, 300);
     err.browserError = res.browserError || '';
+    err.browserErrorCode = res.browserErrorCode || '';
     if (classified && /waiting room/i.test(classified)) err.queueWaitMinutes = parseQueueWait(res.body);
     return err;
 }
@@ -162,11 +163,11 @@ async function hampterAttempt(path, token, signal, wire = {}) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
     // Browser first: it carries the cf_clearance cookie. browserError is kept for the fall-through message.
-    let browserError = '';
+    let browserError = '', browserErrorCode = '';
     if (hasBrowserEndpoint()) {
         let res = null;
         // the grid's abort reaches the browser leg too, the longest one; a cancel is not a failure
-        try { res = await browserFetch(path, token, undefined, { ...wire, signal }); } catch (e) { if (e?.name === 'AbortError') throw e; browserError = e?.message || 'unreachable'; res = null; }
+        try { res = await browserFetch(path, token, undefined, { ...wire, signal }); } catch (e) { if (e?.name === 'AbortError') throw e; browserError = e?.message || 'unreachable'; browserErrorCode = e?.code || ''; res = null; }
         if (res) return { ok: res.status >= 200 && res.status < 300, status: res.status, body: res.body, retryAfter: res.retryAfter || '', via: 'the browser' };
     }
 
@@ -186,9 +187,9 @@ async function hampterAttempt(path, token, signal, wire = {}) {
         if (e?.name === 'AbortError') throw e;
         response = null;
     }
-    if (!response) return { ok: false, status: 0, body: '', browserError };
+    if (!response) return { ok: false, status: 0, body: '', browserError, browserErrorCode };
     const body = await response.text().catch(() => '');
-    return { ok: response.ok, status: response.status, body, retryAfter: response.headers.get('retry-after') || '', browserError };
+    return { ok: response.ok, status: response.status, body, retryAfter: response.headers.get('retry-after') || '', browserError, browserErrorCode };
 }
 
 // ========================================

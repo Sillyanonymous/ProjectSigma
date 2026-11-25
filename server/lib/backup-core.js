@@ -428,6 +428,15 @@ export function takeBackup(db, paths) {
     });
 }
 
+/** This account's backup as a tab reads it: the one queued or running, else the last that ended. */
+export function backupJobView(db) {
+    const user = ownerOf(db);
+    return viewOf(liveJobOf(user) || _ended.get(user) || null);
+}
+
+/** Whether any account's backup is queued or running. */
+export const backupsBusy = () => !!_running || _queue.length > 0;
+
 /** Resolves once no backup is queued or running. */
 export function whenBackupsIdle() {
     if (!_running && !_queue.length) return Promise.resolve();

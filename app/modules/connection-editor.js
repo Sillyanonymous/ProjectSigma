@@ -15,8 +15,6 @@ export const PARAM_FIELDS = [
     { key: 'seed', label: 'Seed', min: 0, max: 2147483647, step: 1, hint: 'Same seed and same prompt gives the same reply, where the provider honours it.' },
 ];
 
-export const REASONING_EFFORTS = ['', 'low', 'medium', 'high'];
-
 let seq = 0;
 
 // ========================================
@@ -61,9 +59,9 @@ async function apiModels(id, draft) {
     return list.map(m => (typeof m === 'string' ? { id: m } : m)).filter(m => m?.id);
 }
 
-// a probe carries the draft's endpoint, kind, model and typed key; blank (or a pending removal) lets the stored key answer
+// a probe carries the draft's endpoint, kind, model, params and typed key; blank (or a pending removal) lets the stored key answer
 function draftOverrides(draft) {
-    return { kind: draft.kind, baseUrl: draft.baseUrl, model: draft.model, ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
+    return { kind: draft.kind, baseUrl: draft.baseUrl, model: draft.model, params: draft.params, ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
 }
 
 // ========================================
@@ -154,6 +152,29 @@ function fieldHtml(uid, label, name, value, { type = 'text', placeholder = '', h
         ${hint ? `<p class="cl-cwin-hint">${esc(hint)}</p>` : ''}
     </div>`;
 }
+
+/**
+ * The reasoning-effort field in the chat-window form, for the connection editor and the assistant's settings; mount it with CoreAPI.mountEffortPicker.
+ * @param {{ id: string, carrier: [string, string], value: string, hint: string }} f carrier is the hidden value's data attribute and its value
+ */
+export function effortFieldHtml({ id, carrier: [attr, key], value, hint }) {
+    return `<div class="cl-cwin-block" data-effort>
+        <div class="cl-cwin-field">
+            <label class="cl-cwin-field-label" for="${id}">Reasoning effort</label>
+            <select class="cl-select-fluid cl-cwin-field-control" id="${id}" data-effort-select></select>
+        </div>
+        <div class="cl-cwin-field" data-effort-row hidden>
+            <label class="cl-cwin-field-label" for="${id}-word">Custom level</label>
+            <input class="cl-cwin-input cl-cwin-field-control" id="${id}-word" type="search" data-effort-word data-escape-keeps maxlength="32"
+                autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+        </div>
+        <input type="hidden" ${attr}="${esc(key)}" data-effort-value value="${esc(value ?? '')}">
+        <p class="cl-cwin-hint">${esc(hint)}</p>
+    </div>`;
+}
+
+// a custom level goes to the host as typed, so the hint says what a refusal means
+export const EFFORT_HINT_TAIL = 'A custom level is letters, digits, _ and -, sent exactly as typed; a model that does not take it refuses the request.';
 
 function keyRowHtml(state) {
     const { p, keyMode } = state;
@@ -303,15 +324,10 @@ function editorHtml(state, kinds, uid, { back }) {
                     type: 'number', placeholder: 'provider default', hint: f.hint,
                     attrs: ` min="${f.min}" max="${f.max}" step="${f.step}"`,
                 })).join('')}
-                <div class="cl-cwin-block">
-                    <div class="cl-cwin-field">
-                        <label class="cl-cwin-field-label" for="${uid}-reasoning">Reasoning effort</label>
-                        <select class="cl-select-fluid cl-cwin-field-control" id="${uid}-reasoning" data-ce="p:reasoning">
-                            ${REASONING_EFFORTS.map(e => `<option value="${e}"${(params.reasoning?.effort || '') === e ? ' selected' : ''}>${e || 'provider default'}</option>`).join('')}
-                        </select>
-                    </div>
-                    <p class="cl-cwin-hint">Only reasoning models read this; it is dropped for the rest.</p>
-                </div>
+                ${effortFieldHtml({
+                    id: `${uid}-reasoning`, carrier: ['data-ce', 'p:reasoning'], value: params.reasoning?.effort || '',
+                    hint: `Only reasoning models read this; it is dropped for the rest. ${EFFORT_HINT_TAIL}`,
+                })}
             </div>
         </section>
         </div>
@@ -333,7 +349,7 @@ function editorHtml(state, kinds, uid, { back }) {
  * Render the editor for one stored profile into host; the host owns the list, the editor the draft, probes and writes.
  * @param {HTMLElement} host
  * @param {{ profile: object, kinds?: object[], back?: boolean, onSaved?: Function, onClosed?: Function, onDeleted?: Function, onDuplicated?: Function }} opts
- * @returns {{ collect: Function, isDirty: Function, destroy: Function, close: Function, profile: object }}
+ * @returns {{ collect: Function, isDirty: Function, save: Function, destroy: Function, close: Function, profile: object }}
  */
 export function mountConnectionEditor(host, { profile, kinds = [], back = false, onSaved = null, onClosed = null, onDeleted = null, onDuplicated = null, onReload = null } = {}) {
     const uid = `ce${++seq}`;
@@ -452,8 +468,8 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
     };
 
     const save = async () => {
-        if (state.busy) return;
-        if (state.stale) { CoreAPI.showToast('This connection changed elsewhere; reload it first', 'warning'); return; }
+        if (state.busy) { CoreAPI.showToast('The connection is still checking; save again once it answers', 'warning'); return false; }
+        if (state.stale) { CoreAPI.showToast('This connection changed elsewhere; reload it first', 'warning'); return false; }
         const patch = collect();
         // kind rides only when changed: the route checks a sent kind against loaded adapters, so an off one would fail
         if (patch.kind === state.p.kind) delete patch.kind;
@@ -465,10 +481,12 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
             CoreAPI.showToast('Connection saved', 'success');
             onSaved?.(saved);
             await close({ force: true });
+            return true;
         } catch (e) {
             console.error('[ConnectionEditor] Save failed:', e.message);
             CoreAPI.showToast(`Not saved: ${e.message}`, 'error', 8000);
             setBusy(false);
+            return false;
         }
     };
 
@@ -602,6 +620,7 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
         if (e.target === q('vision')) state.visionAuto = null;
     });
 
+    CoreAPI.mountEffortPicker(root.querySelector('[data-effort]'), { inheritLabel: 'provider default', rememberAs: `connection:${state.p.id}` });
     root.querySelectorAll('select').forEach(s => CoreAPI.initCustomSelect(s));
     renderKeyRow();
     renderModelControl();
@@ -611,6 +630,7 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
     return {
         collect,
         isDirty,
+        save,
         close,
         markChangedElsewhere,
         get profile() { return state.p; },
@@ -619,4 +639,4 @@ export function mountConnectionEditor(host, { profile, kinds = [], back = false,
     };
 }
 
-export default { mountConnectionEditor, readinessOf, endpointPlaceholder, PARAM_FIELDS, REASONING_EFFORTS };
+export default { mountConnectionEditor, readinessOf, endpointPlaceholder, PARAM_FIELDS, effortFieldHtml };

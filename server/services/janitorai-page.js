@@ -97,7 +97,7 @@ export function janitoraiNoSessionReason(state, newCookies = []) {
     if (state?.message) return `Login did not produce a session. JanitorAI said: "${state.message}".`;
     // the form holds its submit until Cloudflare's widget hands it a token, so an empty one means the sign-in never went out
     if (state?.turnstile === 'pending' && (!state.path || /^\/login\b/.test(state.path))) {
-        return 'Cloudflare\'s "Verify you are human" check on the JanitorAI sign-in form did not pass, so the sign-in was never sent. Cloudflare asks for it when the connection looks unusual, most often a VPN or proxy: switch it off and sign in again, or paste a session token below.';
+        return 'Cloudflare\'s "Verify you are human" check on the JanitorAI sign-in form did not pass, so the sign-in was never sent. Paste a session token below instead (on a phone, the usual way in). Elsewhere it is most often a VPN or proxy: switch it off and sign in again.';
     }
     if (state?.path && !/^\/login\b/.test(state.path)) {
         const added = newCookies.length ? ` Cookies it added: ${newCookies.slice(0, 8).join(', ')}.` : '';

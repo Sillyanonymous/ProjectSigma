@@ -1937,6 +1937,54 @@ export const MIGRATIONS = [
         }
         db.exec('INSERT INTO fingerprints_pending (rid, seq) SELECT rowid, 0 FROM characters');
     },
+    // 97: a lorebook named with spaces at its ends takes the trimmed name, when free or an empty placeholder's; a real book there keeps both
+    (db) => {
+        // foreign keys are off here, so no cascade: every child row moves by hand
+        const children = [['char_worlds', 'char_id'], ['chat_worlds', 'chat_id'], ['persona_worlds', 'persona_id'], ['global_worlds', null], ['world_entries', null]];
+        const holder = db.prepare('SELECT placeholder FROM worlds WHERE name = ?');
+        // book names compare without case elsewhere, so a real book under any case of the trimmed name is a clash
+        const clash = db.prepare('SELECT name FROM worlds WHERE name = ? COLLATE NOCASE AND name <> ? AND NOT (name = ? AND placeholder = 1)').pluck();
+        const entries = db.prepare('SELECT COUNT(*) FROM world_entries WHERE world_name = ?').pluck();
+        const lower = (s) => String(s).replace(/[A-Z]/g, c => c.toLowerCase());
+        let presets = null;
+        try { presets = JSON.parse(db.prepare("SELECT value FROM app_store WHERE key = 'filter-presets'").pluck().get() ?? 'null'); } catch { presets = null; }
+        let presetsMoved = false;
+        const kept = [];
+        // JS trim, as the link writers trim
+        for (const spaced of db.prepare('SELECT name FROM worlds').pluck().all().filter(n => n !== n.trim()).sort()) {
+            const trimmed = spaced.trim();
+            const held = trimmed ? holder.get(trimmed) : null;
+            const other = trimmed ? clash.get(trimmed, spaced, trimmed) : null;
+            if (!trimmed || other || entries.get(trimmed) > 0) { kept.push([spaced, other || trimmed]); continue; }
+            // the placeholder's row goes, its links stay to land on the book; a carrier linked to both keeps the placeholder's place
+            db.prepare('DELETE FROM world_sources WHERE world_name = ?').run(trimmed);
+            if (held) db.prepare('DELETE FROM worlds WHERE name = ?').run(trimmed);
+            for (const [table, key] of children) {
+                if (key) db.prepare(`DELETE FROM ${table} WHERE world_name = ? AND ${key} IN (SELECT ${key} FROM ${table} WHERE world_name = ?)`).run(spaced, trimmed);
+                else if (table === 'global_worlds') db.prepare('DELETE FROM global_worlds WHERE world_name = ? AND EXISTS (SELECT 1 FROM global_worlds WHERE world_name = ?)').run(spaced, trimmed);
+                db.prepare(`UPDATE ${table} SET world_name = ? WHERE world_name = ?`).run(trimmed, spaced);
+            }
+            db.prepare('UPDATE world_sources SET world_name = ? WHERE world_name = ?').run(trimmed, spaced);
+            db.prepare('UPDATE worlds SET name = ? WHERE name = ?').run(trimmed, spaced);
+            // a saved filter naming the book follows it, NOCASE as the engine compares, as a rename's does
+            for (const list of ['char', 'chat']) {
+                for (const preset of Array.isArray(presets?.[list]) ? presets[list] : []) {
+                    for (const rule of Array.isArray(preset?.rules) ? preset.rules : []) {
+                        if (rule && (rule.field === 'linkedLorebook' || rule.field === 'chatLorebook') && typeof rule.value === 'string' && lower(rule.value) === lower(spaced)) {
+                            rule.value = trimmed;
+                            presetsMoved = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (presetsMoved) db.prepare("UPDATE app_store SET value = ?, updated_at = ? WHERE key = 'filter-presets'").run(JSON.stringify(presets), Date.now());
+        for (const [spaced, taken] of kept) {
+            console.warn(taken
+                ? `[db] lorebook "${spaced}" keeps the spaces around its name: a book named "${taken}" is already here`
+                : `[db] lorebook "${spaced}" keeps its name: it is only spaces`);
+        }
+    },
 ];
 
 // the two per-character chat counters, one expression for the triggers, the backfill and the invariant; last_chat_at is the newest sort_at

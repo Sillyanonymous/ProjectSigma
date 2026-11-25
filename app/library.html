@@ -366,9 +366,9 @@
                             <button id="chatConvBack" class="chat-conv-back" title="Back to chats" aria-label="Back to chats">
                                 <i class="fa-solid fa-arrow-left"></i>
                             </button>
-                            <img id="chatConvAvatar" class="chat-conv-avatar" alt="">
+                            <img id="chatConvAvatar" class="chat-conv-avatar" alt="" data-own-gesture>
                             <div class="chat-conv-heading">
-                                <div id="chatConvTitle" class="chat-conv-title" role="button" tabindex="0" title="Open this character"></div>
+                                <div id="chatConvTitle" class="chat-conv-title" role="button" tabindex="0" title="Open this character" data-own-gesture></div>
                                 <div id="chatConvSub" class="chat-conv-sub"></div>
                             </div>
                             <div class="chat-conv-header-right">
@@ -1928,7 +1928,7 @@ https://jannyai.com/characters/uuid_slug
                                         </select>
                                     </div>
                                     <div class="settings-row" id="browserManagedRow">
-                                        <span class="settings-hint">A hidden browser starts on the machine running Project Σ, the first time something actually needs it, and shuts itself down after 10 minutes idle. Whether it gets past Cloudflare depends on the machine, so press <strong>Test</strong> to find out instead of assuming: a headless server or single-board computer can work (measured on an ARM board, software rendering included). On a shared server only admins can use it; other accounts point the endpoint setting at a browser they run themselves.</span>
+                                        <span class="settings-hint">A hidden browser starts on the machine running Project Σ, the first time something actually needs it, and shuts itself down after 10 minutes idle. Whether it gets past Cloudflare depends on the machine, so press <strong>Test</strong> to find out instead of assuming: a headless server or single-board computer can work (measured on an ARM board and an Android phone, software rendering included). On an Android phone, see <a href="#" data-guide-link="getting-started/janitorai-and-jannyai-on-an-android-phone">JanitorAI and JannyAI on an Android phone</a>. On a shared server only admins can use it; other accounts point the endpoint setting at a browser they run themselves.</span>
                                     </div>
                                     <div class="settings-row browser-managed-status-row" id="browserManagedStatusRow">
                                         <span id="browserManagedStatus" class="settings-status-badge inactive"><i class="fa-solid fa-circle"></i> Not started</span>
@@ -1936,7 +1936,7 @@ https://jannyai.com/characters/uuid_slug
                                         <button id="browserManagedStopBtn" class="settings-action-btn danger-hover">Stop</button>
                                     </div>
                                     <div class="settings-row" id="browserEndpointHintRow">
-                                        <span class="settings-hint">Point this at any Chrome DevTools endpoint and Project Σ drives it. Useful when Project Σ runs somewhere without a GPU, since the built-in browser needs one, and the way an account that is not an admin uses a browser on a shared server. On an ordinary desktop, start Chrome with <code>--remote-debugging-port=9222</code> and paste that endpoint here.</span>
+                                        <span class="settings-hint">Point this at any Chrome DevTools endpoint and Project Σ drives it. Useful when the built-in browser cannot get past Cloudflare on the machine running Project Σ, and the way an account that is not an admin uses a browser on a shared server. On an ordinary desktop, start Chrome with <code>--remote-debugging-port=9222</code> and paste that endpoint here.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsBrowserEndpoint">Endpoint:</label>
@@ -2160,7 +2160,7 @@ https://jannyai.com/characters/uuid_slug
                                     </div>
                                     <div class="provider-link-divider"><span>or use a session token</span></div>
                                     <div class="settings-row">
-                                        <span class="settings-hint">Use this if you sign in to JanitorAI with <strong>Google, Discord, X or Apple</strong> (those accounts have no password to give here), or if the sign-in above keeps failing. Log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the cookie whose name starts with <strong>sb-</strong> and ends in <strong>-auth-token</strong> (today <strong>sb-mcmzxtzommpnxkynddbo-auth-token</strong>). If you see it split into <strong>.0</strong> and <strong>.1</strong>, paste their values joined in order. The session refreshes itself afterwards, the same as signing in above.</span>
+                                        <span class="settings-hint">Use this if you sign in to JanitorAI with <strong>Google, Discord, X or Apple</strong> (those accounts have no password to give here), or if the sign-in above keeps failing. Log in at <strong>janitorai.com</strong>, open DevTools (F12) &rarr; <strong>Application &rarr; Cookies &rarr; janitorai.com</strong>, and copy the value of the cookie whose name starts with <strong>sb-</strong> and ends in <strong>-auth-token</strong> (today <strong>sb-mcmzxtzommpnxkynddbo-auth-token</strong>). If you see it split into <strong>.0</strong> and <strong>.1</strong>, paste their values joined in order. The session refreshes itself afterwards, the same as signing in above. On a phone, see <a href="#" data-guide-link="getting-started/janitorai-and-jannyai-on-an-android-phone">JanitorAI and JannyAI on an Android phone</a>.</span>
                                     </div>
                                     <div class="settings-row">
                                         <label for="settingsJanitoraiToken">Token:</label>
@@ -2366,7 +2366,7 @@ https://jannyai.com/characters/uuid_slug
                                         <span class="settings-hint">Force DataCat to re-extract character data from JanitorAI before checking for updates. Slower, but ensures comparisons use fresh data instead of a stale cache.</span>
                                     </div>
                                     <div class="settings-row">
-                                        <span class="settings-hint"><strong>The Hampter sorts are Cloudflare-gated.</strong> Latest, Trending, Trending 24h, Popular and Relevance are served by JanitorAI behind Cloudflare and are no longer reliably reachable here. Every other DataCat sort, and its MeiliSearch sorts, work without any setup. <a href="#" id="hampterGuideLink">More in the user guide.</a></span>
+                                        <span class="settings-hint"><strong>The Hampter sorts are Cloudflare-gated.</strong> Latest, Trending, Trending 24h, Popular and Relevance are served by JanitorAI behind Cloudflare and are no longer reliably reachable here. Every other DataCat sort, and its MeiliSearch sorts, work without any setup. <a href="#" data-guide-link="online/datacat">More in the user guide.</a></span>
                                     </div>
                                 </div>
                                 <div class="settings-group">
@@ -2897,8 +2897,8 @@ https://jannyai.com/characters/uuid_slug
                                                     </div>
                                                     <button type="button" class="cl-btn cl-btn-primary" id="migRunBtn" disabled><i class="fa-solid fa-play"></i> Run the Migration</button>
                                                 </div>
-                                                <div class="mig-log" id="migLog" hidden></div>
                                                 <div class="mig-result" id="migResult"></div>
+                                                <div class="mig-out" id="migRunOut" hidden></div>
                                             </div>
                                         </div>
                                     </li>
@@ -2910,11 +2910,12 @@ https://jannyai.com/characters/uuid_slug
                                                 <div class="settings-band is-danger" id="migFinBand">
                                                     <i class="fa-solid fa-flag-checkered settings-band-icon"></i>
                                                     <div class="settings-band-text">
-                                                        <span class="settings-band-when">One last verify, then the SillyTavern-era identity records are purged.</span>
+                                                        <span class="settings-band-when">One last check, then the SillyTavern-era identity records are purged.</span>
                                                         <span class="settings-band-sub">Afterwards the migration cannot be re-run into this library without duplicating everything.</span>
                                                     </div>
                                                     <button type="button" class="cl-btn cl-btn-danger" id="migFinalizeBtn" disabled><i class="fa-solid fa-flag-checkered"></i> Finalize</button>
                                                 </div>
+                                                <div class="mig-out" id="migFinOut" hidden></div>
                                             </div>
                                         </div>
                                     </li>
@@ -3014,6 +3015,25 @@ https://jannyai.com/characters/uuid_slug
                             <div class="settings-group-title"><i class="fa-solid fa-info-circle"></i> Version Info</div>
                             <div class="settings-row">
                                 <span class="settings-hint u-mono">Project Σ <span id="clAppVersion">(version unavailable)</span></span>
+                            </div>
+                        </div>
+
+                        <div class="settings-group" id="appUpdatesGroup" hidden>
+                            <div class="settings-group-title"><i class="fa-solid fa-circle-arrow-up"></i> Updates</div>
+                            <div class="settings-band" id="appUpdatesBand">
+                                <i class="fa-solid fa-cloud-arrow-down settings-band-icon" id="appUpdatesIcon"></i>
+                                <div class="settings-band-text">
+                                    <span class="settings-band-when" id="appUpdatesWhen">Not checked yet</span>
+                                    <span class="settings-band-sub" id="appUpdatesSub"></span>
+                                </div>
+                                <button type="button" class="cl-btn cl-btn-primary" id="appUpdateActionBtn" hidden></button>
+                                <button type="button" class="cl-btn cl-btn-primary" id="appCheckUpdatesBtn"><i class="fa-solid fa-arrows-rotate"></i> Check Now</button>
+                            </div>
+                            <div class="settings-row">
+                                <label>
+                                    <input type="checkbox" class="cl-switch-input" id="settingsNotifyAppUpdates"><span class="cl-switch" aria-hidden="true"></span> Tell me when Project Σ has an update
+                                </label>
+                                <span class="settings-hint">Once a day while the app is open, GitHub is asked whether a newer version is out, and what it finds shows in the notifications. Nothing is updated until you choose Update Now.</span>
                             </div>
                         </div>
 

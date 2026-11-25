@@ -1779,23 +1779,59 @@ html.cl-mobile .settings-search-bar .glass-input { font-size: var(--mobile-input
 html.cl-mobile .settings-input-group {
     flex-wrap: wrap;
 }
+/* a field takes the row and the full tier; a button of its own wraps under it */
 html.cl-mobile .settings-input-group input,
 html.cl-mobile .settings-input-group textarea {
-    flex-basis: 100% !important;
+    flex-basis: 100%;
     font-size: var(--mobile-input-size) !important;
 }
-html.cl-mobile .settings-verify-btn {
+html.cl-mobile .settings-input-group :is(input:not([type="color"], [type="range"], [type="checkbox"], [type="radio"]), textarea) {
+    min-height: var(--touch-target-min);
+}
+/* a one-line field keeps its icon button (eye, Test, a tag's +) beside it at its height; a text box keeps the row */
+html.cl-mobile .settings-input-group:has(> .glass-btn.icon-only) > input {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+/* the narrower field ends a long hint on an ellipsis, never mid-letter */
+html.cl-mobile .settings-input-group:has(> .glass-btn.icon-only) > input:not(:focus) {
+    text-overflow: ellipsis;
+}
+/* a tag well's field row fills the well, so its + ends the line */
+html.cl-mobile .provider-exclude-tags-container > .settings-input-group {
+    flex: 1 1 100%;
+}
+html.cl-mobile .settings-verify-btn,
+html.cl-mobile .settings-input-group > .glass-btn.icon-only {
     min-width: var(--touch-target-min) !important;
     min-height: var(--touch-target-min) !important;
+}
+/* the two score sliders take a full-tier hit area, as the theme editor's do; the native track stays centred in it */
+html.cl-mobile .settings-slider-group input[type="range"] {
+    min-height: var(--touch-target-min);
+    touch-action: manipulation;
+}
+html.cl-mobile .color-reset-btn {
+    min-width: var(--touch-target-slim);
+    min-height: var(--touch-target-slim);
+    touch-action: manipulation;
 }
 
 /* Provider exclude tags */
 html.cl-mobile .provider-exclude-tags-input {
     font-size: var(--mobile-input-size) !important;
+    min-height: var(--touch-target-min);
 }
 html.cl-mobile .provider-exclude-tag-remove {
+    position: relative;
     min-width: 28px;
     min-height: 28px;
+}
+/* the mark stays 28px so the pill stays slim; its tap area reaches the slim tier */
+html.cl-mobile .provider-exclude-tag-remove::before {
+    content: '';
+    position: absolute;
+    inset: calc((28px - var(--touch-target-slim)) / 2);
 }
 
 /* --- Linked-lorebook card (edit tab) --- */
@@ -1863,12 +1899,6 @@ html.cl-mobile .botbooru-weight-row .glass-btn.icon-only {
     min-height: 36px;
     font-size: var(--font-sm);
 }
-/* Keep the search input and + button on one line instead of stretching the input full-width. */
-html.cl-mobile .botbooru-suggest-anchor .provider-exclude-tags-input {
-    flex: 1 1 auto !important;
-    min-width: 0;
-}
-
 /* Platform-specific settings visibility */
 html.cl-mobile .settings-row[data-platform="desktop"] { display: none !important; }
 

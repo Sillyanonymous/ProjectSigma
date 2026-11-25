@@ -580,7 +580,7 @@ function renderWorldList() {
         html += `
             <div class="lb-newbook-row">
                 <i class="fa-solid fa-book"></i>
-                <input type="search" id="lbNewNameInput" class="lb-newbook-input" placeholder="Lorebook name..." autocomplete="one-time-code">
+                <input type="search" id="lbNewNameInput" class="lb-newbook-input" placeholder="Lorebook name..." autocomplete="one-time-code" data-escape-own>
             </div>`;
     }
 
@@ -900,7 +900,7 @@ function renderNoEntries(total) {
 function renderBookNote() {
     if (editingNote) {
         return `<div class="lb-book-note is-editing">
-            <textarea id="lbBookNoteInput" class="lb-book-note-input" rows="2"
+            <textarea id="lbBookNoteInput" class="lb-book-note-input" rows="2" data-escape-own
                 placeholder="Notes about this lorebook (saved inside the book, travels with exports)">\n${esc(String(workingWorld.description || ''))}</textarea>
         </div>`;
     }
@@ -1536,7 +1536,7 @@ function startRename() {
     const titleEl = document.getElementById('lbWorldTitle');
     if (!titleEl || titleEl.querySelector('input')) return;
     const current = currentWorld;
-    titleEl.innerHTML = `<input type="search" class="lb-rename-input" id="lbRenameInput" value="${esc(current)}" autocomplete="one-time-code">`;
+    titleEl.innerHTML = `<input type="search" class="lb-rename-input" id="lbRenameInput" value="${esc(current)}" autocomplete="one-time-code" data-escape-own>`;
     const input = document.getElementById('lbRenameInput');
     input?.focus();
     input?.select();

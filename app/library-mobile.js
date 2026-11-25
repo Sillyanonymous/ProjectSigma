@@ -1286,6 +1286,14 @@ window.registerOverlay = window.registerOverlay || function(cfg) {
             ['.custom-select-menu:not(.hidden)', el => el.classList.add('hidden')],
             closeSheetOverDialog,
 
+            // Tier 1.45 - an inline edit takes the back as its Escape, so it cancels instead of saving on the blur a close makes
+            () => {
+                const field = window.fieldOwningEscape?.(document.activeElement);
+                if (!field?.isConnected || !field.getClientRects().length) return false;
+                field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+                return true;
+            },
+
             // When char details is stacked above another modal, unwind its layers first
             () => {
                 if (!document.body.classList.contains('char-modal-above')) return false;

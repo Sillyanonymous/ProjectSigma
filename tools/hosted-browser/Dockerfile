@@ -2,8 +2,8 @@
 # on another machine to drive (Settings > Online > Hosted Browser, "Use my own browser endpoint").
 #
 # Debian's chromium is linked against system ffmpeg, so it carries H.264 and AAC. Playwright's
-# Linux arm64 Chromium is built ffmpeg_branding="Chromium" and has neither, which fails the codecs
-# check. run-browser.mjs needs node 22 for its built-in WebSocket.
+# Linux arm64 Chromium is built ffmpeg_branding="Chromium" and has neither, which the codecs row
+# warns about. run-browser.mjs needs node 22 for its built-in WebSocket.
 FROM node:22-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive

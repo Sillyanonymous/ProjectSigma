@@ -58,8 +58,12 @@ export function importCharacterPng(db, paths, pngPath, { excludeTags = [], image
     return result;
 }
 
-/** Parse ST chat JSONL folders into rows, each folder resolved to a character by its avatar_file alias; re-runs upsert by (char, name). */
-export function importChatsDir(db, chatsDir, summary, { allowDirs = null } = {}) {
+/**
+ * Parse ST chat JSONL folders into rows, each folder resolved to a character by its avatar_file alias; re-runs upsert by (char, name).
+ * @param {(name: string) => string} [opts.worldName] the stored name of a book a header's world_info names, when the import renamed one
+ * @param {() => void} [opts.onDir] heard after each folder in scope
+ */
+export function importChatsDir(db, chatsDir, summary, { allowDirs = null, worldName = null, onDir = null } = {}) {
     if (!fs.existsSync(chatsDir)) return;
     const byAvatar = db.prepare("SELECT char_id FROM char_aliases WHERE kind = 'avatar_file' AND value = ?");
     for (const dirent of fs.readdirSync(chatsDir, { withFileTypes: true })) {
@@ -68,7 +72,7 @@ export function importChatsDir(db, chatsDir, summary, { allowDirs = null } = {})
         // folder is out of scope, not unmatched
         if (allowDirs && !allowDirs.has(dirent.name)) continue;
         const charRow = byAvatar.get(`${dirent.name}.png`);
-        if (!charRow) { summary.chatsUnmatched++; continue; }
+        if (!charRow) { summary.chatsUnmatched++; onDir?.(); continue; }
         const dirPath = path.join(chatsDir, dirent.name);
         for (const file of fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.jsonl'))) {
             const filePath = path.join(dirPath, file);
@@ -79,6 +83,9 @@ export function importChatsDir(db, chatsDir, summary, { allowDirs = null } = {})
                 if (dropped) summary.chatLinesDropped = (summary.chatLinesDropped || 0) + dropped;
                 // whole ms: mtimeMs is fractional, and the stamp is a sort key that rides the list cursor
                 if (!parseStDate(header.create_date)) header.create_date = Math.round(fs.statSync(filePath).mtimeMs);
+                if (worldName && typeof header.chat_metadata?.world_info === 'string') {
+                    header.chat_metadata = { ...header.chat_metadata, world_info: worldName(header.chat_metadata.world_info) };
+                }
                 // ST expands a fresh chat's greeting as it shows; a stored greeting here is expanded in the write that stores it
                 storeSuppliedChat(db, {
                     charId: charRow.char_id,
@@ -92,6 +99,7 @@ export function importChatsDir(db, chatsDir, summary, { allowDirs = null } = {})
                 summary.errors.push({ file: `${dirent.name}/${file}`, error: err.message });
             }
         }
+        onDir?.();
     }
 }
 

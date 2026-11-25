@@ -28,7 +28,7 @@ const PROVIDER_MANIFEST = {
         hosts: ['janitorai.com'],
         icon: 'fa-solid fa-broom',
         iconUrl: 'https://ella.janitorai.com/favicon.ico',
-        enableWarning: 'JanitorAI only answers real browsers: Cloudflare challenges everything else. Project Σ runs one for you on whatever machine it is installed on. Use the Check button under Settings > Online > JanitorAI to see whether this machine gets through; if it does not, point the Hosted Browser setting at a browser running on another machine. Sign in there too, to get past the first page of results.',
+        enableWarning: 'JanitorAI only answers real browsers: Cloudflare challenges everything else. Project Σ runs one for you on whatever machine it is installed on (on an Android phone, once Chromium is installed in Termux). Use the Check button under Settings > Online > JanitorAI to see whether this machine gets through; if it does not, point the Hosted Browser setting at a browser running on another machine. Sign in there too, to get past the first page of results.',
         avatarTap: { imgId: 'janitoraiCharAvatar' },
     },
     jannyai: {

@@ -17,6 +17,7 @@ import { setActivePersona, writePersona, deletePersona, pronounsHtml, applyProno
 import { defineCommand, runCommand, hasCommand } from './ext-registry.js';
 import { registerFeedPatcher, registerShellFeedPatcher, startFeed, releaseFeed, reconnectNow } from './feed.js';
 import Keymap from './keymap.js';
+import { progressBlockHtml, paintProgress, timeLeft } from './step-progress.js';
 
 // The one connection editor, handed to Settings > AI (settings-modal.js is a classic script)
 // at module evaluation; the in-chat panel imports it directly.
@@ -44,6 +45,9 @@ Keymap.install();
 
 // the change feed for library.js (it starts it and registers the shell's patchers, ranked ahead of every module's); modules import it
 window.ClFeed = { registerPatcher: registerShellFeedPatcher, start: startFeed, release: releaseFeed, reconnectNow };
+
+// the step list and bar for Settings' migration wizard (settings-modal.js is a classic script); the update dialog imports them
+window.StepProgress = { blockHtml: progressBlockHtml, paint: paintProgress, timeLeft };
 
 
 // ========================================
@@ -345,6 +349,8 @@ async function initModuleSystem() {
     loadModuleCSS('./connection-editor.css');
     // the pronouns block is drawn by Settings > Chat as well as by the chat's Personas window
     loadModuleCSS('./personas.css');
+    // the step list is drawn by Settings' migration wizard as well as by the app update's dialog
+    loadModuleCSS('./step-progress.css');
 
     if (SLICE_ENABLED.has('recommender')) try {
         loadModuleCSS('./recommender.css');
@@ -587,6 +593,33 @@ async function initModuleSystem() {
         }));
     } catch (err) {
         console.error('[ModuleLoader] Extension updates failed:', err);
+    }
+    // a newer Project Σ for an admin who switched on hearing about it, and a Reload once the server runs another version
+    try {
+        loadModuleCSS('./app-updates.css');
+        const appUpdates = await import('./app-updates.js');
+        void CoreAPI.settingsReady().then(() => appUpdates.startAppUpdates({
+            apiRequest: CoreAPI.apiRequest,
+            readAnswer: CoreAPI.readAnswer,
+            getSetting: CoreAPI.getSetting,
+            setSetting: CoreAPI.setSetting,
+            flushSettings: CoreAPI.flushSettings,
+            escapeHtml: CoreAPI.escapeHtml,
+            showToast: CoreAPI.showToast,
+            showConfirm: CoreAPI.showConfirm,
+            registerNotificationSection: CoreAPI.registerNotificationSection,
+            refreshNotificationsUI: CoreAPI.refreshNotificationsUI,
+            formatBytes: CoreAPI.formatBytes,
+            mountDialogSizing: CoreAPI.mountDialogSizing,
+            registerOverlay: (cfg) => window.registerOverlay?.(cfg),
+            unregisterOverlay: (id) => window.unregisterOverlay?.(id),
+            openUrl: (url) => window.open(url, '_blank', 'noopener'),
+            reload: () => window.location.reload(),
+            // Settings' Info band shows the same answer the bell does
+            onChange: (detail) => document.dispatchEvent(new CustomEvent('cl-app-update-changed', { detail })),
+        }));
+    } catch (err) {
+        console.error('[ModuleLoader] App updates failed:', err);
     }
 
     window.debugLog?.('[ModuleLoader] Module system ready');

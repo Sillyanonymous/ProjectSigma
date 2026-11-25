@@ -49,6 +49,8 @@ function resolveDraft(db, profileId, draft) {
     if (typeof draft.baseUrl === 'string') profile.base_url = draft.baseUrl.trim();
     if (typeof draft.apiKey === 'string' && draft.apiKey) profile.api_key = draft.apiKey;
     if (typeof draft.model === 'string') profile.model = draft.model.trim();
+    // the draft's samplers, its effort among them, checked as a save checks them
+    if (draft.params && typeof draft.params === 'object') profile.params = JSON.stringify(normalizeParams({ params: draft.params }));
     if (adapter.requiresBaseUrl && !profile.base_url) throw badRequest('the draft has no base URL');
     return { profile, adapter };
 }

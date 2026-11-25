@@ -176,6 +176,10 @@
 
 .ce-actions-gap { flex: 0 0 auto; margin-left: auto; }
 
+/* a converted select fills its column as the field beside it does, on every host */
+.ce-editor .custom-select-container:where(:not(.hidden)) { display: flex; min-width: 0; }
+.ce-editor .custom-select-trigger { flex: 1; width: 100%; min-width: 0; justify-content: space-between; }
+
 /* ---- In-chat host: the ~390px dock stacks the form like a phone (55% clips an endpoint); toggles keep their shape ---- */
 .cl-cwin .ce-editor .cl-cwin-field:not(.cl-cwin-toggle) {
     display: grid;

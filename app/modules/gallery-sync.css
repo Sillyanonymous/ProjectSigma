@@ -222,6 +222,32 @@
     outline-offset: -2px;
 }
 
+/* a row's way to read more, under its line: never one of the section's answers, which the footer strip holds */
+.notif-row-link {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: var(--space-2xs);
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: var(--font-sm);
+    font-weight: 500;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.notif-row-link i { font-size: var(--font-2xs); }
+.notif-row-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.notif-row-link:focus-visible {
+    outline: 2px solid rgba(var(--accent-rgb), 0.5);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
 .notif-row-btn {
     background: none;
     border: none;
@@ -340,5 +366,9 @@ html.cl-mobile .notif-row-btn {
 }
 
 html.cl-mobile .notif-choice {
+    min-height: var(--touch-target-slim);
+}
+
+html.cl-mobile .notif-row-link {
     min-height: var(--touch-target-slim);
 }

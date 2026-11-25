@@ -26,6 +26,8 @@ import {
  */
 async function fetchHtmlPage(url, { signal = null } = {}) {
     const errors = [];
+    // a browser never installed, in the service's words, so the preview can say how to add one
+    let notInstalled = '';
 
     if (hasBrowserEndpoint()) {
         try {
@@ -42,6 +44,7 @@ async function fetchHtmlPage(url, { signal = null } = {}) {
         } catch (e) {
             // the reader closed the card: nothing failed, and the next leg has nobody to answer
             if (e?.name === 'AbortError') throw e;
+            if (e?.code === 'NO_BROWSER') notInstalled = e.message;
             errors.push(`browser: ${e.message}`);
         }
     } else {
@@ -60,7 +63,9 @@ async function fetchHtmlPage(url, { signal = null } = {}) {
 
     console.warn(`[JannyProvider] The page could not be fetched for ${url}: ${errors.join(' | ')}`);
     // user copy lives at the browse surface; the throw keeps every leg's reason, the browser's first
-    throw new Error(`The page could not be fetched: ${errors.join(' | ')}`);
+    const err = new Error(`The page could not be fetched: ${errors.join(' | ')}`);
+    if (notInstalled) Object.assign(err, { browserError: notInstalled, browserErrorCode: 'NO_BROWSER' });
+    throw err;
 }
 
 function isValidCharacterHtml(html) {
@@ -279,12 +284,17 @@ class JannyProvider extends ProviderBase {
 
     // Remote Data
 
+    // the preview's read: the details, or a failure that keeps its reason (fetchMetadata answers null for both)
+    async fetchDetails(fullPath, opts = {}) {
+        const { id: charId, slug } = jannyPathParts(fullPath);
+        const data = await fetchCharacterDetails(charId, slug, opts);
+        return data?.character || null;
+    }
+
     async fetchMetadata(fullPath, opts = {}) {
         if (!fullPath) return null;
         try {
-            const { id: charId, slug } = jannyPathParts(fullPath);
-            const data = await fetchCharacterDetails(charId, slug, opts);
-            return data?.character || null;
+            return await this.fetchDetails(fullPath, opts);
         } catch (e) {
             if (e?.name !== 'AbortError') console.error('[JannyProvider] fetchMetadata failed:', fullPath, e);
             return null;
